@@ -27,6 +27,10 @@ python -m pip install -e .
 
 本版核心只使用 Python 標準函式庫，不需要額外安裝 `requests` 或 `beautifulsoup4`。
 
+## 授權
+
+MIT License. See [LICENSE](LICENSE).
+
 ## 使用
 
 ```powershell

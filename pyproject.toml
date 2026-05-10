@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Taiwan equity fundamental analysis CLI and HTML report generator."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
 dependencies = []
 
 [project.scripts]
