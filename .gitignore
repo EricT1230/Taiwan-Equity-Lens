@@ -13,4 +13,5 @@ comparison.html
 comparison.json
 batch_summary.json
 valuation.csv
+!examples/valuation.csv
 *.egg-info/

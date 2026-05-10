@@ -1,0 +1,2 @@
+stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high,eps_growth_rate,price_date,price_source,warning
+2330,1000,160,12,60,15,20,25,10,,manual,
