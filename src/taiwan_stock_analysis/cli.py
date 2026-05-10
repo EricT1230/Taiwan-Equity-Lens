@@ -1,0 +1,285 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+from taiwan_stock_analysis.comparison import compare_results
+from taiwan_stock_analysis.dashboard import write_dashboard_index
+from taiwan_stock_analysis.diagnostics import build_diagnostics
+from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
+from taiwan_stock_analysis.insights import build_insights
+from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
+from taiwan_stock_analysis.metrics import calculate_metrics
+from taiwan_stock_analysis.models import AnalysisResult
+from taiwan_stock_analysis.parser import parse_financial_table
+from taiwan_stock_analysis.price_data import load_price_data
+from taiwan_stock_analysis.report_compare import render_comparison_html
+from taiwan_stock_analysis.report import render_html_report
+from taiwan_stock_analysis.scoring import build_scorecard
+from taiwan_stock_analysis.valuation import build_valuation
+from taiwan_stock_analysis.verification import build_verification
+from taiwan_stock_analysis.watchlist import load_watchlist
+
+
+REPORT_FILES = {
+    "income_statement": ("IS_YEAR", "IS_YEAR.html"),
+    "balance_sheet": ("BS_YEAR", "BS_YEAR.html"),
+    "cash_flow": ("CF_YEAR", "CF_YEAR.html"),
+}
+
+
+def _read_reports(stock_id: str, fixture_dir: Path | None) -> dict[str, str]:
+    if fixture_dir is not None:
+        return {
+            name: (fixture_dir / file_name).read_text(encoding="utf-8")
+            for name, (_, file_name) in REPORT_FILES.items()
+        }
+
+    client = GoodinfoClient()
+    return {
+        name: client.fetch_report(stock_id, report_category)
+        for name, (report_category, _) in REPORT_FILES.items()
+    }
+
+
+def analyze(
+    stock_id: str,
+    fixture_dir: Path | None = None,
+    price_inputs: dict[str, float | None] | None = None,
+) -> AnalysisResult:
+    html_reports = _read_reports(stock_id, fixture_dir)
+    income_statement, years = parse_financial_table(html_reports["income_statement"])
+    balance_sheet, _ = parse_financial_table(html_reports["balance_sheet"])
+    cash_flow, _ = parse_financial_table(html_reports["cash_flow"])
+    years = years[:3]
+    metrics_by_year = calculate_metrics(income_statement, balance_sheet, cash_flow, years)
+    insights = build_insights(metrics_by_year, years)
+    scorecard = build_scorecard(metrics_by_year, years)
+    valuation = build_valuation(
+        stock_id=stock_id,
+        metrics_by_year=metrics_by_year,
+        years=years,
+        price_inputs=price_inputs,
+    )
+    diagnostics = build_diagnostics(
+        years=years,
+        income_statement=income_statement,
+        balance_sheet=balance_sheet,
+        cash_flow=cash_flow,
+        metrics_by_year=metrics_by_year,
+    )
+
+    return AnalysisResult(
+        stock_id=stock_id,
+        years=years,
+        income_statement=income_statement,
+        balance_sheet=balance_sheet,
+        cash_flow=cash_flow,
+        metrics_by_year=metrics_by_year,
+        insights=insights,
+        scorecard=scorecard,
+        valuation=valuation,
+        diagnostics=diagnostics,
+        metadata=build_metadata(stock_id, years),
+        verification=build_verification(metrics_by_year, years),
+    )
+
+
+def run(
+    stock_id: str,
+    output_dir: Path,
+    company_name: str | None = None,
+    fixture_dir: Path | None = None,
+    valuation_csv: Path | None = None,
+) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    price_inputs = None
+    if valuation_csv is not None:
+        price_inputs = load_price_data(valuation_csv).get(stock_id)
+    result = analyze(stock_id, fixture_dir=fixture_dir, price_inputs=price_inputs)
+
+    json_path = output_dir / f"{stock_id}_raw_data.json"
+    html_path = output_dir / f"{stock_id}_analysis.html"
+    json_path.write_text(json.dumps(asdict(result), ensure_ascii=False, indent=2), encoding="utf-8")
+    html_path.write_text(render_html_report(result, company_name=company_name), encoding="utf-8")
+    return json_path, html_path
+
+
+def _fixture_for_stock(fixture_root: Path | None, stock_id: str) -> Path | None:
+    if fixture_root is None:
+        return None
+    stock_fixture = fixture_root / stock_id
+    if stock_fixture.exists():
+        return stock_fixture
+    return fixture_root
+
+
+def run_compare(
+    stock_ids: list[str],
+    output_dir: Path,
+    fixture_root: Path | None = None,
+) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    results = [
+        analyze(stock_id, fixture_dir=_fixture_for_stock(fixture_root, stock_id))
+        for stock_id in stock_ids
+    ]
+    comparison = compare_results(results)
+    json_path = output_dir / "comparison.json"
+    html_path = output_dir / "comparison.html"
+    json_path.write_text(json.dumps(comparison, ensure_ascii=False, indent=2), encoding="utf-8")
+    html_path.write_text(render_comparison_html(comparison), encoding="utf-8")
+    return json_path, html_path
+
+
+def run_batch(
+    watchlist_path: Path,
+    output_dir: Path,
+    fixture_root: Path | None = None,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = load_watchlist(watchlist_path)
+    summary: dict[str, list[dict[str, object]]] = {"results": []}
+
+    for row in rows:
+        stock_id = row["stock_id"]
+        try:
+            json_path, html_path = run(
+                stock_id=stock_id,
+                company_name=row.get("company_name") or None,
+                output_dir=output_dir,
+                fixture_dir=_fixture_for_stock(fixture_root, stock_id),
+            )
+        except Exception as exc:
+            summary["results"].append(
+                {
+                    "stock_id": stock_id,
+                    "company_name": row.get("company_name", ""),
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        summary["results"].append(
+            {
+                "stock_id": stock_id,
+                "company_name": row.get("company_name", ""),
+                "status": "ok",
+                "warning_count": _diagnostic_warning_count(json_path),
+                "json_path": str(json_path),
+                "html_path": str(html_path),
+            }
+        )
+
+    summary_path = output_dir / "batch_summary.json"
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary_path
+
+
+def _diagnostic_warning_count(json_path: Path) -> int:
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    diagnostics = payload.get("diagnostics", {})
+    issue_count = diagnostics.get("issue_count", 0) if isinstance(diagnostics, dict) else 0
+    return int(issue_count)
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate one Taiwan stock financial analysis report.")
+    parser.add_argument("stock_id", help="Four-digit Taiwan stock id, for example 2330.")
+    parser.add_argument("--company-name", help="Optional display name for the HTML report.")
+    parser.add_argument("--output-dir", default="dist", type=Path, help="Directory for JSON and HTML output.")
+    parser.add_argument("--fixture", type=Path, help="Directory containing IS_YEAR.html, BS_YEAR.html, and CF_YEAR.html.")
+    parser.add_argument("--valuation-csv", type=Path, help="CSV file with valuation inputs.")
+    return parser
+
+
+def build_command_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate Taiwan stock financial analysis reports.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    compare_parser = subparsers.add_parser("compare", help="Compare multiple Taiwan stocks.")
+    compare_parser.add_argument("stock_ids", nargs="+", help="Stock IDs to compare.")
+    compare_parser.add_argument("--output-dir", default="compare-dist", type=Path)
+    compare_parser.add_argument("--fixture-root", type=Path, help="Root directory containing per-stock fixture folders.")
+
+    batch_parser = subparsers.add_parser("batch", help="Analyze a CSV watchlist.")
+    batch_parser.add_argument("watchlist", type=Path, help="CSV file with stock_id and optional company_name columns.")
+    batch_parser.add_argument("--output-dir", default="batch-dist", type=Path)
+    batch_parser.add_argument("--fixture-root", type=Path, help="Root directory containing per-stock fixture folders.")
+
+    dashboard_parser = subparsers.add_parser("dashboard", help="Generate a static dashboard index.")
+    dashboard_parser.add_argument("--scan-dir", action="append", default=[], type=Path, help="Directory to scan for generated reports.")
+    dashboard_parser.add_argument("--output", default=Path("dashboard-index.html"), type=Path, help="Output HTML path.")
+
+    price_template_parser = subparsers.add_parser("price-template", help="Generate a valuation CSV template.")
+    price_template_parser.add_argument("stock_ids", nargs="+", help="Stock IDs to include in the template.")
+    price_template_parser.add_argument("--output", default=Path("valuation.csv"), type=Path, help="Output CSV path.")
+    price_template_parser.add_argument("--offline", action="store_true", help="Do not fetch prices; write blank rows with warnings.")
+    price_template_parser.add_argument("--analysis-dir", type=Path, help="Directory containing *_raw_data.json files for EPS enrichment.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    raw_args = sys.argv[1:] if argv is None else argv
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template"}:
+        args = build_command_arg_parser().parse_args(raw_args)
+    else:
+        args = build_arg_parser().parse_args(raw_args)
+        json_path, html_path = run(
+            stock_id=args.stock_id,
+            company_name=args.company_name,
+            output_dir=args.output_dir,
+            fixture_dir=args.fixture,
+            valuation_csv=args.valuation_csv,
+        )
+        print(f"Wrote {json_path}")
+        print(f"Wrote {html_path}")
+        return 0
+
+    if args.command == "compare":
+        json_path, html_path = run_compare(
+            args.stock_ids,
+            output_dir=args.output_dir,
+            fixture_root=args.fixture_root,
+        )
+        print(f"Wrote {json_path}")
+        print(f"Wrote {html_path}")
+        return 0
+
+    if args.command == "batch":
+        summary_path = run_batch(
+            args.watchlist,
+            output_dir=args.output_dir,
+            fixture_root=args.fixture_root,
+        )
+        print(f"Wrote {summary_path}")
+        return 0
+
+    if args.command == "dashboard":
+        scan_dirs = args.scan_dir or [Path("dist"), Path("live-dist"), Path("compare-dist"), Path("batch-dist")]
+        output_path = write_dashboard_index(scan_dirs, args.output)
+        print(f"Wrote {output_path}")
+        return 0
+
+    if args.command == "price-template":
+        fetch_price = offline_price if args.offline else None
+        output_path = write_valuation_template(
+            args.stock_ids,
+            args.output,
+            analysis_dir=args.analysis_dir,
+            fetch_price=fetch_price,
+        )
+        print(f"Wrote {output_path}")
+        return 0
+    build_command_arg_parser().error("command is required")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

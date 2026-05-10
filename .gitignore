@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.tmp-*/
+dist/
+live-dist/
+compare-dist/
+batch-dist/
+valuation-dist/
+dashboard-index.html
+*_analysis.html
+*_raw_data.json
+comparison.html
+comparison.json
+batch_summary.json
+valuation.csv
+*.egg-info/
