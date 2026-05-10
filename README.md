@@ -31,6 +31,10 @@ python -m pip install -e .
 
 MIT License. See [LICENSE](LICENSE).
 
+## 版本
+
+See [CHANGELOG.md](CHANGELOG.md).
+
 ## 使用
 
 ```powershell
