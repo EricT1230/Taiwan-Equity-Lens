@@ -35,6 +35,8 @@ MIT License. See [LICENSE](LICENSE).
 
 See [CHANGELOG.md](CHANGELOG.md).
 
+Release notes are stored in [docs/releases](docs/releases).
+
 ## 使用
 
 ```powershell
