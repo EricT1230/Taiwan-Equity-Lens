@@ -7,6 +7,7 @@ from typing import Any
 
 from taiwan_stock_analysis.dashboard import write_dashboard_index
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
+from taiwan_stock_analysis.reliability import ReliabilityStatus, build_retry_hint, summarize_reliability
 from taiwan_stock_analysis.watchlist import load_watchlist
 
 
@@ -38,6 +39,7 @@ def run_watchlist_workflow(
 
     watchlist_rows = load_watchlist(watchlist_path)
     stock_ids = [row["stock_id"] for row in watchlist_rows]
+    statuses: list[ReliabilityStatus] = []
 
     batch_summary_path = run_batch(
         watchlist_path,
@@ -46,6 +48,15 @@ def run_watchlist_workflow(
     )
     batch_summary = _read_json(batch_summary_path)
     successful_stock_ids = _successful_stock_ids(batch_summary)
+    stock_failures = _stock_failures(batch_summary)
+    statuses.append(
+        ReliabilityStatus(
+            stage="batch",
+            status="ok",
+            message=f"Analyzed {len(successful_stock_ids)} of {len(stock_ids)} watchlist stocks.",
+            source=str(batch_summary_path),
+        )
+    )
 
     valuation_path = valuation_csv
     generated_valuation_template = False
@@ -67,6 +78,23 @@ def run_watchlist_workflow(
             fixture_root=fixture_root,
             valuation_csv=valuation_path,
         )
+        statuses.append(
+            ReliabilityStatus(
+                stage="valuation",
+                status="ok",
+                message="Valuation-aware batch reports generated.",
+                source=str(valuation_summary_path),
+            )
+        )
+    else:
+        statuses.append(
+            ReliabilityStatus(
+                stage="valuation",
+                status="skipped",
+                message="Valuation step disabled.",
+                retry_hint=build_retry_hint("valuation"),
+            )
+        )
 
     comparison_paths: dict[str, str] = {}
     comparison_skipped_reason = ""
@@ -80,8 +108,33 @@ def run_watchlist_workflow(
             "json": str(comparison_json),
             "html": str(comparison_html),
         }
+        statuses.append(
+            ReliabilityStatus(
+                stage="comparison",
+                status="ok",
+                message=f"Compared {len(successful_stock_ids)} successful stocks.",
+                source=str(comparison_json),
+            )
+        )
     else:
         comparison_skipped_reason = "fewer than two successful stocks"
+        statuses.append(
+            ReliabilityStatus(
+                stage="comparison",
+                status="skipped",
+                message=comparison_skipped_reason,
+                retry_hint=build_retry_hint("comparison"),
+            )
+        )
+
+    statuses.append(
+        ReliabilityStatus(
+            stage="dashboard",
+            status="ok",
+            message="Dashboard index scheduled for generation.",
+            source=str(dashboard_path),
+        )
+    )
 
     summary: dict[str, Any] = {
         "watchlist_path": str(watchlist_path),
@@ -97,6 +150,9 @@ def run_watchlist_workflow(
         },
         "generated_valuation_template": generated_valuation_template,
         "comparison_skipped_reason": comparison_skipped_reason,
+        "step_statuses": {status.stage: status.to_dict() for status in statuses},
+        "data_reliability": summarize_reliability(statuses),
+        "stock_failures": stock_failures,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -120,6 +176,26 @@ def _successful_stock_ids(batch_summary: dict[str, Any]) -> list[str]:
             if stock_id:
                 stock_ids.append(stock_id)
     return stock_ids
+
+
+def _stock_failures(batch_summary: dict[str, Any]) -> list[dict[str, str]]:
+    results = batch_summary.get("results", [])
+    if not isinstance(results, list):
+        return []
+    failures: list[dict[str, str]] = []
+    for result in results:
+        if not isinstance(result, dict) or result.get("status") == "ok":
+            continue
+        stage = str(result.get("stage") or "batch").strip() or "batch"
+        failures.append(
+            {
+                "stock_id": str(result.get("stock_id") or "").strip(),
+                "stage": stage,
+                "reason": str(result.get("error") or result.get("reason") or "").strip(),
+                "retry_hint": build_retry_hint(stage),
+            }
+        )
+    return failures
 
 
 def _read_json(path: Path) -> dict[str, Any]:

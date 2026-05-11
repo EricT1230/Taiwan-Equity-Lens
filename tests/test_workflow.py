@@ -50,6 +50,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(summary["successful_stock_ids"], ["2330", "2303"])
         self.assertEqual(summary["paths"]["valuation_csv"], str(valuation_csv))
         self.assertFalse(summary["generated_valuation_template"])
+        self.assertEqual(summary["step_statuses"]["batch"]["status"], "ok")
+        self.assertEqual(summary["step_statuses"]["valuation"]["status"], "ok")
+        self.assertEqual(summary["step_statuses"]["comparison"]["status"], "ok")
+        self.assertEqual(summary["step_statuses"]["dashboard"]["status"], "ok")
+        self.assertEqual(summary["data_reliability"]["overall_status"], "ok")
+        self.assertEqual(summary["stock_failures"], [])
         self.assertTrue((output_dir / "reports" / "batch_summary.json").exists())
         self.assertTrue((output_dir / "valuation-reports" / "batch_summary.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
@@ -83,6 +89,15 @@ class WorkflowTests(unittest.TestCase):
         valuation_text = (output_dir / "valuation.csv").read_text(encoding="utf-8")
         self.assertEqual(summary["successful_stock_ids"], ["2330"])
         self.assertEqual(summary["comparison_skipped_reason"], "fewer than two successful stocks")
+        self.assertEqual(summary["step_statuses"]["comparison"]["status"], "skipped")
+        self.assertIn("at least two successful stock reports", summary["step_statuses"]["comparison"]["retry_hint"])
+        self.assertEqual(summary["data_reliability"]["overall_status"], "skipped")
+        self.assertEqual(len(summary["stock_failures"]), 1)
+        stock_failure = summary["stock_failures"][0]
+        self.assertEqual(stock_failure["stock_id"], "9999")
+        self.assertEqual(stock_failure["stage"], "batch")
+        self.assertIn("IS_YEAR.html", stock_failure["reason"])
+        self.assertEqual(stock_failure["retry_hint"], "Review the workflow summary and rerun the failed step.")
         self.assertTrue((output_dir / "dashboard.html").exists())
         self.assertFalse((output_dir / "comparison" / "comparison.json").exists())
         self.assertIn("offline mode", valuation_text)
@@ -112,6 +127,8 @@ class WorkflowTests(unittest.TestCase):
         )
 
         self.assertFalse((output_dir / "valuation.csv").exists())
+        summary = json.loads((output_dir / "workflow_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["step_statuses"]["valuation"]["status"], "skipped")
 
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
