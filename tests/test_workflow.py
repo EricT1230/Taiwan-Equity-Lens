@@ -89,15 +89,25 @@ class WorkflowTests(unittest.TestCase):
         valuation_text = (output_dir / "valuation.csv").read_text(encoding="utf-8")
         self.assertEqual(summary["successful_stock_ids"], ["2330"])
         self.assertEqual(summary["comparison_skipped_reason"], "fewer than two successful stocks")
+        self.assertEqual(summary["step_statuses"]["batch"]["status"], "warning")
+        self.assertEqual(summary["step_statuses"]["valuation"]["status"], "warning")
         self.assertEqual(summary["step_statuses"]["comparison"]["status"], "skipped")
         self.assertIn("at least two successful stock reports", summary["step_statuses"]["comparison"]["retry_hint"])
-        self.assertEqual(summary["data_reliability"]["overall_status"], "skipped")
-        self.assertEqual(len(summary["stock_failures"]), 1)
+        self.assertEqual(summary["data_reliability"]["overall_status"], "warning")
+        self.assertEqual(len(summary["stock_failures"]), 2)
         stock_failure = summary["stock_failures"][0]
         self.assertEqual(stock_failure["stock_id"], "9999")
         self.assertEqual(stock_failure["stage"], "batch")
         self.assertIn("IS_YEAR.html", stock_failure["reason"])
         self.assertEqual(stock_failure["retry_hint"], "Review the workflow summary and rerun the failed step.")
+        valuation_failure = summary["stock_failures"][1]
+        self.assertEqual(valuation_failure["stock_id"], "9999")
+        self.assertEqual(valuation_failure["stage"], "valuation")
+        self.assertIn("IS_YEAR.html", valuation_failure["reason"])
+        self.assertEqual(
+            valuation_failure["retry_hint"],
+            "Provide price and assumption fields in the valuation CSV.",
+        )
         self.assertTrue((output_dir / "dashboard.html").exists())
         self.assertFalse((output_dir / "comparison" / "comparison.json").exists())
         self.assertIn("offline mode", valuation_text)

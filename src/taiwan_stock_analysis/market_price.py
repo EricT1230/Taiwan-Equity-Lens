@@ -307,10 +307,18 @@ def _merge_warnings(*warnings: object) -> str:
 
 
 def _price_reliability(price_row: PriceRow) -> dict[str, str]:
+    warning = str(price_row.get("warning") or "").strip()
     if price_row.get("price") is None:
         return {
             "status": "warning",
             "message": "No market price was available from configured sources.",
+            "retry_hint": build_retry_hint("price"),
+        }
+
+    if warning:
+        return {
+            "status": "warning",
+            "message": f"Market price was loaded with warning: {warning}",
             "retry_hint": build_retry_hint("price"),
         }
 

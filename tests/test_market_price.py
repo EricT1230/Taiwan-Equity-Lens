@@ -169,7 +169,28 @@ class MarketPriceTests(unittest.TestCase):
 
         write_valuation_template(["2330", "9999"], output, fetch_price=fake_fetch_price)
 
-        rows = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8"))))
+        reader = csv.DictReader(io.StringIO(output.read_text(encoding="utf-8")))
+        self.assertEqual(
+            reader.fieldnames,
+            [
+                "stock_id",
+                "price",
+                "book_value_per_share",
+                "cash_dividend_per_share",
+                "normalized_eps",
+                "target_pe_low",
+                "target_pe_base",
+                "target_pe_high",
+                "eps_growth_rate",
+                "price_date",
+                "price_source",
+                "price_status",
+                "price_status_message",
+                "price_retry_hint",
+                "warning",
+            ],
+        )
+        rows = list(reader)
         self.assertEqual(rows[0]["stock_id"], "2330")
         self.assertEqual(rows[0]["price"], "1000.0")
         self.assertEqual(rows[0]["target_pe_base"], "")
@@ -243,6 +264,32 @@ class MarketPriceTests(unittest.TestCase):
         self.assertEqual(
             rows[0]["price_status_message"],
             "No market price was available from configured sources.",
+        )
+        self.assertEqual(
+            rows[0]["price_retry_hint"],
+            "Run again after the next market data update or provide a valuation CSV manually.",
+        )
+
+    def test_write_valuation_template_records_price_reliability_when_warning_has_price(self):
+        output = Path(".tmp-cli-test/valuation-template-warning-with-price.csv")
+
+        write_valuation_template(
+            ["2330"],
+            output,
+            fetch_price=lambda stock_id: {
+                "stock_id": stock_id,
+                "price": 1000.0,
+                "price_date": "115/05/06",
+                "price_source": "TWSE_STOCK_DAY",
+                "warning": "TWSE payload missing volume",
+            },
+        )
+
+        rows = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8"))))
+        self.assertEqual(rows[0]["price_status"], "warning")
+        self.assertEqual(
+            rows[0]["price_status_message"],
+            "Market price was loaded with warning: TWSE payload missing volume",
         )
         self.assertEqual(
             rows[0]["price_retry_hint"],

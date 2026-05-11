@@ -48,13 +48,15 @@ def run_watchlist_workflow(
     )
     batch_summary = _read_json(batch_summary_path)
     successful_stock_ids = _successful_stock_ids(batch_summary)
-    stock_failures = _stock_failures(batch_summary)
+    stock_failures = _stock_failures(batch_summary, default_stage="batch")
+    batch_status = _summary_status(batch_summary)
     statuses.append(
         ReliabilityStatus(
             stage="batch",
-            status="ok",
+            status=batch_status,
             message=f"Analyzed {len(successful_stock_ids)} of {len(stock_ids)} watchlist stocks.",
             source=str(batch_summary_path),
+            retry_hint=build_retry_hint("fetch") if batch_status in {"warning", "error"} else "",
         )
     )
 
@@ -78,12 +80,17 @@ def run_watchlist_workflow(
             fixture_root=fixture_root,
             valuation_csv=valuation_path,
         )
+        valuation_summary = _read_json(valuation_summary_path)
+        valuation_failures = _stock_failures(valuation_summary, default_stage="valuation")
+        stock_failures.extend(valuation_failures)
+        valuation_status = _summary_status(valuation_summary)
         statuses.append(
             ReliabilityStatus(
                 stage="valuation",
-                status="ok",
+                status=valuation_status,
                 message="Valuation-aware batch reports generated.",
                 source=str(valuation_summary_path),
+                retry_hint=build_retry_hint("valuation") if valuation_status in {"warning", "error"} else "",
             )
         )
     else:
@@ -178,7 +185,19 @@ def _successful_stock_ids(batch_summary: dict[str, Any]) -> list[str]:
     return stock_ids
 
 
-def _stock_failures(batch_summary: dict[str, Any]) -> list[dict[str, str]]:
+def _summary_status(batch_summary: dict[str, Any]) -> str:
+    results = batch_summary.get("results", [])
+    if not isinstance(results, list) or not results:
+        return "skipped"
+    failed = sum(1 for result in results if isinstance(result, dict) and result.get("status") != "ok")
+    if failed == 0:
+        return "ok"
+    if failed == len(results):
+        return "error"
+    return "warning"
+
+
+def _stock_failures(batch_summary: dict[str, Any], *, default_stage: str) -> list[dict[str, str]]:
     results = batch_summary.get("results", [])
     if not isinstance(results, list):
         return []
@@ -186,7 +205,7 @@ def _stock_failures(batch_summary: dict[str, Any]) -> list[dict[str, str]]:
     for result in results:
         if not isinstance(result, dict) or result.get("status") == "ok":
             continue
-        stage = str(result.get("stage") or "batch").strip() or "batch"
+        stage = str(result.get("stage") or default_stage).strip() or default_stage
         failures.append(
             {
                 "stock_id": str(result.get("stock_id") or "").strip(),
