@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.3.0 - 2026-05-12
+
+Data reliability and research workflow automation.
+
+### Added
+
+- Workflow data reliability summary with `ok`, `warning`, `error`, and `skipped` counts.
+- Step-level workflow status records for batch, valuation, comparison, and dashboard generation.
+- Per-stock failure reasons and retry hints in `workflow_summary.json`.
+- Price source reliability fields in valuation CSV templates.
+- Valuation assumption labels for EPS and target-price scenarios.
+- Report and dashboard sections for reliability review.
+- v0.3.0 release notes and reliability documentation.
+
+### Changed
+
+- Workflow status now reflects partial batch and valuation failures as warnings.
+- Price rows with source warnings are no longer marked as fully healthy.
+- Single-stock reports surface valuation assumptions alongside reliability context.
+
+### Quality
+
+- Expanded tests for reliability serialization, workflow summaries, price source status, valuation assumptions, reports, and dashboard rendering.
+- Existing v0.2.0 commands and workflow summary fields remain compatible.
+
 ## v0.2.0 - 2026-05-11
 
 Release polish and workflow upgrade.
