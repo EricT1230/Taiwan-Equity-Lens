@@ -89,10 +89,12 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("台股基本面工具", html)
+        self.assertIn("台股基本面儀表板", html)
+        self.assertIn("常用指令", html)
         self.assertIn("2330_analysis.html", html)
         self.assertIn("comparison.html", html)
         self.assertIn("missing fixture", html)
+        self.assertIn("失敗", html)
         self.assertIn("stockInput", html)
         self.assertIn("python -m taiwan_stock_analysis.cli", html)
 
@@ -134,20 +136,51 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("summaryReports", html)
-        self.assertIn(">2</strong><span>單股報表</span>", html)
+        self.assertIn(">2</strong><span>個股報告</span>", html)
         self.assertIn(">1</strong><span>同業比較</span>", html)
-        self.assertIn(">2</strong><span>批次項目</span>", html)
-        self.assertIn(">1</strong><span>批次錯誤</span>", html)
+        self.assertIn(">2</strong><span>批次筆數</span>", html)
+        self.assertIn(">1</strong><span>失敗筆數</span>", html)
         self.assertIn("compareInput", html)
         self.assertIn("batchPathInput", html)
         self.assertIn("watchlistTemplate", html)
         self.assertIn("data:text/csv", html)
         self.assertIn("python -m taiwan_stock_analysis.cli compare", html)
         self.assertIn("python -m taiwan_stock_analysis.cli batch", html)
+        self.assertIn("Workflow 狀態", html)
+        self.assertIn("成功 1 / 2", html)
+        self.assertIn("同業比較略過", html)
+        self.assertIn('class="badge error">同業比較略過', html)
         self.assertIn("workflow-dist/workflow_summary.json", html)
         self.assertIn("workflow-dist/valuation.csv", html)
         self.assertIn("fewer than two successful stocks", html)
         self.assertIn("2330", html)
+
+    def test_render_dashboard_html_shows_clear_empty_states(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+            }
+        )
+
+        self.assertIn("尚無個股報告", html)
+        self.assertIn("尚無同業比較", html)
+        self.assertIn("尚無批次結果", html)
+        self.assertIn("尚無 workflow summary", html)
+
+    def test_render_dashboard_html_shows_invalid_workflow_summary_status(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [{"path": "workflow_summary.json", "error": "invalid JSON"}],
+            }
+        )
+
+        self.assertIn('class="badge error">Workflow summary 錯誤：invalid JSON', html)
 
 
 if __name__ == "__main__":

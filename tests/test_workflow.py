@@ -60,6 +60,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(str(watchlist), dashboard_html)
         self.assertIn("valuation-inputs.csv", dashboard_html)
         self.assertNotIn("workflow-dist/workflow-dist", dashboard_html.replace("\\", "/"))
+        self.assertIn("台股基本面儀表板", dashboard_html)
+        self.assertNotIn("?啗", dashboard_html)
 
     def test_run_watchlist_workflow_skips_comparison_when_fewer_than_two_successes(self):
         root = Path(".tmp-workflow-test")

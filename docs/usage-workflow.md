@@ -152,6 +152,8 @@ Outputs:
 - comparison skipped reason when fewer than two stocks succeeded
 - workflow summary JSON link
 
+The dashboard uses Traditional Chinese labels and clear empty states, so missing reports, missing comparison output, and missing workflow summary are shown as readable status messages instead of blank tables.
+
 If you edit `valuation.csv` by hand, rerun the workflow with the edited file:
 
 ```powershell

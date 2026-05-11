@@ -243,6 +243,7 @@ Outputs:
 - `workflow-dist/workflow_summary.json`
 
 `dashboard.html` also surfaces the workflow summary: watchlist path, successful stocks, valuation CSV link, comparison link or skipped reason, and the summary JSON link.
+The dashboard uses Traditional Chinese section labels, readable empty states, and batch/workflow status badges for quick review.
 
 After editing a valuation CSV, rerun valuation-aware reports with:
 

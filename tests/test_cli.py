@@ -141,7 +141,7 @@ class CliTests(unittest.TestCase):
         ])
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("台股基本面工具", output_path.read_text(encoding="utf-8"))
+        self.assertIn("台股基本面儀表板", output_path.read_text(encoding="utf-8"))
         self.assertIn("2330_analysis.html", output_path.read_text(encoding="utf-8"))
 
     def test_main_dashboard_default_scan_includes_workflow_dist(self):
