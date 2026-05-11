@@ -233,7 +233,7 @@ src/taiwan_stock_analysis/
 ├── diagnostics.py    # data quality diagnostics
 ├── fetcher.py        # Goodinfo network boundary
 ├── insights.py       # 中文趨勢解讀
-├── market_price.py   # TWSE price template helper
+├── market_price.py   # TWSE/TPEx price template helper
 ├── metrics.py        # 財務指標計算
 ├── models.py         # dataclasses
 ├── parser.py         # HTML table parser

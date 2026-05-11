@@ -91,6 +91,29 @@ class MarketPriceTests(unittest.TestCase):
         self.assertTrue(any("twse.com.tw" in call for call in calls))
         self.assertTrue(any("tpex.org.tw" in call for call in calls))
 
+    def test_fetch_latest_close_falls_back_to_tpex_when_twse_fetch_fails(self):
+        calls = []
+
+        def fake_fetch(url: str) -> bytes:
+            calls.append(url)
+            if "twse.com.tw" in url:
+                raise OSError("network down")
+            return json.dumps(
+                {
+                    "date": "115/05/06",
+                    "aaData": [["6187", "萬潤", "125.50", "+1.00", "124.00"]],
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+        price = fetch_latest_close("6187", date="20260506", fetch=fake_fetch)
+
+        self.assertEqual(price["price"], 125.5)
+        self.assertEqual(price["price_source"], "TPEX_DAILY_CLOSE")
+        self.assertEqual(price["warning"], "")
+        self.assertTrue(any("twse.com.tw" in call for call in calls))
+        self.assertTrue(any("tpex.org.tw" in call for call in calls))
+
     def test_fetch_latest_close_keeps_twse_when_twse_succeeds(self):
         calls = []
 
