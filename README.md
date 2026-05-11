@@ -242,6 +242,8 @@ Outputs:
 - `workflow-dist/dashboard.html`
 - `workflow-dist/workflow_summary.json`
 
+`dashboard.html` also surfaces the workflow summary: watchlist path, successful stocks, valuation CSV link, comparison link or skipped reason, and the summary JSON link.
+
 After editing a valuation CSV, rerun valuation-aware reports with:
 
 ```powershell

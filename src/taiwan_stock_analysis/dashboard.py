@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,12 @@ DashboardItems = dict[str, list[dict[str, Any]]]
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
-    items: DashboardItems = {"reports": [], "comparisons": [], "batch_summaries": []}
+    items: DashboardItems = {
+        "reports": [],
+        "comparisons": [],
+        "batch_summaries": [],
+        "workflow_summaries": [],
+    }
     for directory in search_dirs:
         if not directory.exists():
             continue
@@ -43,6 +49,17 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
             except json.JSONDecodeError:
                 payload = {"results": [{"stock_id": "-", "status": "error", "error": "invalid JSON"}]}
             items["batch_summaries"].append({"path": str(batch_summary), "results": payload.get("results", [])})
+
+        workflow_summary = directory / "workflow_summary.json"
+        if workflow_summary.exists():
+            try:
+                payload = json.loads(workflow_summary.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {"error": "invalid JSON"}
+            if not isinstance(payload, dict):
+                payload = {"error": "invalid JSON"}
+            payload["path"] = str(workflow_summary)
+            items["workflow_summaries"].append(payload)
     return items
 
 
@@ -87,6 +104,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
         for summary in items.get("batch_summaries", [])
         for result in summary.get("results", [])
     )
+    workflow_rows = _workflow_summary_rows(items.get("workflow_summaries", []))
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
     return f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -154,6 +172,10 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <h2>批次狀態</h2>
       <table><thead><tr><th>Summary</th><th>股票代碼</th><th>狀態</th><th>錯誤</th></tr></thead><tbody>{batch_rows}</tbody></table>
     </section>
+    <section>
+      <h2>Workflow Summary</h2>
+      <table><thead><tr><th>Summary</th><th>Watchlist</th><th>Successful stocks</th><th>Valuation CSV</th><th>Dashboard</th><th>Comparison</th><th>Note</th></tr></thead><tbody>{workflow_rows}</tbody></table>
+    </section>
   </main>
   <script>
     const stockInput = document.getElementById('stockInput');
@@ -186,7 +208,61 @@ def render_dashboard_html(items: DashboardItems) -> str:
 """
 
 
+def _workflow_summary_rows(workflow_summaries: list[dict[str, Any]]) -> str:
+    if not workflow_summaries:
+        return '<tr><td colspan="7">No workflow summary found</td></tr>'
+
+    rows = []
+    for summary in workflow_summaries:
+        paths = summary.get("paths", {})
+        paths = paths if isinstance(paths, dict) else {}
+        comparison = paths.get("comparison", {})
+        comparison = comparison if isinstance(comparison, dict) else {}
+        successful_stock_ids = summary.get("successful_stock_ids", [])
+        successful_stock_ids = successful_stock_ids if isinstance(successful_stock_ids, list) else []
+        note = summary.get("error") or summary.get("comparison_skipped_reason") or ""
+        rows.append(
+            "<tr>"
+            f"<td>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</td>"
+            f"<td>{escape(str(summary.get('watchlist_path', '')))}</td>"
+            f"<td>{escape(', '.join(str(stock_id) for stock_id in successful_stock_ids) or '-')}</td>"
+            f"<td>{_link(str(paths.get('valuation_csv', '')), Path(str(paths.get('valuation_csv', ''))).name)}</td>"
+            f"<td>{_link(str(paths.get('dashboard', '')), Path(str(paths.get('dashboard', ''))).name)}</td>"
+            f"<td>{_link(str(comparison.get('html', '')), Path(str(comparison.get('html', ''))).name)}</td>"
+            f"<td>{escape(str(note))}</td>"
+            "</tr>"
+        )
+    return "".join(rows)
+
+
 def write_dashboard_index(search_dirs: list[Path], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_dashboard_html(discover_dashboard_items(search_dirs)), encoding="utf-8")
+    items = discover_dashboard_items(search_dirs)
+    _make_links_relative(items, output_path.parent)
+    output_path.write_text(render_dashboard_html(items), encoding="utf-8")
     return output_path
+
+
+def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
+    for report in items.get("reports", []):
+        _relativize_fields(report, ["html_path", "json_path"], base_dir)
+    for comparison in items.get("comparisons", []):
+        _relativize_fields(comparison, ["html_path", "json_path"], base_dir)
+    for summary in items.get("batch_summaries", []):
+        _relativize_fields(summary, ["path"], base_dir)
+    for summary in items.get("workflow_summaries", []):
+        _relativize_fields(summary, ["path"], base_dir)
+        paths = summary.get("paths", {})
+        if isinstance(paths, dict):
+            _relativize_fields(paths, ["batch_summary", "valuation_csv", "valuation_batch_summary", "dashboard"], base_dir)
+            comparison = paths.get("comparison", {})
+            if isinstance(comparison, dict):
+                _relativize_fields(comparison, ["html", "json"], base_dir)
+
+
+def _relativize_fields(target: dict[str, Any], fields: list[str], base_dir: Path) -> None:
+    for field in fields:
+        value = target.get(field)
+        if not isinstance(value, str) or not value:
+            continue
+        target[field] = os.path.relpath(Path(value).resolve(), base_dir.resolve())

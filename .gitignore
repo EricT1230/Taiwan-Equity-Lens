@@ -6,6 +6,7 @@ live-dist/
 compare-dist/
 batch-dist/
 valuation-dist/
+workflow-dist/
 dashboard-index.html
 *_analysis.html
 *_raw_data.json

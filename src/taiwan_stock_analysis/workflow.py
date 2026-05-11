@@ -83,11 +83,6 @@ def run_watchlist_workflow(
     else:
         comparison_skipped_reason = "fewer than two successful stocks"
 
-    scan_dirs = [reports_dir, comparison_dir]
-    if include_valuation:
-        scan_dirs.insert(1, valuation_reports_dir)
-    write_dashboard_index(scan_dirs, dashboard_path)
-
     summary: dict[str, Any] = {
         "watchlist_path": str(watchlist_path),
         "output_dir": str(output_dir),
@@ -104,6 +99,11 @@ def run_watchlist_workflow(
         "comparison_skipped_reason": comparison_skipped_reason,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    scan_dirs = [output_dir, reports_dir, comparison_dir]
+    if include_valuation:
+        scan_dirs.insert(2, valuation_reports_dir)
+    write_dashboard_index(scan_dirs, dashboard_path)
     return summary_path
 
 

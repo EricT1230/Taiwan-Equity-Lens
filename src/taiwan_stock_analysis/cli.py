@@ -275,7 +275,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "dashboard":
-        scan_dirs = args.scan_dir or [Path("dist"), Path("live-dist"), Path("compare-dist"), Path("batch-dist")]
+        scan_dirs = args.scan_dir or [
+            Path("dist"),
+            Path("live-dist"),
+            Path("compare-dist"),
+            Path("batch-dist"),
+            Path("workflow-dist"),
+        ]
         output_path = write_dashboard_index(scan_dirs, args.output)
         print(f"Wrote {output_path}")
         return 0

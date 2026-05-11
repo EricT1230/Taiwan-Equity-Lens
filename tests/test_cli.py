@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -142,6 +143,40 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("台股基本面工具", output_path.read_text(encoding="utf-8"))
         self.assertIn("2330_analysis.html", output_path.read_text(encoding="utf-8"))
+
+    def test_main_dashboard_default_scan_includes_workflow_dist(self):
+        cwd = Path.cwd()
+        root = cwd / ".tmp-cli-test" / "dashboard-default-cwd"
+        root.mkdir(parents=True, exist_ok=True)
+        output_path = Path("dashboard-workflow-default.html")
+        workflow_dist = Path("workflow-dist")
+        exit_code = None
+        os.chdir(root)
+        try:
+            workflow_dist.mkdir(exist_ok=True)
+            (workflow_dist / "workflow_summary.json").write_text(
+                json.dumps(
+                    {
+                        "watchlist_path": "watchlist.csv",
+                        "stock_ids": ["2330"],
+                        "successful_stock_ids": ["2330"],
+                        "paths": {"valuation_csv": "workflow-dist/valuation.csv"},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code = main([
+                "dashboard",
+                "--output",
+                str(output_path),
+            ])
+        finally:
+            os.chdir(cwd)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("workflow_summary.json", (root / output_path).read_text(encoding="utf-8"))
 
     def test_main_price_template_writes_valuation_csv(self):
         root = Path(".tmp-cli-test")

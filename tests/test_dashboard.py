@@ -11,9 +11,13 @@ class DashboardTests(unittest.TestCase):
         reports = root / "reports"
         compare = root / "compare"
         batch = root / "batch"
+        workflow = root / "workflow"
+        invalid_workflow = root / "invalid-workflow"
         reports.mkdir(parents=True, exist_ok=True)
         compare.mkdir(parents=True, exist_ok=True)
         batch.mkdir(parents=True, exist_ok=True)
+        workflow.mkdir(parents=True, exist_ok=True)
+        invalid_workflow.mkdir(parents=True, exist_ok=True)
         (reports / "2330_analysis.html").write_text("<html>report</html>", encoding="utf-8")
         (reports / "2330_raw_data.json").write_text('{"stock_id": "2330"}', encoding="utf-8")
         (compare / "comparison.html").write_text("<html>compare</html>", encoding="utf-8")
@@ -30,12 +34,32 @@ class DashboardTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        (workflow / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "watchlist_path": "watchlist.csv",
+                    "stock_ids": ["2330", "2303"],
+                    "successful_stock_ids": ["2330"],
+                    "paths": {
+                        "valuation_csv": "workflow-dist/valuation.csv",
+                        "dashboard": "workflow-dist/dashboard.html",
+                    },
+                    "comparison_skipped_reason": "fewer than two successful stocks",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (invalid_workflow / "workflow_summary.json").write_text("{", encoding="utf-8")
 
-        items = discover_dashboard_items([reports, compare, batch])
+        items = discover_dashboard_items([reports, compare, batch, workflow, invalid_workflow])
 
         self.assertEqual(items["reports"][0]["stock_id"], "2330")
         self.assertEqual(items["comparisons"][0]["html_path"], str(compare / "comparison.html"))
         self.assertEqual(items["batch_summaries"][0]["results"][1]["status"], "error")
+        self.assertEqual(items["workflow_summaries"][0]["path"], str(workflow / "workflow_summary.json"))
+        self.assertEqual(items["workflow_summaries"][0]["successful_stock_ids"], ["2330"])
+        self.assertEqual(items["workflow_summaries"][1]["error"], "invalid JSON")
 
     def test_render_dashboard_html_contains_report_links_error_status_and_command_builder(self):
         html = render_dashboard_html(
@@ -61,6 +85,7 @@ class DashboardTests(unittest.TestCase):
                         ],
                     }
                 ],
+                "workflow_summaries": [],
             }
         )
 
@@ -90,6 +115,21 @@ class DashboardTests(unittest.TestCase):
                         ],
                     }
                 ],
+                "workflow_summaries": [
+                    {
+                        "path": "workflow-dist/workflow_summary.json",
+                        "watchlist_path": "watchlist.csv",
+                        "stock_ids": ["2330", "2303"],
+                        "successful_stock_ids": ["2330"],
+                        "paths": {
+                            "valuation_csv": "workflow-dist/valuation.csv",
+                            "dashboard": "workflow-dist/dashboard.html",
+                            "comparison": {},
+                        },
+                        "generated_valuation_template": True,
+                        "comparison_skipped_reason": "fewer than two successful stocks",
+                    }
+                ],
             }
         )
 
@@ -104,6 +144,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("data:text/csv", html)
         self.assertIn("python -m taiwan_stock_analysis.cli compare", html)
         self.assertIn("python -m taiwan_stock_analysis.cli batch", html)
+        self.assertIn("workflow-dist/workflow_summary.json", html)
+        self.assertIn("workflow-dist/valuation.csv", html)
+        self.assertIn("fewer than two successful stocks", html)
+        self.assertIn("2330", html)
 
 
 if __name__ == "__main__":

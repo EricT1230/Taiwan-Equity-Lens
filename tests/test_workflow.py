@@ -43,6 +43,7 @@ class WorkflowTests(unittest.TestCase):
         )
 
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        dashboard_html = (output_dir / "dashboard.html").read_text(encoding="utf-8")
         valuation_data = json.loads(
             (output_dir / "valuation-reports" / "2330_raw_data.json").read_text(encoding="utf-8")
         )
@@ -55,6 +56,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
         self.assertTrue((output_dir / "dashboard.html").exists())
         self.assertEqual(valuation_data["valuation"]["metrics"]["pe"], 10.0)
+        self.assertIn('href="workflow_summary.json"', dashboard_html)
+        self.assertIn(str(watchlist), dashboard_html)
+        self.assertIn("valuation-inputs.csv", dashboard_html)
+        self.assertNotIn("workflow-dist/workflow-dist", dashboard_html.replace("\\", "/"))
 
     def test_run_watchlist_workflow_skips_comparison_when_fewer_than_two_successes(self):
         root = Path(".tmp-workflow-test")

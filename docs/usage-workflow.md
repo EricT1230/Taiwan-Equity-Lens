@@ -143,6 +143,15 @@ Outputs:
 - `workflow-dist/dashboard.html`
 - `workflow-dist/workflow_summary.json`
 
+`dashboard.html` reads `workflow_summary.json` and shows the workflow run in one place:
+
+- watchlist path
+- successful stock IDs
+- valuation CSV link when present
+- comparison link when produced
+- comparison skipped reason when fewer than two stocks succeeded
+- workflow summary JSON link
+
 If you edit `valuation.csv` by hand, rerun the workflow with the edited file:
 
 ```powershell
@@ -157,7 +166,14 @@ The workflow refreshes its generated subdirectories on each run to avoid stale r
 python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir compare-dist --scan-dir batch-dist --scan-dir valuation-dist --output dashboard-index.html
 ```
 
+To include a one-shot workflow run manually:
+
+```powershell
+python -m taiwan_stock_analysis.cli dashboard --scan-dir workflow-dist --scan-dir workflow-dist/reports --scan-dir workflow-dist/valuation-reports --scan-dir workflow-dist/comparison --output dashboard-index.html
+```
+
 Open `dashboard-index.html` in a browser. It lists generated reports, comparison outputs, batch status, and command builders.
+When no `--scan-dir` is provided, the dashboard command also scans `workflow-dist` by default.
 
 ## 9. Verify
 
