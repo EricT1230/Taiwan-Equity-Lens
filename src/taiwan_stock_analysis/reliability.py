@@ -50,7 +50,7 @@ def summarize_reliability(statuses: list[ReliabilityStatus]) -> dict[str, int | 
     for status in statuses:
         counts[status.normalized_status()] += 1
 
-    overall_status = "ok"
+    overall_status = "skipped" if not statuses else "ok"
     if counts["error"]:
         overall_status = "error"
     elif counts["warning"]:

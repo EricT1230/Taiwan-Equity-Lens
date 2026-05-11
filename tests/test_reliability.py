@@ -58,6 +58,18 @@ class ReliabilityTests(unittest.TestCase):
             },
         )
 
+    def test_summarize_reliability_marks_empty_statuses_as_skipped(self) -> None:
+        self.assertEqual(
+            summarize_reliability([]),
+            {
+                "ok": 0,
+                "warning": 0,
+                "error": 0,
+                "skipped": 0,
+                "overall_status": "skipped",
+            },
+        )
+
     def test_retry_hint_maps_common_stages(self) -> None:
         self.assertEqual(
             build_retry_hint("fetch"),
@@ -66,6 +78,10 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(
             build_retry_hint("comparison"),
             "Comparison needs at least two successful stock reports.",
+        )
+        self.assertEqual(
+            build_retry_hint("unknown"),
+            "Review the workflow summary and rerun the failed step.",
         )
 
 
