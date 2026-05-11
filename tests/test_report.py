@@ -61,6 +61,33 @@ class ReportTests(unittest.TestCase):
         self.assertIn("目前沒有資料品質診斷", html)
         self.assertIn("目前沒有足夠資料產生這個區塊的觀察", html)
 
+    def test_render_html_report_shows_reliability_and_valuation_assumptions(self):
+        result = self._analysis_result()
+        result.metadata["reliability"] = [
+            {
+                "stage": "price",
+                "status": "warning",
+                "source": "TPEx",
+                "date": "2026-05-08",
+                "message": "TWSE price was unavailable; TPEx fallback was used.",
+                "retry_hint": "Run again after the next market data update.",
+            }
+        ]
+        result.valuation["assumptions"] = {
+            "eps_base": "manual_normalized_eps",
+            "target_price_base": "base_eps_x_target_pe_base",
+        }
+
+        html = render_html_report(result)
+
+        self.assertIn("資料可信度", html)
+        self.assertIn("TPEx", html)
+        self.assertIn("TWSE price was unavailable", html)
+        self.assertIn("Run again after the next market data update", html)
+        self.assertIn("估值假設", html)
+        self.assertIn("manual_normalized_eps", html)
+        self.assertIn("base_eps_x_target_pe_base", html)
+
     def _analysis_result(self) -> AnalysisResult:
         return AnalysisResult(
             stock_id="2330",

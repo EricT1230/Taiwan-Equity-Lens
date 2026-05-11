@@ -69,6 +69,7 @@ def render_html_report(result: AnalysisResult, company_name: str | None = None) 
     <a href="#scorecard">品質分數</a>
     <a href="#valuation">估值情境</a>
     <a href="#diagnostics">資料品質</a>
+    <a href="#reliability">資料可信度</a>
     <a href="#operations">營運概況</a>
     <a href="#profitability">獲利能力</a>
     <a href="#financial-health">財務體質</a>
@@ -88,6 +89,7 @@ def render_html_report(result: AnalysisResult, company_name: str | None = None) 
     {_scorecard(result.scorecard)}
     {_valuation_context(result.valuation)}
     {_diagnostics_panel(result.diagnostics)}
+    {_reliability_panel(result)}
     {_insight_panel("operations", "營運概況", result.insights.get("operations", []))}
     {_insight_panel("profitability", "獲利能力", result.insights.get("profitability", []))}
     {_insight_panel("financial-health", "財務體質", result.insights.get("financial_health", []))}
@@ -227,6 +229,41 @@ def _diagnostics_panel(diagnostics: dict[str, Any]) -> str:
         f"<p>共有 {escape(str(diagnostics.get('issue_count', len(issues))))} 個資料品質提醒。</p>"
         "<table><thead><tr><th>等級</th><th>類別</th><th>欄位</th><th>訊息</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
+        "</section>"
+    )
+
+
+def _reliability_panel(result: AnalysisResult) -> str:
+    statuses = result.metadata.get("reliability", [])
+    assumptions = result.valuation.get("assumptions", {}) if result.valuation else {}
+    status_rows: list[str] = []
+    if isinstance(statuses, list):
+        for status in statuses:
+            if not isinstance(status, dict):
+                continue
+            status_rows.append(
+                "<tr>"
+                f"<td>{escape(str(status.get('stage', '')))}</td>"
+                f"<td>{escape(str(status.get('status', '')))}</td>"
+                f"<td>{escape(str(status.get('source', '')))}</td>"
+                f"<td>{escape(str(status.get('date', '')))}</td>"
+                f"<td>{escape(str(status.get('message', '')))}</td>"
+                f"<td>{escape(str(status.get('retry_hint', '')))}</td>"
+                "</tr>"
+            )
+    rows = "".join(status_rows) or _empty_row(6, "目前沒有資料可信度警告。")
+    assumption_items: list[str] = []
+    if isinstance(assumptions, dict):
+        for key, value in assumptions.items():
+            assumption_items.append(f"<li><strong>{escape(str(key))}</strong>: {escape(str(value))}</li>")
+    assumptions_html = "".join(assumption_items) or '<li class="empty">未提供估值假設。</li>'
+    return (
+        '<section id="reliability" class="panel reliability">'
+        "<h2>資料可信度</h2>"
+        "<table><thead><tr><th>階段</th><th>狀態</th><th>來源</th><th>日期</th><th>說明</th><th>建議</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+        "<h3>估值假設</h3>"
+        f"<ul>{assumptions_html}</ul>"
         "</section>"
     )
 
