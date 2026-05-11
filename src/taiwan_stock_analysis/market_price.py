@@ -8,6 +8,8 @@ from typing import Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from taiwan_stock_analysis.reliability import build_retry_hint
+
 
 PRICE_TEMPLATE_FIELDS = [
     "stock_id",
@@ -21,6 +23,9 @@ PRICE_TEMPLATE_FIELDS = [
     "eps_growth_rate",
     "price_date",
     "price_source",
+    "price_status",
+    "price_status_message",
+    "price_retry_hint",
     "warning",
 ]
 
@@ -171,6 +176,7 @@ def write_valuation_template(
         for stock_id in stock_ids:
             price_row = price_fetcher(stock_id)
             enrichment = load_analysis_enrichment(stock_id, analysis_dir) if analysis_dir is not None else {}
+            price_reliability = _price_reliability(price_row)
             row = {field: "" for field in PRICE_TEMPLATE_FIELDS}
             row.update(
                 {
@@ -182,6 +188,9 @@ def write_valuation_template(
                     "target_pe_high": _csv_value(enrichment.get("target_pe_high")),
                     "price_date": _csv_value(price_row.get("price_date")),
                     "price_source": _csv_value(price_row.get("price_source")),
+                    "price_status": price_reliability["status"],
+                    "price_status_message": price_reliability["message"],
+                    "price_retry_hint": price_reliability["retry_hint"],
                     "warning": _merge_warnings(price_row.get("warning"), enrichment.get("warning")),
                 }
             )
@@ -295,6 +304,28 @@ def _normalized_eps_from_analysis(payload: dict[str, object]) -> float | None:
 def _merge_warnings(*warnings: object) -> str:
     parts = [str(warning).strip() for warning in warnings if str(warning or "").strip()]
     return "; ".join(parts)
+
+
+def _price_reliability(price_row: PriceRow) -> dict[str, str]:
+    if price_row.get("price") is None:
+        return {
+            "status": "warning",
+            "message": "No market price was available from configured sources.",
+            "retry_hint": build_retry_hint("price"),
+        }
+
+    if price_row.get("price_source") == "TPEX_DAILY_CLOSE":
+        return {
+            "status": "warning",
+            "message": "TWSE price was unavailable; loaded latest close price from TPEx fallback.",
+            "retry_hint": build_retry_hint("price"),
+        }
+
+    return {
+        "status": "ok",
+        "message": "Latest close price loaded from TWSE.",
+        "retry_hint": "",
+    }
 
 
 def _csv_value(value: object) -> str:

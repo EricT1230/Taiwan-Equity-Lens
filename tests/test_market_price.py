@@ -177,6 +177,78 @@ class MarketPriceTests(unittest.TestCase):
         self.assertEqual(rows[1]["price"], "")
         self.assertEqual(rows[1]["warning"], "no TWSE close price")
 
+    def test_write_valuation_template_records_price_reliability_for_twse_success(self):
+        output = Path(".tmp-cli-test/valuation-template-twse-reliability.csv")
+
+        write_valuation_template(
+            ["2330"],
+            output,
+            fetch_price=lambda stock_id: {
+                "stock_id": stock_id,
+                "price": 1000.0,
+                "price_date": "115/05/06",
+                "price_source": "TWSE_STOCK_DAY",
+                "warning": "",
+            },
+        )
+
+        rows = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8"))))
+        self.assertEqual(rows[0]["price_status"], "ok")
+        self.assertEqual(rows[0]["price_status_message"], "Latest close price loaded from TWSE.")
+        self.assertEqual(rows[0]["price_retry_hint"], "")
+
+    def test_write_valuation_template_records_price_reliability_for_tpex_fallback(self):
+        output = Path(".tmp-cli-test/valuation-template-tpex-reliability.csv")
+
+        write_valuation_template(
+            ["6187"],
+            output,
+            fetch_price=lambda stock_id: {
+                "stock_id": stock_id,
+                "price": 125.5,
+                "price_date": "115/05/06",
+                "price_source": "TPEX_DAILY_CLOSE",
+                "warning": "",
+            },
+        )
+
+        rows = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8"))))
+        self.assertEqual(rows[0]["price_status"], "warning")
+        self.assertEqual(
+            rows[0]["price_status_message"],
+            "TWSE price was unavailable; loaded latest close price from TPEx fallback.",
+        )
+        self.assertEqual(
+            rows[0]["price_retry_hint"],
+            "Run again after the next market data update or provide a valuation CSV manually.",
+        )
+
+    def test_write_valuation_template_records_price_reliability_when_no_price_available(self):
+        output = Path(".tmp-cli-test/valuation-template-no-price-reliability.csv")
+
+        write_valuation_template(
+            ["9999"],
+            output,
+            fetch_price=lambda stock_id: {
+                "stock_id": stock_id,
+                "price": None,
+                "price_date": "",
+                "price_source": "TWSE_STOCK_DAY,TPEX_DAILY_CLOSE",
+                "warning": "no TWSE close price; no TPEx close price",
+            },
+        )
+
+        rows = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8"))))
+        self.assertEqual(rows[0]["price_status"], "warning")
+        self.assertEqual(
+            rows[0]["price_status_message"],
+            "No market price was available from configured sources.",
+        )
+        self.assertEqual(
+            rows[0]["price_retry_hint"],
+            "Run again after the next market data update or provide a valuation CSV manually.",
+        )
+
     def test_load_analysis_enrichment_uses_eps_scenario_and_default_pe(self):
         analysis_dir = Path(".tmp-cli-test/analysis-enrichment")
         analysis_dir.mkdir(parents=True, exist_ok=True)
