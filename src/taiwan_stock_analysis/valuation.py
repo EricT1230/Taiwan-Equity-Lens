@@ -37,6 +37,33 @@ def _eps_history(metrics_by_year: MetricsByYear, years: list[str]) -> list[float
     return values
 
 
+def _assumption_labels(
+    *,
+    eps_history: list[float],
+    normalized_eps: float | None,
+    eps_growth_rate: float | None,
+) -> dict[str, str]:
+    eps_base = "unavailable"
+    if normalized_eps is not None:
+        eps_base = "manual_normalized_eps"
+    elif eps_history:
+        eps_base = "latest_positive_eps"
+
+    eps_optimistic = "unavailable"
+    if eps_history and eps_growth_rate is not None:
+        eps_optimistic = "latest_eps_growth_rate"
+    elif eps_history:
+        eps_optimistic = "max_latest_or_average_eps"
+
+    return {
+        "eps_base": eps_base,
+        "eps_optimistic": eps_optimistic,
+        "target_price_low": "conservative_eps_x_target_pe_low",
+        "target_price_base": "base_eps_x_target_pe_base",
+        "target_price_high": "optimistic_eps_x_target_pe_high",
+    }
+
+
 def build_eps_scenarios(
     *,
     metrics_by_year: MetricsByYear,
@@ -149,11 +176,18 @@ def build_valuation(
     latest_year = years[0] if years else None
     latest_metrics = metrics_by_year.get(latest_year or "", {})
     normalized_eps = price_inputs.get("normalized_eps")
+    eps_growth_rate = price_inputs.get("eps_growth_rate")
+    eps_history = _eps_history(metrics_by_year, years)
+    assumptions = _assumption_labels(
+        eps_history=eps_history,
+        normalized_eps=normalized_eps,
+        eps_growth_rate=eps_growth_rate,
+    )
     eps_scenarios = build_eps_scenarios(
         metrics_by_year=metrics_by_year,
         years=years,
         normalized_eps=normalized_eps,
-        eps_growth_rate=price_inputs.get("eps_growth_rate"),
+        eps_growth_rate=eps_growth_rate,
     )
     if normalized_eps is None:
         normalized_eps = eps_scenarios.get("base")
@@ -182,6 +216,7 @@ def build_valuation(
         "inputs": dict(price_inputs),
         "eps_scenarios": eps_scenarios,
         "target_prices": target_prices,
+        "assumptions": assumptions,
         "metrics": metrics,
         "context": context,
         "disclaimer": "valuation_context_only: valuation is separated from quality score and is for research context.",

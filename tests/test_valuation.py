@@ -77,6 +77,16 @@ class ValuationTests(unittest.TestCase):
 
         self.assertEqual(valuation["latest_year"], "2025")
         self.assertEqual(valuation["metrics"]["pe"], 20.0)
+        self.assertEqual(
+            valuation["assumptions"],
+            {
+                "eps_base": "manual_normalized_eps",
+                "eps_optimistic": "max_latest_or_average_eps",
+                "target_price_low": "conservative_eps_x_target_pe_low",
+                "target_price_base": "base_eps_x_target_pe_base",
+                "target_price_high": "optimistic_eps_x_target_pe_high",
+            },
+        )
         self.assertIn("高品質", valuation["context"])
         flattened = str(valuation)
         self.assertNotIn("買進", flattened)
@@ -109,6 +119,54 @@ class ValuationTests(unittest.TestCase):
         self.assertEqual(valuation["target_prices"]["low"]["price_gap_percent"], -40.0)
         self.assertEqual(valuation["target_prices"]["base"]["price_gap_percent"], 0.0)
         self.assertEqual(valuation["target_prices"]["high"]["price_gap_percent"], 37.5)
+        self.assertEqual(valuation["assumptions"]["eps_base"], "latest_positive_eps")
+        self.assertEqual(valuation["assumptions"]["eps_optimistic"], "latest_eps_growth_rate")
+        self.assertEqual(
+            valuation["assumptions"]["target_price_high"],
+            "optimistic_eps_x_target_pe_high",
+        )
+
+    def test_build_valuation_labels_derived_eps_assumptions_without_growth_rate(self):
+        valuation = build_valuation(
+            stock_id="2330",
+            metrics_by_year={
+                "2025": {"eps": 30.0},
+                "2024": {"eps": 50.0},
+            },
+            years=["2025", "2024"],
+            price_inputs={
+                "price": 1000.0,
+                "target_pe_low": 15.0,
+                "target_pe_base": 20.0,
+                "target_pe_high": 25.0,
+            },
+        )
+
+        self.assertEqual(valuation["eps_scenarios"]["base"], 30.0)
+        self.assertEqual(valuation["eps_scenarios"]["optimistic"], 40.0)
+        self.assertEqual(valuation["assumptions"]["eps_base"], "latest_positive_eps")
+        self.assertEqual(valuation["assumptions"]["eps_optimistic"], "max_latest_or_average_eps")
+
+    def test_build_valuation_labels_unavailable_eps_assumptions_without_positive_history(self):
+        valuation = build_valuation(
+            stock_id="2330",
+            metrics_by_year={
+                "2025": {"eps": 0.0},
+                "2024": {"eps": -1.0},
+            },
+            years=["2025", "2024"],
+            price_inputs={
+                "price": 1000.0,
+                "target_pe_low": 15.0,
+                "target_pe_base": 20.0,
+                "target_pe_high": 25.0,
+            },
+        )
+
+        self.assertIsNone(valuation["eps_scenarios"]["base"])
+        self.assertIsNone(valuation["eps_scenarios"]["optimistic"])
+        self.assertEqual(valuation["assumptions"]["eps_base"], "unavailable")
+        self.assertEqual(valuation["assumptions"]["eps_optimistic"], "unavailable")
 
 
 if __name__ == "__main__":
