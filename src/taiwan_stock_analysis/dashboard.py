@@ -128,6 +128,10 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>Workflow summary</span></div>
     </section>
     <section>
+      <h2>資料可信度</h2>
+      {_workflow_reliability_summary(items.get("workflow_summaries", []))}
+    </section>
+    <section>
       <h2>Workflow 狀態</h2>
       {_workflow_status_line(items.get("workflow_summaries", []))}
       <table><thead><tr><th>Summary</th><th>Watchlist</th><th>成功股票</th><th>估值 CSV</th><th>Dashboard</th><th>同業比較</th><th>備註</th></tr></thead><tbody>{_workflow_summary_rows(items.get("workflow_summaries", []))}</tbody></table>
@@ -307,6 +311,46 @@ def _workflow_status_line(workflow_summaries: list[dict[str, Any]]) -> str:
         f'<span class="badge {comparison_class}">{comparison_text}</span>'
         "</p>"
     )
+
+
+def _workflow_reliability_summary(workflow_summaries: list[dict[str, Any]]) -> str:
+    if not workflow_summaries:
+        return '<p class="empty">尚未找到資料可信度摘要。</p>'
+    sections: list[str] = []
+    for summary in workflow_summaries:
+        if summary.get("error"):
+            sections.append(f'<p class="empty">Workflow summary 讀取失敗：{escape(str(summary.get("error")))}</p>')
+            continue
+        reliability = summary.get("data_reliability", {})
+        reliability = reliability if isinstance(reliability, dict) else {}
+        failures = summary.get("stock_failures", [])
+        counts = "".join(
+            f"<li><strong>{escape(key)}</strong>: {escape(str(reliability.get(key, 0)))}</li>"
+            for key in ["overall_status", "ok", "warning", "error", "skipped"]
+        )
+        failure_rows: list[str] = []
+        if isinstance(failures, list):
+            for failure in failures:
+                if not isinstance(failure, dict):
+                    continue
+                failure_rows.append(
+                    "<tr>"
+                    f"<td>{escape(str(failure.get('stock_id', '')))}</td>"
+                    f"<td>{escape(str(failure.get('stage', '')))}</td>"
+                    f"<td>{escape(str(failure.get('reason', '')))}</td>"
+                    f"<td>{escape(str(failure.get('retry_hint', '')))}</td>"
+                    "</tr>"
+                )
+        failure_body = "".join(failure_rows) or _empty_row(4, "沒有失敗股票。")
+        sections.append(
+            "<div>"
+            f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            f"<ul>{counts}</ul>"
+            "<table><thead><tr><th>股票</th><th>階段</th><th>原因</th><th>建議</th></tr></thead>"
+            f"<tbody>{failure_body}</tbody></table>"
+            "</div>"
+        )
+    return "".join(sections)
 
 
 def _batch_status_line(batch_results: list[dict[str, Any]]) -> str:

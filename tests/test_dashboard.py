@@ -130,6 +130,21 @@ class DashboardTests(unittest.TestCase):
                         },
                         "generated_valuation_template": True,
                         "comparison_skipped_reason": "fewer than two successful stocks",
+                        "data_reliability": {
+                            "ok": 2,
+                            "warning": 1,
+                            "error": 1,
+                            "skipped": 1,
+                            "overall_status": "error",
+                        },
+                        "stock_failures": [
+                            {
+                                "stock_id": "2303",
+                                "stage": "batch",
+                                "reason": "Source fetch failed.",
+                                "retry_hint": "Run the workflow again later or use fixture data if the source is unavailable.",
+                            }
+                        ],
                     }
                 ],
             }
@@ -154,6 +169,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("workflow-dist/valuation.csv", html)
         self.assertIn("fewer than two successful stocks", html)
         self.assertIn("2330", html)
+        self.assertIn("資料可信度", html)
+        self.assertIn("overall_status", html)
+        self.assertIn("Source fetch failed", html)
+        self.assertIn("Run the workflow again later", html)
 
     def test_render_dashboard_html_shows_clear_empty_states(self):
         html = render_dashboard_html(
