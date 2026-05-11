@@ -5,6 +5,7 @@
 ## Verification
 
 - [ ] `python -m unittest discover -s tests -v`
+- [ ] I documented any changed data-source assumptions, if applicable.
 
 ## Notes
 

@@ -23,9 +23,15 @@ Describe what you expected.
 - OS:
 - Python version:
 - Command:
+- Stock ID or input file:
+- Data source involved:
 
 ## Logs Or Output
 
 ```text
 
 ```
+
+## Generated Output
+
+Attach or summarize the relevant generated JSON / HTML / CSV output if it helps reproduce the issue.

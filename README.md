@@ -1,8 +1,12 @@
 # Taiwan Equity Lens（台股基本面透鏡）
 
+[![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](CHANGELOG.md)
+
 輸入台灣股票代碼，從 Goodinfo.tw 讀取年度財報頁面，解析損益表、資產負債表、現金流量表，計算常用財務指標，並輸出 JSON 與 HTML 儀表板。
 
-> 本工具僅供財務學習與研究參考，不構成投資建議。資料來源若有異動，請以公開資訊觀測站與公司正式申報為準。
+> 本工具僅供財務學習與研究參考，不構成投資建議。資料來源若有異動，請以公開資訊觀測站與公司正式申報為準。詳見 [docs/disclaimer.md](docs/disclaimer.md)。
 
 ## 功能
 
@@ -30,6 +34,14 @@ python -m pip install -e .
 ## 授權
 
 MIT License. See [LICENSE](LICENSE).
+
+## 資料來源
+
+See [docs/data-sources.md](docs/data-sources.md).
+
+## 使用流程
+
+See [docs/usage-workflow.md](docs/usage-workflow.md).
 
 ## 版本
 
