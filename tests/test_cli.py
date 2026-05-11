@@ -104,8 +104,8 @@ class CliTests(unittest.TestCase):
         valuation_csv = root / "valuation-inputs.csv"
         self._write_fixture(fixture_dir, revenue=1000, gross_profit=500, net_income=250)
         valuation_csv.write_text(
-            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high\n"
-            "2330,1000,160,12,60,15,20,25\n",
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high,price_date,price_source,price_status,price_status_message,price_retry_hint,warning\n"
+            "2330,1000,160,12,60,15,20,25,115/05/06,TPEX_DAILY_CLOSE,warning,TWSE price was unavailable; TPEx fallback was used.,Run again after the next market data update.,\n",
             encoding="utf-8",
         )
 
@@ -122,6 +122,12 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         data = json.loads((output_dir / "2330_raw_data.json").read_text(encoding="utf-8"))
         self.assertEqual(data["valuation"]["metrics"]["pe"], 100.0)
+        self.assertEqual(data["metadata"]["reliability"][0]["status"], "warning")
+        self.assertEqual(data["metadata"]["reliability"][0]["source"], "TPEX_DAILY_CLOSE")
+        html = (output_dir / "2330_analysis.html").read_text(encoding="utf-8")
+        self.assertIn("估值情境", html)
+        self.assertIn("資料可信度", html)
+        self.assertIn("TWSE price was unavailable", html)
         self.assertIn("估值情境", (output_dir / "2330_analysis.html").read_text(encoding="utf-8"))
 
     def test_main_dashboard_writes_static_index(self):

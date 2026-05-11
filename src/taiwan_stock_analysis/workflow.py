@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,8 @@ def run_watchlist_workflow(
                 fetch_price=offline_price if offline_prices else None,
             )
             generated_valuation_template = True
+        price_statuses = _price_statuses_from_csv(valuation_path)
+        statuses.extend(price_statuses)
 
         valuation_summary_path = run_batch(
             watchlist_path,
@@ -190,11 +193,40 @@ def _summary_status(batch_summary: dict[str, Any]) -> str:
     if not isinstance(results, list) or not results:
         return "skipped"
     failed = sum(1 for result in results if isinstance(result, dict) and result.get("status") != "ok")
+    warnings = sum(
+        1
+        for result in results
+        if isinstance(result, dict) and int(result.get("warning_count") or 0) > 0
+    )
     if failed == 0:
-        return "ok"
+        return "warning" if warnings else "ok"
     if failed == len(results):
         return "error"
     return "warning"
+
+
+def _price_statuses_from_csv(path: Path) -> list[ReliabilityStatus]:
+    if not path.exists():
+        return []
+    statuses: list[ReliabilityStatus] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            status = (row.get("price_status") or "").strip()
+            if status not in {"warning", "error"}:
+                continue
+            statuses.append(
+                ReliabilityStatus(
+                    stage="price",
+                    status=status,
+                    stock_id=(row.get("stock_id") or "").strip(),
+                    source=(row.get("price_source") or "").strip(),
+                    date=(row.get("price_date") or "").strip(),
+                    message=(row.get("price_status_message") or row.get("warning") or "").strip(),
+                    retry_hint=(row.get("price_retry_hint") or build_retry_hint("price")).strip(),
+                )
+            )
+    return statuses
 
 
 def _stock_failures(batch_summary: dict[str, Any], *, default_stage: str) -> list[dict[str, str]]:

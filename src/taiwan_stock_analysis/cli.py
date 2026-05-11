@@ -15,7 +15,7 @@ from taiwan_stock_analysis.market_price import offline_price, write_valuation_te
 from taiwan_stock_analysis.metrics import calculate_metrics
 from taiwan_stock_analysis.models import AnalysisResult
 from taiwan_stock_analysis.parser import parse_financial_table
-from taiwan_stock_analysis.price_data import load_price_data
+from taiwan_stock_analysis.price_data import load_price_data, load_price_reliability
 from taiwan_stock_analysis.report_compare import render_comparison_html
 from taiwan_stock_analysis.report import render_html_report
 from taiwan_stock_analysis.scoring import build_scorecard
@@ -49,6 +49,7 @@ def analyze(
     stock_id: str,
     fixture_dir: Path | None = None,
     price_inputs: dict[str, float | None] | None = None,
+    reliability: list[dict[str, str]] | None = None,
 ) -> AnalysisResult:
     html_reports = _read_reports(stock_id, fixture_dir)
     income_statement, years = parse_financial_table(html_reports["income_statement"])
@@ -72,6 +73,10 @@ def analyze(
         metrics_by_year=metrics_by_year,
     )
 
+    metadata = build_metadata(stock_id, years)
+    if reliability:
+        metadata["reliability"] = reliability
+
     return AnalysisResult(
         stock_id=stock_id,
         years=years,
@@ -83,7 +88,7 @@ def analyze(
         scorecard=scorecard,
         valuation=valuation,
         diagnostics=diagnostics,
-        metadata=build_metadata(stock_id, years),
+        metadata=metadata,
         verification=build_verification(metrics_by_year, years),
     )
 
@@ -97,9 +102,13 @@ def run(
 ) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     price_inputs = None
+    reliability = None
     if valuation_csv is not None:
         price_inputs = load_price_data(valuation_csv).get(stock_id)
-    result = analyze(stock_id, fixture_dir=fixture_dir, price_inputs=price_inputs)
+        price_reliability = load_price_reliability(valuation_csv).get(stock_id)
+        if price_reliability and price_reliability.get("status"):
+            reliability = [price_reliability]
+    result = analyze(stock_id, fixture_dir=fixture_dir, price_inputs=price_inputs, reliability=reliability)
 
     json_path = output_dir / f"{stock_id}_raw_data.json"
     html_path = output_dir / f"{stock_id}_analysis.html"
