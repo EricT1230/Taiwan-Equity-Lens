@@ -25,6 +25,7 @@ PRICE_TEMPLATE_FIELDS = [
 ]
 
 TWSE_STOCK_DAY_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
+TPEX_DAILY_CLOSE_URL = "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php"
 
 PriceRow = dict[str, str | float | None]
 FetchBytes = Callable[[str], bytes]
@@ -83,6 +84,78 @@ def fetch_twse_latest_close(
     return parse_twse_stock_day(stock_id, payload)
 
 
+def parse_tpex_daily_close(
+    stock_id: str,
+    payload: dict[str, object],
+    *,
+    price_date: str = "",
+) -> PriceRow:
+    rows = payload.get("aaData", [])
+    if not isinstance(rows, list):
+        return _empty_price_with_source(stock_id, "TPEX_DAILY_CLOSE", "invalid TPEx payload")
+
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 3:
+            continue
+        if str(row[0]).strip() != stock_id:
+            continue
+        close = _parse_float(row[2])
+        if close is None:
+            return _empty_price_with_source(stock_id, "TPEX_DAILY_CLOSE", "no TPEx close price")
+        return {
+            "stock_id": stock_id,
+            "price": close,
+            "price_date": str(payload.get("date") or price_date),
+            "price_source": "TPEX_DAILY_CLOSE",
+            "warning": "",
+        }
+    return _empty_price_with_source(stock_id, "TPEX_DAILY_CLOSE", "no TPEx close price")
+
+
+def fetch_tpex_latest_close(
+    stock_id: str,
+    *,
+    date: str | None = None,
+    fetch: FetchBytes | None = None,
+) -> PriceRow:
+    query = urlencode(
+        {
+            "l": "zh-tw",
+            "o": "json",
+            "d": _tpex_date(date),
+        }
+    )
+    fetch_bytes = fetch or _fetch_url
+    try:
+        payload = json.loads(fetch_bytes(f"{TPEX_DAILY_CLOSE_URL}?{query}").decode("utf-8-sig"))
+    except Exception as exc:
+        return _empty_price_with_source(stock_id, "TPEX_DAILY_CLOSE", f"TPEx fetch failed: {exc}")
+    if not isinstance(payload, dict):
+        return _empty_price_with_source(stock_id, "TPEX_DAILY_CLOSE", "invalid TPEx payload")
+    return parse_tpex_daily_close(stock_id, payload, price_date=_tpex_date(date))
+
+
+def fetch_latest_close(
+    stock_id: str,
+    *,
+    date: str | None = None,
+    fetch: FetchBytes | None = None,
+) -> PriceRow:
+    twse_price = fetch_twse_latest_close(stock_id, date=date, fetch=fetch)
+    if twse_price.get("price") is not None:
+        return twse_price
+
+    tpex_price = fetch_tpex_latest_close(stock_id, date=date, fetch=fetch)
+    if tpex_price.get("price") is not None:
+        return tpex_price
+
+    return _empty_price_with_source(
+        stock_id,
+        "TWSE_STOCK_DAY,TPEX_DAILY_CLOSE",
+        _merge_warnings(twse_price.get("warning"), tpex_price.get("warning")),
+    )
+
+
 def write_valuation_template(
     stock_ids: list[str],
     output_path: Path,
@@ -91,7 +164,7 @@ def write_valuation_template(
     fetch_price: FetchPrice | None = None,
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    price_fetcher = fetch_price or fetch_twse_latest_close
+    price_fetcher = fetch_price or fetch_latest_close
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=PRICE_TEMPLATE_FIELDS)
         writer.writeheader()
@@ -140,11 +213,15 @@ def offline_price(stock_id: str) -> PriceRow:
 
 
 def _empty_price(stock_id: str, warning: str) -> PriceRow:
+    return _empty_price_with_source(stock_id, "TWSE_STOCK_DAY", warning)
+
+
+def _empty_price_with_source(stock_id: str, source: str, warning: str) -> PriceRow:
     return {
         "stock_id": stock_id,
         "price": None,
         "price_date": "",
-        "price_source": "TWSE_STOCK_DAY",
+        "price_source": source,
         "warning": warning,
     }
 
@@ -176,6 +253,13 @@ def _fetch_url(url: str) -> bytes:
 
 def _today_yyyymmdd() -> str:
     return date.today().strftime("%Y%m%d")
+
+
+def _tpex_date(raw_date: str | None) -> str:
+    value = raw_date or _today_yyyymmdd()
+    if len(value) == 8 and value.isdigit():
+        return f"{int(value[:4]) - 1911}/{value[4:6]}/{value[6:8]}"
+    return value
 
 
 def _default_enrichment(warning: str) -> dict[str, float | str | None]:

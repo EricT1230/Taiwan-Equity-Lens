@@ -152,7 +152,7 @@ EPS 與目標價情境：
 
 這些是情境估算，不是價格預測或投資建議。
 
-也可以先產生估值 CSV 範本，上市股票會嘗試用 TWSE 個股日成交資訊補入最近收盤價：
+也可以先產生估值 CSV 範本。工具會先嘗試用 TWSE 個股日成交資訊補入上市股票最近收盤價；TWSE 找不到價格時，會再嘗試 TPEx 上櫃日收盤行情：
 
 ```powershell
 $env:PYTHONPATH='src'
@@ -174,7 +174,7 @@ python -m taiwan_stock_analysis.cli price-template 2330 --analysis-dir dist --ou
 - `target_pe_high`：`20`
 - `book_value_per_share` 與 `cash_dividend_per_share`：沒有可靠股數或股利資料時保留空白
 
-若資料來源暫時無法取得，`price` 會留空並在 `warning` 欄位記錄原因。測試或離線時可使用：
+若 TWSE / TPEx 都無法取得資料，`price` 會留空並在 `warning` 欄位記錄原因。測試或離線時可使用：
 
 ```powershell
 $env:PYTHONPATH='src'

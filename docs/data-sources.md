@@ -16,7 +16,13 @@ The parser is designed around the table format observed in these pages. If Goodi
 
 Used by `price-template` for recent listed-stock closing prices through TWSE daily trading data.
 
-This is not a real-time quote feed. If the source is unavailable, delayed, or does not contain a stock ID, the CSV keeps `price` blank and writes a warning.
+This is not a real-time quote feed. If the source is unavailable, delayed, or does not contain a stock ID, the tool attempts the TPEx source before leaving `price` blank.
+
+## TPEx
+
+Used by `price-template` as the fallback source for mainboard OTC stock closing prices when TWSE does not return a valid price.
+
+The TPEx parser reads daily close quote rows and records `price_source` as `TPEX_DAILY_CLOSE` when a TPEx price is used. If neither TWSE nor TPEx can provide a valid closing price, the CSV keeps `price` blank and writes a warning.
 
 ## MOPS
 

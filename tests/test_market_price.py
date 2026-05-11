@@ -5,8 +5,10 @@ import unittest
 from pathlib import Path
 
 from taiwan_stock_analysis.market_price import (
+    fetch_latest_close,
     fetch_twse_latest_close,
     load_analysis_enrichment,
+    parse_tpex_daily_close,
     parse_twse_stock_day,
     write_valuation_template,
 )
@@ -41,6 +43,86 @@ class MarketPriceTests(unittest.TestCase):
         self.assertEqual(price["stock_id"], "9999")
         self.assertIsNone(price["price"])
         self.assertIn("no TWSE close price", price["warning"])
+
+    def test_parse_tpex_daily_close_finds_stock_close_price(self):
+        payload = {
+            "date": "115/05/06",
+            "aaData": [
+                ["6187", "萬潤", "125.50", "+1.00", "124.00"],
+                ["9999", "測試", "--", "", ""],
+            ],
+        }
+
+        price = parse_tpex_daily_close("6187", payload)
+
+        self.assertEqual(price["stock_id"], "6187")
+        self.assertEqual(price["price"], 125.5)
+        self.assertEqual(price["price_date"], "115/05/06")
+        self.assertEqual(price["price_source"], "TPEX_DAILY_CLOSE")
+        self.assertEqual(price["warning"], "")
+
+    def test_parse_tpex_daily_close_uses_query_date_when_payload_date_missing(self):
+        payload = {"aaData": [["6187", "萬潤", "125.50"]]}
+
+        price = parse_tpex_daily_close("6187", payload, price_date="115/05/06")
+
+        self.assertEqual(price["price"], 125.5)
+        self.assertEqual(price["price_date"], "115/05/06")
+
+    def test_fetch_latest_close_falls_back_to_tpex_when_twse_has_no_price(self):
+        calls = []
+
+        def fake_fetch(url: str) -> bytes:
+            calls.append(url)
+            if "twse.com.tw" in url:
+                return '{"stat":"OK","fields":["日期","收盤價"],"data":[]}'.encode("utf-8")
+            return json.dumps(
+                {
+                    "date": "115/05/06",
+                    "aaData": [["6187", "萬潤", "125.50", "+1.00", "124.00"]],
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+        price = fetch_latest_close("6187", date="20260506", fetch=fake_fetch)
+
+        self.assertEqual(price["price"], 125.5)
+        self.assertEqual(price["price_source"], "TPEX_DAILY_CLOSE")
+        self.assertTrue(any("twse.com.tw" in call for call in calls))
+        self.assertTrue(any("tpex.org.tw" in call for call in calls))
+
+    def test_fetch_latest_close_keeps_twse_when_twse_succeeds(self):
+        calls = []
+
+        def fake_fetch(url: str) -> bytes:
+            calls.append(url)
+            return json.dumps(
+                {
+                    "stat": "OK",
+                    "fields": ["日期", "收盤價"],
+                    "data": [["115/05/06", "1000.00"]],
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+        price = fetch_latest_close("2330", date="20260506", fetch=fake_fetch)
+
+        self.assertEqual(price["price"], 1000.0)
+        self.assertEqual(price["price_source"], "TWSE_STOCK_DAY")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("twse.com.tw", calls[0])
+
+    def test_fetch_latest_close_combines_warnings_when_both_sources_fail(self):
+        def fake_fetch(url: str) -> bytes:
+            if "twse.com.tw" in url:
+                return '{"stat":"OK","fields":["日期","收盤價"],"data":[]}'.encode("utf-8")
+            return json.dumps({"date": "115/05/06", "aaData": []}).encode("utf-8")
+
+        price = fetch_latest_close("9999", date="20260506", fetch=fake_fetch)
+
+        self.assertIsNone(price["price"])
+        self.assertIn("no TWSE close price", price["warning"])
+        self.assertIn("no TPEx close price", price["warning"])
 
     def test_write_valuation_template_writes_price_rows_and_blank_assumptions(self):
         output = Path(".tmp-cli-test/valuation-template.csv")
