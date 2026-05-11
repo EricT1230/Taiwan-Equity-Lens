@@ -24,6 +24,20 @@ Used by `price-template` as the fallback source for mainboard OTC stock closing 
 
 The TPEx parser reads daily close quote rows and records `price_source` as `TPEX_DAILY_CLOSE` when a TPEx price is used. If neither TWSE nor TPEx can provide a valid closing price, the CSV keeps `price` blank and writes a warning.
 
+## Source Freshness and Fallbacks
+
+Price data can be marked `ok` when the primary source succeeds or `warning` when fallback behavior, missing values, or source warnings are detected.
+
+Generated valuation CSV templates include:
+
+- `price_date`
+- `price_source`
+- `price_status`
+- `price_status_message`
+- `price_retry_hint`
+
+A warning does not mean the report is invalid. It means the source path should be reviewed before relying on the valuation context.
+
 ## MOPS
 
 Reports include a MOPS link for official filing verification. Taiwan Equity Lens does not currently parse MOPS financial statements directly.

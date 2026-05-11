@@ -152,8 +152,24 @@ Outputs:
 - comparison link when produced
 - comparison skipped reason when fewer than two stocks succeeded
 - workflow summary JSON link
+- data reliability status and failure retry hints
 
 The dashboard uses Traditional Chinese labels and clear empty states, so missing reports, missing comparison output, and missing workflow summary are shown as readable status messages instead of blank tables.
+
+### Workflow Summary Reliability Fields
+
+`workflow_summary.json` preserves the existing v0.2.0 fields and adds reliability fields:
+
+- `step_statuses`: stage-level status records for batch, valuation, comparison, and dashboard generation
+- `data_reliability`: aggregate counts for `ok`, `warning`, `error`, and `skipped`
+- `stock_failures`: per-stock failure reason and retry hint
+
+Status values mean:
+
+- `ok`: the stage completed without detected data issues
+- `warning`: output is usable, but a fallback, missing field, or partial failure was detected
+- `error`: the stage could not produce output
+- `skipped`: the stage did not run because it was disabled or a prerequisite failed
 
 If you edit `valuation.csv` by hand, rerun the workflow with the edited file:
 

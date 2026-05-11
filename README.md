@@ -119,6 +119,19 @@ The workflow dashboard shows:
 - comparison output or skipped reason
 - report and JSON links
 
+## Data Reliability
+
+Generated workflow outputs include a reliability summary that explains which steps succeeded, which inputs used fallback sources, and which stocks failed or were skipped.
+
+The project uses four status values:
+
+- `ok`: the stage completed without detected data issues
+- `warning`: output is usable, but a fallback, stale date, or missing field was detected
+- `error`: the stage could not produce output
+- `skipped`: the stage did not run because it was disabled or a prerequisite failed
+
+Single-stock reports and dashboards surface the same reliability context, including price source status, workflow failure reasons, retry hints, and valuation assumption labels.
+
 ## Data Sources
 
 See [docs/data-sources.md](docs/data-sources.md).
@@ -137,6 +150,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.3.0 release notes](docs/releases/v0.3.0.md)
 - [v0.2.0 release notes](docs/releases/v0.2.0.md)
 
 ## Verify
