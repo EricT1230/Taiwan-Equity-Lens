@@ -244,6 +244,7 @@ Outputs:
 
 `dashboard.html` also surfaces the workflow summary: watchlist path, successful stocks, valuation CSV link, comparison link or skipped reason, and the summary JSON link.
 The dashboard uses Traditional Chinese section labels, readable empty states, and batch/workflow status badges for quick review.
+Single-stock HTML reports also use cleaned Traditional Chinese sections for KPIs, quality score, valuation scenarios, data quality, and insight panels.
 
 After editing a valuation CSV, rerun valuation-aware reports with:
 

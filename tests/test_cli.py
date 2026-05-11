@@ -122,7 +122,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         data = json.loads((output_dir / "2330_raw_data.json").read_text(encoding="utf-8"))
         self.assertEqual(data["valuation"]["metrics"]["pe"], 100.0)
-        self.assertIn("估值脈絡", (output_dir / "2330_analysis.html").read_text(encoding="utf-8"))
+        self.assertIn("估值情境", (output_dir / "2330_analysis.html").read_text(encoding="utf-8"))
 
     def test_main_dashboard_writes_static_index(self):
         root = Path(".tmp-cli-test")

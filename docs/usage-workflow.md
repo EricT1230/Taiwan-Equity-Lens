@@ -85,6 +85,7 @@ The HTML report will show:
 - price gap percentages
 
 These are scenario outputs, not investment advice.
+Single-stock reports use Traditional Chinese sections for KPIs, quality score, valuation scenarios, data quality, and operating / profitability / financial health observations.
 
 ## 5. Compare Multiple Stocks
 
