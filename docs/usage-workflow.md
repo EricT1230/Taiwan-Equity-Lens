@@ -119,7 +119,39 @@ Output:
 
 Each row records `ok` or `error`. Successful rows include `warning_count`.
 
-## 7. Generate Dashboard
+## 7. Run the One-Shot Watchlist Workflow
+
+The workflow command runs the normal watchlist path end to end:
+
+```powershell
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist
+```
+
+For fixture or CI-style runs, keep price lookup offline:
+
+```powershell
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --fixture-root fixtures --output-dir workflow-dist --offline-prices
+```
+
+Outputs:
+
+- `workflow-dist/reports/batch_summary.json`
+- `workflow-dist/valuation.csv`
+- `workflow-dist/valuation-reports/batch_summary.json`
+- `workflow-dist/comparison/comparison.json`
+- `workflow-dist/comparison/comparison.html`
+- `workflow-dist/dashboard.html`
+- `workflow-dist/workflow_summary.json`
+
+If you edit `valuation.csv` by hand, rerun the workflow with the edited file:
+
+```powershell
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist --valuation-csv workflow-dist/valuation.csv
+```
+
+The workflow refreshes its generated subdirectories on each run to avoid stale report links. Comparison uses only stocks that succeeded in the first batch analysis.
+
+## 8. Generate Dashboard
 
 ```powershell
 python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir compare-dist --scan-dir batch-dist --scan-dir valuation-dist --output dashboard-index.html
@@ -127,7 +159,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir co
 
 Open `dashboard-index.html` in a browser. It lists generated reports, comparison outputs, batch status, and command builders.
 
-## 8. Verify
+## 9. Verify
 
 ```powershell
 python -m unittest discover -s tests -v

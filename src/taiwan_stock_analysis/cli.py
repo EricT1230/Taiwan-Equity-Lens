@@ -139,6 +139,7 @@ def run_batch(
     watchlist_path: Path,
     output_dir: Path,
     fixture_root: Path | None = None,
+    valuation_csv: Path | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = load_watchlist(watchlist_path)
@@ -152,6 +153,7 @@ def run_batch(
                 company_name=row.get("company_name") or None,
                 output_dir=output_dir,
                 fixture_dir=_fixture_for_stock(fixture_root, stock_id),
+                valuation_csv=valuation_csv,
             )
         except Exception as exc:
             summary["results"].append(
@@ -213,6 +215,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("watchlist", type=Path, help="CSV file with stock_id and optional company_name columns.")
     batch_parser.add_argument("--output-dir", default="batch-dist", type=Path)
     batch_parser.add_argument("--fixture-root", type=Path, help="Root directory containing per-stock fixture folders.")
+    batch_parser.add_argument("--valuation-csv", type=Path, help="CSV file with valuation inputs for all batch stocks.")
 
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a static dashboard index.")
     dashboard_parser.add_argument("--scan-dir", action="append", default=[], type=Path, help="Directory to scan for generated reports.")
@@ -223,12 +226,20 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     price_template_parser.add_argument("--output", default=Path("valuation.csv"), type=Path, help="Output CSV path.")
     price_template_parser.add_argument("--offline", action="store_true", help="Do not fetch prices; write blank rows with warnings.")
     price_template_parser.add_argument("--analysis-dir", type=Path, help="Directory containing *_raw_data.json files for EPS enrichment.")
+
+    workflow_parser = subparsers.add_parser("workflow", help="Run the full watchlist workflow.")
+    workflow_parser.add_argument("watchlist", type=Path, help="CSV file with stock_id and optional company_name columns.")
+    workflow_parser.add_argument("--output-dir", default="workflow-dist", type=Path)
+    workflow_parser.add_argument("--fixture-root", type=Path, help="Root directory containing per-stock fixture folders.")
+    workflow_parser.add_argument("--offline-prices", action="store_true", help="Do not fetch market prices for the valuation template.")
+    workflow_parser.add_argument("--valuation-csv", type=Path, help="Existing valuation CSV to use for valuation-aware reports.")
+    workflow_parser.add_argument("--skip-valuation", action="store_true", help="Skip valuation template and valuation-aware rerun.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
-    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template"}:
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "workflow"}:
         args = build_command_arg_parser().parse_args(raw_args)
     else:
         args = build_arg_parser().parse_args(raw_args)
@@ -258,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
             args.watchlist,
             output_dir=args.output_dir,
             fixture_root=args.fixture_root,
+            valuation_csv=args.valuation_csv,
         )
         print(f"Wrote {summary_path}")
         return 0
@@ -277,6 +289,21 @@ def main(argv: list[str] | None = None) -> int:
             fetch_price=fetch_price,
         )
         print(f"Wrote {output_path}")
+        return 0
+
+    if args.command == "workflow":
+        from taiwan_stock_analysis.workflow import run_watchlist_workflow
+
+        summary_path = run_watchlist_workflow(
+            args.watchlist,
+            args.output_dir,
+            fixture_root=args.fixture_root,
+            offline_prices=args.offline_prices,
+            valuation_csv=args.valuation_csv,
+            include_valuation=not args.skip_valuation,
+        )
+        print(f"Wrote {summary_path}")
+        print(f"Open {args.output_dir / 'dashboard.html'}")
         return 0
     build_command_arg_parser().error("command is required")
 

@@ -216,6 +216,39 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir co
 - 批次分析指令產生器
 - watchlist CSV 範本下載
 
+## One-Shot Watchlist Workflow
+
+Run the full watchlist workflow in one command:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist
+```
+
+Offline fixture run:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --fixture-root fixtures --output-dir workflow-dist --offline-prices
+```
+
+Outputs:
+
+- `workflow-dist/reports/batch_summary.json`
+- `workflow-dist/valuation.csv`
+- `workflow-dist/valuation-reports/batch_summary.json`
+- `workflow-dist/comparison/comparison.json`
+- `workflow-dist/comparison/comparison.html`
+- `workflow-dist/dashboard.html`
+- `workflow-dist/workflow_summary.json`
+
+After editing a valuation CSV, rerun valuation-aware reports with:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist --valuation-csv workflow-dist/valuation.csv
+```
+
 ## 開發與測試
 
 ```powershell
@@ -245,5 +278,6 @@ src/taiwan_stock_analysis/
 ├── trends.py         # YoY / CAGR / trend helpers
 ├── valuation.py      # PE/PB/yield/scenario valuation
 ├── verification.py   # 合理性檢查
+├── workflow.py       # watchlist workflow orchestration
 └── watchlist.py      # watchlist CSV loader
 ```

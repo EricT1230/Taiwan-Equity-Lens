@@ -230,6 +230,67 @@ class CliTests(unittest.TestCase):
         self.assertEqual(summary["results"][1]["stock_id"], "9999")
         self.assertEqual(summary["results"][1]["status"], "error")
 
+    def test_run_batch_accepts_valuation_csv(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "batch-valuation-fixtures"
+        output_dir = root / "batch-valuation-dist"
+        watchlist = root / "batch-valuation-watchlist.csv"
+        valuation_csv = root / "batch-valuation.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        watchlist.write_text("stock_id,company_name\n2330,Alpha\n", encoding="utf-8")
+        valuation_csv.write_text(
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high\n"
+            "2330,100,50,2,10,8,12,16\n",
+            encoding="utf-8",
+        )
+
+        from taiwan_stock_analysis.cli import run_batch
+
+        summary_path = run_batch(
+            watchlist,
+            output_dir=output_dir,
+            fixture_root=fixture_root,
+            valuation_csv=valuation_csv,
+        )
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        data = json.loads((output_dir / "2330_raw_data.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["results"][0]["status"], "ok")
+        self.assertEqual(data["valuation"]["metrics"]["pe"], 10.0)
+
+    def test_main_workflow_writes_summary(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "workflow-cli-fixtures"
+        output_dir = root / "workflow-cli-dist"
+        watchlist = root / "workflow-cli-watchlist.csv"
+        valuation_csv = root / "workflow-cli-valuation.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        self._write_fixture(fixture_root / "2303", revenue=800, gross_profit=320, net_income=160)
+        watchlist.write_text("stock_id,company_name\n2330,Alpha\n2303,Beta\n", encoding="utf-8")
+        valuation_csv.write_text(
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high\n"
+            "2330,100,50,2,10,8,12,16\n"
+            "2303,80,40,1.5,8,8,12,16\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "workflow",
+            str(watchlist),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--valuation-csv",
+            str(valuation_csv),
+            "--offline-prices",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "workflow_summary.json").exists())
+        self.assertTrue((output_dir / "dashboard.html").exists())
+        self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
+
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
         (fixture_dir / "IS_YEAR.html").write_text(
