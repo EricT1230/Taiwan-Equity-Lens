@@ -55,12 +55,16 @@ def load_price_reliability(path: Path) -> dict[str, dict[str, str]]:
             stock_id = (row.get("stock_id") or "").strip()
             if not stock_id:
                 continue
+            warning = (row.get("warning") or "").strip()
+            status = (row.get("price_status") or "").strip()
+            if not status and warning:
+                status = "warning"
             data[stock_id] = {
                 "stage": "price",
-                "status": (row.get("price_status") or "").strip(),
+                "status": status,
                 "source": (row.get("price_source") or "").strip(),
                 "date": (row.get("price_date") or "").strip(),
-                "message": (row.get("price_status_message") or row.get("warning") or "").strip(),
+                "message": (row.get("price_status_message") or warning).strip(),
                 "retry_hint": (row.get("price_retry_hint") or "").strip(),
                 "stock_id": stock_id,
             }

@@ -130,6 +130,34 @@ class CliTests(unittest.TestCase):
         self.assertIn("TWSE price was unavailable", html)
         self.assertIn("估值情境", (output_dir / "2330_analysis.html").read_text(encoding="utf-8"))
 
+    def test_main_surfaces_legacy_valuation_csv_warning_in_report(self):
+        root = Path(".tmp-cli-test")
+        fixture_dir = root / "legacy-valuation-warning-fixture"
+        output_dir = root / "legacy-valuation-warning-dist"
+        valuation_csv = root / "legacy-valuation-warning.csv"
+        self._write_fixture(fixture_dir, revenue=1000, gross_profit=500, net_income=250)
+        valuation_csv.write_text(
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high,warning\n"
+            "2330,1000,160,12,60,15,20,25,manual warning from legacy CSV\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "2330",
+            "--fixture",
+            str(fixture_dir),
+            "--output-dir",
+            str(output_dir),
+            "--valuation-csv",
+            str(valuation_csv),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        data = json.loads((output_dir / "2330_raw_data.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["metadata"]["reliability"][0]["status"], "warning")
+        self.assertIn("manual warning from legacy CSV", data["metadata"]["reliability"][0]["message"])
+        self.assertIn("manual warning from legacy CSV", (output_dir / "2330_analysis.html").read_text(encoding="utf-8"))
+
     def test_main_dashboard_writes_static_index(self):
         root = Path(".tmp-cli-test")
         reports_dir = root / "dashboard-cli-reports"

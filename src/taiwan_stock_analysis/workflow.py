@@ -212,7 +212,10 @@ def _price_statuses_from_csv(path: Path) -> list[ReliabilityStatus]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
+            warning = (row.get("warning") or "").strip()
             status = (row.get("price_status") or "").strip()
+            if not status and warning:
+                status = "warning"
             if status not in {"warning", "error"}:
                 continue
             statuses.append(
@@ -222,7 +225,7 @@ def _price_statuses_from_csv(path: Path) -> list[ReliabilityStatus]:
                     stock_id=(row.get("stock_id") or "").strip(),
                     source=(row.get("price_source") or "").strip(),
                     date=(row.get("price_date") or "").strip(),
-                    message=(row.get("price_status_message") or row.get("warning") or "").strip(),
+                    message=(row.get("price_status_message") or warning).strip(),
                     retry_hint=(row.get("price_retry_hint") or build_retry_hint("price")).strip(),
                 )
             )

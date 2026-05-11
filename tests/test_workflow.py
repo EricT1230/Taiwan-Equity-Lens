@@ -28,9 +28,9 @@ class WorkflowTests(unittest.TestCase):
         self._write_fixture(fixture_root / "2303", revenue=800, gross_profit=320, net_income=160)
         watchlist.write_text("stock_id,company_name\n2330,Alpha\n2303,Beta\n", encoding="utf-8")
         valuation_csv.write_text(
-            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high\n"
-            "2330,100,50,2,10,8,12,16\n"
-            "2303,80,40,1.5,8,8,12,16\n",
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high,warning\n"
+            "2330,100,50,2,10,8,12,16,manual price warning\n"
+            "2303,80,40,1.5,8,8,12,16,\n",
             encoding="utf-8",
         )
 
@@ -54,6 +54,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(summary["step_statuses"]["valuation"]["status"], "warning")
         self.assertEqual(summary["step_statuses"]["comparison"]["status"], "ok")
         self.assertEqual(summary["step_statuses"]["dashboard"]["status"], "ok")
+        self.assertEqual(summary["step_statuses"]["price"]["status"], "warning")
+        self.assertEqual(summary["step_statuses"]["price"]["message"], "manual price warning")
         self.assertEqual(summary["data_reliability"]["overall_status"], "warning")
         self.assertEqual(summary["stock_failures"], [])
         self.assertTrue((output_dir / "reports" / "batch_summary.json").exists())
