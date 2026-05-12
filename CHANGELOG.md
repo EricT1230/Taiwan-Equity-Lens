@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.4.0 - 2026-05-12
+
+Research Workbench release.
+
+### Added
+
+- Research CSV template and validation for tracking stock ID, company name, category, priority, research state, and notes.
+- `research init`, `research run`, and `research summary` commands.
+- `research_summary.json` output that combines research rows with workflow status and data reliability context.
+- Dashboard rendering for research state counts, priority counts, and attention items.
+- Example research CSV and v0.4.0 release notes.
+
+### Changed
+
+- README, usage workflow docs, and examples now include the research workbench command path.
+- Package version is now `0.4.0`.
+
+### Quality
+
+- Existing watchlist workflow, reliability, comparison, valuation, and dashboard tests remain the release verification path.
+
 ## v0.3.1 - 2026-05-12
 
 Documentation hotfix for public onboarding.

@@ -1,0 +1,3 @@
+stock_id,company_name,category,priority,research_state,notes
+2330,TSMC,Semiconductor,high,review,Add valuation assumptions before final review
+2303,UMC,Semiconductor,medium,watching,Track workflow warnings

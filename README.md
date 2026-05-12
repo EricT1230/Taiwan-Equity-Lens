@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.3.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.4.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -16,6 +16,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Produces data-quality diagnostics instead of silently hiding missing fields.
 - Compares multiple stocks in a peer comparison report.
 - Runs a watchlist workflow from CSV to reports, valuation template, comparison, dashboard, and workflow summary.
+- Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -87,6 +88,24 @@ Run a valuation-aware report:
 python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --valuation-csv examples/valuation.csv --output-dir valuation-dist
 ```
 
+Create a research workbench CSV:
+
+```powershell
+python -m taiwan_stock_analysis.cli research init --output research.csv
+```
+
+Run the research workflow:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --output-dir research-dist --offline-prices
+```
+
+Regenerate a research summary from existing workflow outputs:
+
+```powershell
+python -m taiwan_stock_analysis.cli research summary examples/research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+```
+
 Generate a dashboard from existing outputs:
 
 ```powershell
@@ -97,6 +116,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-d
 
 - [examples/watchlist.csv](examples/watchlist.csv): sample watchlist for batch/workflow runs.
 - [examples/valuation.csv](examples/valuation.csv): sample valuation assumptions.
+- [examples/research.csv](examples/research.csv): sample research workbench universe.
 - [examples/README.md](examples/README.md): example command guide.
 
 ## Output Surfaces
@@ -121,6 +141,12 @@ The workflow dashboard shows:
 - comparison output or skipped reason
 - report and JSON links
 
+When a `research_summary.json` is present, the dashboard also shows:
+
+- research item counts by state and priority
+- stocks that need review because of research state, workflow status, or reliability warnings
+- links back to generated workflow and research outputs
+
 ## Data Reliability
 
 Generated workflow outputs include a reliability summary that explains which steps succeeded, which inputs used fallback sources, and which stocks failed or were skipped.
@@ -133,6 +159,12 @@ The project uses four status values:
 - `skipped`: the stage did not run because it was disabled or a prerequisite failed
 
 Single-stock reports and dashboards surface the same reliability context, including price source status, workflow failure reasons, retry hints, and valuation assumption labels.
+
+## Research Workflow
+
+The research workbench starts from a CSV with `stock_id`, `company_name`, `category`, `priority`, `research_state`, and `notes`. It converts the research universe to the existing watchlist workflow, keeps research metadata in `research_summary.json`, and refreshes the static dashboard for local review.
+
+Use `research init` to create an editable template, `research run` to produce reports and summaries from the CSV, and `research summary` to rebuild the research JSON after reviewing existing workflow outputs. The workflow is for organizing research status and data reliability review; it does not produce buy, sell, hold, or allocation recommendations.
 
 ## Data Sources
 
@@ -152,6 +184,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.4.0 release notes](docs/releases/v0.4.0.md)
 - [v0.3.0 release notes](docs/releases/v0.3.0.md)
 - [v0.2.0 release notes](docs/releases/v0.2.0.md)
 
@@ -178,6 +211,7 @@ src/taiwan_stock_analysis/
 |-- models.py         # dataclasses
 |-- parser.py         # HTML table parser
 |-- price_data.py     # valuation CSV loader
+|-- research.py       # research CSV and summary helpers
 |-- reliability.py    # data reliability status model
 |-- report.py         # single-stock HTML renderer
 |-- report_compare.py # comparison HTML renderer

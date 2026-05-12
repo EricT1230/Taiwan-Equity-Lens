@@ -179,7 +179,50 @@ python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow
 
 The workflow refreshes its generated subdirectories on each run to avoid stale report links. Comparison uses only stocks that succeeded in the first batch analysis.
 
-## 8. Generate Dashboard
+## 8. Research Workbench
+
+The research workbench lets you track a CSV research universe through the existing workflow outputs without adding a database or hosted service.
+
+Create an editable research CSV:
+
+```powershell
+python -m taiwan_stock_analysis.cli research init --output research.csv
+```
+
+Required columns:
+
+- `stock_id`
+- `company_name`
+- `category`
+- `priority`
+- `research_state`
+- `notes`
+
+Run the research workflow from that CSV:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --output-dir research-dist --offline-prices
+```
+
+The command writes:
+
+- `research-dist/research_watchlist.csv`
+- `research-dist/research_summary.json`
+- `research-dist/workflow_summary.json`
+- `research-dist/dashboard.html`
+- report, valuation, and comparison outputs when enough workflow data is available
+
+Regenerate the research summary without rerunning source fetches:
+
+```powershell
+python -m taiwan_stock_analysis.cli research summary examples/research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+```
+
+`research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings.
+
+The research workbench is for organizing local research review. It does not provide buy, sell, hold, or allocation recommendations.
+
+## 9. Generate Dashboard
 
 ```powershell
 python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir compare-dist --scan-dir batch-dist --scan-dir valuation-dist --output dashboard-index.html
@@ -194,7 +237,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir workflow-dist --scan-di
 Open `dashboard-index.html` in a browser. It lists generated reports, comparison outputs, batch status, and command builders.
 When no `--scan-dir` is provided, the dashboard command also scans `workflow-dist` by default.
 
-## 9. Verify
+## 10. Verify
 
 ```powershell
 python -m unittest discover -s tests -v

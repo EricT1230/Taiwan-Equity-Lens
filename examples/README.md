@@ -14,6 +14,20 @@ Open:
 workflow-dist/dashboard.html
 ```
 
+## Research Workbench
+
+```powershell
+python -m taiwan_stock_analysis.cli research init --output research.csv
+python -m taiwan_stock_analysis.cli research run examples/research.csv --output-dir research-dist --offline-prices
+python -m taiwan_stock_analysis.cli research summary examples/research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+```
+
+Open:
+
+```text
+research-dist/dashboard.html
+```
+
 ## Batch Analysis
 
 ```powershell
