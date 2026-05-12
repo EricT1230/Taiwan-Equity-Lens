@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.1 - 2026-05-12
+
+Documentation hotfix for research workbench onboarding.
+
+### Fixed
+
+- README research workflow commands now consistently use the `research.csv` created by `research init`.
+- README demo wording no longer implies a fully deterministic run without fixture data.
+
 ## v0.4.0 - 2026-05-12
 
 Research Workbench release.
