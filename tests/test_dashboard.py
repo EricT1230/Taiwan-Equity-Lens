@@ -248,7 +248,7 @@ class DashboardTests(unittest.TestCase):
         (memos / "2330_memo.html").write_text("<html>memo</html>", encoding="utf-8")
         (memos / "memo_summary.json").write_text('{"generated": []}', encoding="utf-8")
 
-        items = discover_dashboard_items([memos])
+        items = discover_dashboard_items([root])
 
         self.assertIn("memo_outputs", items)
         self.assertEqual(

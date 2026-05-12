@@ -74,28 +74,35 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
             payload["path"] = str(research_summary)
             items["research_summaries"].append(payload)
 
-        memo_summary = directory / "memo_summary.json"
-        memo_summary_path = str(memo_summary) if memo_summary.exists() else ""
-        memo_paths: dict[str, dict[str, Any]] = {}
-        for markdown_path in sorted(directory.glob("*_memo.md")):
-            stock_id = markdown_path.name.removesuffix("_memo.md")
-            memo_paths.setdefault(stock_id, {"stock_id": stock_id})["markdown_path"] = str(markdown_path)
-        for html_path in sorted(directory.glob("*_memo.html")):
-            stock_id = html_path.name.removesuffix("_memo.html")
-            memo_paths.setdefault(stock_id, {"stock_id": stock_id})["html_path"] = str(html_path)
-
-        if memo_paths:
-            for stock_id in sorted(memo_paths):
-                output = memo_paths[stock_id]
-                output.setdefault("markdown_path", "")
-                output.setdefault("html_path", "")
-                output["summary_path"] = memo_summary_path
-                items["memo_outputs"].append(output)
-        elif memo_summary_path:
-            items["memo_outputs"].append(
-                {"stock_id": "-", "markdown_path": "", "html_path": "", "summary_path": memo_summary_path}
-            )
+        _discover_memo_outputs(directory, items)
+        memos_dir = directory / "memos"
+        if memos_dir.exists():
+            _discover_memo_outputs(memos_dir, items)
     return items
+
+
+def _discover_memo_outputs(directory: Path, items: DashboardItems) -> None:
+    memo_summary = directory / "memo_summary.json"
+    memo_summary_path = str(memo_summary) if memo_summary.exists() else ""
+    memo_paths: dict[str, dict[str, Any]] = {}
+    for markdown_path in sorted(directory.glob("*_memo.md")):
+        stock_id = markdown_path.name.removesuffix("_memo.md")
+        memo_paths.setdefault(stock_id, {"stock_id": stock_id})["markdown_path"] = str(markdown_path)
+    for html_path in sorted(directory.glob("*_memo.html")):
+        stock_id = html_path.name.removesuffix("_memo.html")
+        memo_paths.setdefault(stock_id, {"stock_id": stock_id})["html_path"] = str(html_path)
+
+    if memo_paths:
+        for stock_id in sorted(memo_paths):
+            output = memo_paths[stock_id]
+            output.setdefault("markdown_path", "")
+            output.setdefault("html_path", "")
+            output["summary_path"] = memo_summary_path
+            items["memo_outputs"].append(output)
+    elif memo_summary_path:
+        items["memo_outputs"].append(
+            {"stock_id": "-", "markdown_path": "", "html_path": "", "summary_path": memo_summary_path}
+        )
 
 
 def render_dashboard_html(items: DashboardItems) -> str:
