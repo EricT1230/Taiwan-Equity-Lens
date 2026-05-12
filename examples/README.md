@@ -18,8 +18,8 @@ workflow-dist/dashboard.html
 
 ```powershell
 python -m taiwan_stock_analysis.cli research init --output research.csv
-python -m taiwan_stock_analysis.cli research run examples/research.csv --output-dir research-dist --offline-prices
-python -m taiwan_stock_analysis.cli research summary examples/research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices
+python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 ```
 
 Open:

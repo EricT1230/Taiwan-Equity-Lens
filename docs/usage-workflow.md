@@ -201,7 +201,7 @@ Required columns:
 Run the research workflow from that CSV:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --output-dir research-dist --offline-prices
+python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices
 ```
 
 The command writes:
@@ -215,7 +215,7 @@ The command writes:
 Regenerate the research summary without rerunning source fetches:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research summary examples/research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 ```
 
 `research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings.
