@@ -360,6 +360,78 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "dashboard.html").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
 
+    def test_main_research_init_writes_template(self):
+        output = Path(".tmp-cli-test/research-template.csv")
+        if output.exists():
+            output.unlink()
+
+        exit_code = main(["research", "init", "--output", str(output)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(output.exists())
+        self.assertIn(
+            "stock_id,company_name,category,priority,research_state,notes",
+            output.read_text(encoding="utf-8"),
+        )
+
+    def test_main_research_summary_writes_json(self):
+        root = Path(".tmp-cli-test")
+        research = root / "research-summary.csv"
+        output = root / "research_summary.json"
+        root.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,review,Needs valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "summary",
+            str(research),
+            "--workflow-dir",
+            str(root / "missing"),
+            "--output",
+            str(output),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(output.exists())
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["counts"]["total"], 1)
+        self.assertEqual(payload["items"][0]["workflow_status"], "skipped")
+
+    def test_main_research_run_writes_workflow_and_research_summary(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-fixtures"
+        output_dir = root / "research-run-dist"
+        research = root / "research-run.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "research_watchlist.csv").exists())
+        self.assertTrue((output_dir / "workflow_summary.json").exists())
+        self.assertTrue((output_dir / "research_summary.json").exists())
+        summary = json.loads((output_dir / "research_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["items"][0]["stock_id"], "2330")
+        self.assertEqual(summary["items"][0]["workflow_status"], "ok")
+
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
         (fixture_dir / "IS_YEAR.html").write_text(

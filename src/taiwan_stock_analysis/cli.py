@@ -18,6 +18,11 @@ from taiwan_stock_analysis.parser import parse_financial_table
 from taiwan_stock_analysis.price_data import load_price_data, load_price_reliability
 from taiwan_stock_analysis.report_compare import render_comparison_html
 from taiwan_stock_analysis.report import render_html_report
+from taiwan_stock_analysis.research import (
+    write_research_summary,
+    write_research_template,
+    write_watchlist_from_research,
+)
 from taiwan_stock_analysis.scoring import build_scorecard
 from taiwan_stock_analysis.valuation import build_valuation
 from taiwan_stock_analysis.verification import build_verification
@@ -243,12 +248,34 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     workflow_parser.add_argument("--offline-prices", action="store_true", help="Do not fetch market prices for the valuation template.")
     workflow_parser.add_argument("--valuation-csv", type=Path, help="Existing valuation CSV to use for valuation-aware reports.")
     workflow_parser.add_argument("--skip-valuation", action="store_true", help="Skip valuation template and valuation-aware rerun.")
+
+    research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
+    research_subparsers = research_parser.add_subparsers(dest="research_command")
+
+    research_init = research_subparsers.add_parser("init", help="Create a research CSV template.")
+    research_init.add_argument("--output", default=Path("research.csv"), type=Path)
+
+    research_summary = research_subparsers.add_parser(
+        "summary",
+        help="Build a research summary from existing workflow outputs.",
+    )
+    research_summary.add_argument("research_csv", type=Path)
+    research_summary.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
+    research_summary.add_argument("--output", default=Path("research_summary.json"), type=Path)
+
+    research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
+    research_run.add_argument("research_csv", type=Path)
+    research_run.add_argument("--output-dir", default=Path("research-dist"), type=Path)
+    research_run.add_argument("--fixture-root", type=Path)
+    research_run.add_argument("--offline-prices", action="store_true")
+    research_run.add_argument("--valuation-csv", type=Path)
+    research_run.add_argument("--skip-valuation", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
-    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "workflow"}:
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "workflow", "research"}:
         args = build_command_arg_parser().parse_args(raw_args)
     else:
         args = build_arg_parser().parse_args(raw_args)
@@ -320,6 +347,39 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {summary_path}")
         print(f"Open {args.output_dir / 'dashboard.html'}")
         return 0
+
+    if args.command == "research":
+        if args.research_command == "init":
+            output_path = write_research_template(args.output)
+            print(f"Wrote {output_path}")
+            return 0
+        if args.research_command == "summary":
+            output_path = write_research_summary(args.research_csv, args.workflow_dir, args.output)
+            print(f"Wrote {output_path}")
+            return 0
+        if args.research_command == "run":
+            from taiwan_stock_analysis.workflow import run_watchlist_workflow
+
+            watchlist_path = args.output_dir / "research_watchlist.csv"
+            write_watchlist_from_research(args.research_csv, watchlist_path)
+            workflow_summary = run_watchlist_workflow(
+                watchlist_path,
+                args.output_dir,
+                fixture_root=args.fixture_root,
+                offline_prices=args.offline_prices,
+                valuation_csv=args.valuation_csv,
+                include_valuation=not args.skip_valuation,
+            )
+            research_summary = write_research_summary(
+                args.research_csv,
+                args.output_dir,
+                args.output_dir / "research_summary.json",
+            )
+            print(f"Wrote {workflow_summary}")
+            print(f"Wrote {research_summary}")
+            print(f"Open {args.output_dir / 'dashboard.html'}")
+            return 0
+        build_command_arg_parser().error("research command is required")
     build_command_arg_parser().error("command is required")
 
 
