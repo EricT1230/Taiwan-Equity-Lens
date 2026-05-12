@@ -45,6 +45,15 @@ class ResearchPackTests(unittest.TestCase):
         self.assertIn("&lt;TSMC&gt;", html)
         self.assertNotIn("<TSMC>", html)
 
+    def test_render_pack_markdown_normalizes_table_cells(self):
+        research_summary = self._write_research_summary(company_name="TSMC | Core\nResearch")
+        context = build_pack_context(research_summary, research_csv_path=Path("research.csv"))
+
+        markdown = render_pack_markdown(context)
+
+        self.assertIn("TSMC \\| Core Research", markdown)
+        self.assertNotIn("TSMC | Core\nResearch", markdown)
+
     def test_build_pack_context_tolerates_missing_optional_inputs(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
 

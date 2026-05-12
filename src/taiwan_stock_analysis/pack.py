@@ -30,6 +30,11 @@ def _text(value: Any, fallback: str = "-") -> str:
     return str(value)
 
 
+def _markdown_cell(value: Any, fallback: str = "-") -> str:
+    text = _text(value, fallback)
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
 def _review_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
     reasons = item.get("attention_reasons", [])
     has_reasons = bool(reasons)
@@ -145,12 +150,12 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         " | ".join(
             [
                 _text(item.get("stock_id")),
-                _text(item.get("company_name")),
-                _text(item.get("research_state")),
-                _text(item.get("priority")),
-                _text(item.get("workflow_status")),
-                _text(item.get("reliability_status")),
-                _attention_text(item),
+                _markdown_cell(item.get("company_name")),
+                _markdown_cell(item.get("research_state")),
+                _markdown_cell(item.get("priority")),
+                _markdown_cell(item.get("workflow_status")),
+                _markdown_cell(item.get("reliability_status")),
+                _markdown_cell(_attention_text(item)),
             ]
         )
         for item in context.get("review_queue", [])
@@ -174,11 +179,11 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
     index_rows = [
         " | ".join(
             [
-                _text(item.get("stock_id")),
-                _text(item.get("company_name")),
-                _text(item.get("memo_markdown_path")),
-                _text(item.get("memo_html_path")),
-                _attention_text(item),
+                _markdown_cell(item.get("stock_id")),
+                _markdown_cell(item.get("company_name")),
+                _markdown_cell(item.get("memo_markdown_path")),
+                _markdown_cell(item.get("memo_html_path")),
+                _markdown_cell(_attention_text(item)),
             ]
         )
         for item in context.get("items", [])
