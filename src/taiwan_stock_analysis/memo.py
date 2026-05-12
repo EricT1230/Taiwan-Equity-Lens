@@ -139,6 +139,95 @@ def write_memo(
     return path
 
 
+def write_research_memos(
+    research_summary_path: Path,
+    workflow_dir: Path,
+    output_dir: Path,
+    *,
+    output_format="both",
+) -> Path:
+    if output_format not in {"both", "markdown", "html"}:
+        raise ValueError(f"unsupported memo output format: {output_format}")
+
+    research_summary_path = Path(research_summary_path)
+    workflow_dir = Path(workflow_dir)
+    output_dir = Path(output_dir)
+    payload = json.loads(research_summary_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"invalid research summary JSON: {research_summary_path}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generated: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+
+    for item in _research_items(payload):
+        stock_id = _text(item.get("stock_id")).strip()
+        if stock_id == "-":
+            skipped.append({"stock_id": "-", "reason": "stock_id missing"})
+            continue
+
+        analysis_path = _analysis_json_path(workflow_dir, stock_id)
+        if analysis_path is None:
+            skipped.append({"stock_id": stock_id, "reason": "analysis JSON not found"})
+            continue
+
+        report_path = analysis_path.with_name(f"{stock_id}_analysis.html")
+        result: dict[str, str] = {"stock_id": stock_id}
+        try:
+            if output_format in {"both", "markdown"}:
+                markdown_path = output_dir / f"{stock_id}_memo.md"
+                write_memo(
+                    analysis_path,
+                    markdown_path,
+                    output_format="markdown",
+                    research_item=item,
+                    report_path=report_path,
+                    workflow_summary_path=workflow_dir / "workflow_summary.json",
+                    research_summary_path=research_summary_path,
+                )
+                result["markdown_path"] = str(markdown_path)
+            if output_format in {"both", "html"}:
+                html_path = output_dir / f"{stock_id}_memo.html"
+                write_memo(
+                    analysis_path,
+                    html_path,
+                    output_format="html",
+                    research_item=item,
+                    report_path=report_path,
+                    workflow_summary_path=workflow_dir / "workflow_summary.json",
+                    research_summary_path=research_summary_path,
+                )
+                result["html_path"] = str(html_path)
+        except Exception as exc:
+            skipped.append({"stock_id": stock_id, "reason": str(exc)})
+            continue
+        generated.append(result)
+
+    summary_path = output_dir / "memo_summary.json"
+    summary = {
+        "output_dir": str(output_dir),
+        "generated": generated,
+        "skipped": skipped,
+    }
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary_path
+
+
+def _research_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _analysis_json_path(workflow_dir: Path, stock_id: str) -> Path | None:
+    for subdir in ("reports", "valuation-reports"):
+        path = workflow_dir / subdir / f"{stock_id}_raw_data.json"
+        if path.exists():
+            return path
+    return None
+
+
 def _normalized_context(context) -> dict[str, Any]:
     context = context if isinstance(context, dict) else {}
     analysis = context.get("analysis", {})

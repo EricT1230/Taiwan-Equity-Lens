@@ -8,6 +8,7 @@ from taiwan_stock_analysis.memo import (
     render_memo_html,
     render_memo_markdown,
     write_memo,
+    write_research_memos,
 )
 
 
@@ -111,6 +112,45 @@ class MemoTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "invalid analysis JSON"):
             build_memo_context(path)
+
+    def test_write_research_memos_writes_outputs_and_summary(self):
+        workflow_dir = self.tmp_dir / "workflow"
+        reports_dir = workflow_dir / "reports"
+        valuation_reports_dir = workflow_dir / "valuation-reports"
+        output_dir = workflow_dir / "memos"
+        reports_dir.mkdir(parents=True)
+        valuation_reports_dir.mkdir(parents=True)
+        (reports_dir / "2330_raw_data.json").write_text(json.dumps(_analysis_payload()), encoding="utf-8")
+        fallback_payload = _analysis_payload()
+        fallback_payload["stock_id"] = "2303"
+        (valuation_reports_dir / "2303_raw_data.json").write_text(json.dumps(fallback_payload), encoding="utf-8")
+        research_summary = workflow_dir / "research_summary.json"
+        research_summary.write_text(
+            json.dumps(
+                {
+                    "items": [
+                        {"stock_id": "2330", "company_name": "TSMC", "research_state": "review"},
+                        {"stock_id": "2303", "company_name": "UMC", "research_state": "watching"},
+                        {"stock_id": "9999", "company_name": "Missing", "research_state": "new"},
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        summary_path = write_research_memos(research_summary, workflow_dir, output_dir)
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual(summary_path, output_dir / "memo_summary.json")
+        self.assertTrue((output_dir / "2330_memo.md").exists())
+        self.assertTrue((output_dir / "2330_memo.html").exists())
+        self.assertTrue((output_dir / "2303_memo.md").exists())
+        self.assertTrue((output_dir / "2303_memo.html").exists())
+        self.assertEqual(["2330", "2303"], [item["stock_id"] for item in summary["generated"]])
+        self.assertEqual([{"stock_id": "9999", "reason": "analysis JSON not found"}], summary["skipped"])
+        self.assertIn("markdown_path", summary["generated"][0])
+        self.assertIn("html_path", summary["generated"][0])
 
 
 def _analysis_payload():

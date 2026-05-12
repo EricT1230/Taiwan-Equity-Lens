@@ -401,6 +401,57 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["counts"]["total"], 1)
         self.assertEqual(payload["items"][0]["workflow_status"], "skipped")
 
+    def test_main_memo_writes_markdown(self):
+        root = Path(".tmp-cli-test")
+        analysis_path = root / "memo-cli" / "2330_raw_data.json"
+        output_path = root / "memo-cli" / "2330_memo.md"
+        analysis_path.parent.mkdir(parents=True, exist_ok=True)
+        analysis_path.write_text(json.dumps(_memo_analysis_payload()), encoding="utf-8")
+
+        exit_code = main([
+            "memo",
+            str(analysis_path),
+            "--output",
+            str(output_path),
+            "--format",
+            "markdown",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(output_path.exists())
+        self.assertIn("# Research Memo: 2330", output_path.read_text(encoding="utf-8"))
+
+    def test_main_research_memo_writes_summary(self):
+        root = Path(".tmp-cli-test")
+        workflow_dir = root / "research-memo-dist"
+        reports_dir = workflow_dir / "reports"
+        output_dir = workflow_dir / "memos"
+        research = root / "research-memo.csv"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,review,Track assumptions\n",
+            encoding="utf-8",
+        )
+        (reports_dir / "2330_raw_data.json").write_text(json.dumps(_memo_analysis_payload()), encoding="utf-8")
+
+        exit_code = main([
+            "research",
+            "memo",
+            str(research),
+            "--workflow-dir",
+            str(workflow_dir),
+            "--output-dir",
+            str(output_dir),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((workflow_dir / "research_summary.json").exists())
+        self.assertTrue((output_dir / "2330_memo.md").exists())
+        self.assertTrue((output_dir / "2330_memo.html").exists())
+        summary = json.loads((output_dir / "memo_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["generated"][0]["stock_id"], "2330")
+
     def test_main_research_run_writes_workflow_and_research_summary(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-fixtures"
@@ -431,6 +482,63 @@ class CliTests(unittest.TestCase):
         summary = json.loads((output_dir / "research_summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["items"][0]["stock_id"], "2330")
         self.assertEqual(summary["items"][0]["workflow_status"], "ok")
+
+    def test_main_research_run_writes_memos_by_default(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-memos-fixtures"
+        output_dir = root / "research-run-memos-dist"
+        research = root / "research-run-memos.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "memos" / "2330_memo.md").exists())
+        self.assertTrue((output_dir / "memos" / "2330_memo.html").exists())
+        summary = json.loads((output_dir / "memos" / "memo_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["generated"][0]["stock_id"], "2330")
+
+    def test_main_research_run_skip_memos(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-skip-memos-fixtures"
+        output_dir = root / "research-run-skip-memos-dist"
+        research = root / "research-run-skip-memos.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+            "--skip-memos",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "research_summary.json").exists())
+        self.assertFalse((output_dir / "memos" / "memo_summary.json").exists())
 
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
@@ -466,6 +574,22 @@ class CliTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+
+def _memo_analysis_payload():
+    return {
+        "stock_id": "2330",
+        "years": ["2024"],
+        "metrics_by_year": {"2024": {"revenue": 1000, "eps": 10}},
+        "valuation": {
+            "metrics": {"pe": 20},
+            "target_prices": {"base": {"target_price": 200}},
+            "assumptions": {"normalized_eps": "manual"},
+        },
+        "scorecard": {"total_score": 80, "confidence": 90, "dimensions": {}},
+        "diagnostics": {"issues": []},
+        "metadata": {"reliability": []},
+    }
 
 
 if __name__ == "__main__":

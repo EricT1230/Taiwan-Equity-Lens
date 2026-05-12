@@ -12,6 +12,7 @@ from taiwan_stock_analysis.diagnostics import build_diagnostics
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
+from taiwan_stock_analysis.memo import write_memo, write_research_memos
 from taiwan_stock_analysis.metrics import calculate_metrics
 from taiwan_stock_analysis.models import AnalysisResult
 from taiwan_stock_analysis.parser import parse_financial_table
@@ -241,6 +242,11 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     price_template_parser.add_argument("--offline", action="store_true", help="Do not fetch prices; write blank rows with warnings.")
     price_template_parser.add_argument("--analysis-dir", type=Path, help="Directory containing *_raw_data.json files for EPS enrichment.")
 
+    memo_parser = subparsers.add_parser("memo", help="Generate a research memo from one analysis JSON.")
+    memo_parser.add_argument("analysis_json", type=Path)
+    memo_parser.add_argument("--output", required=True, type=Path)
+    memo_parser.add_argument("--format", choices=["markdown", "html"], default="markdown")
+
     workflow_parser = subparsers.add_parser("workflow", help="Run the full watchlist workflow.")
     workflow_parser.add_argument("watchlist", type=Path, help="CSV file with stock_id and optional company_name columns.")
     workflow_parser.add_argument("--output-dir", default="workflow-dist", type=Path)
@@ -263,6 +269,15 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_summary.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
     research_summary.add_argument("--output", default=Path("research_summary.json"), type=Path)
 
+    research_memo = research_subparsers.add_parser(
+        "memo",
+        help="Generate research memos from a research workflow.",
+    )
+    research_memo.add_argument("research_csv", type=Path)
+    research_memo.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
+    research_memo.add_argument("--output-dir", default=Path("research-dist") / "memos", type=Path)
+    research_memo.add_argument("--format", choices=["both", "markdown", "html"], default="both")
+
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
     research_run.add_argument("research_csv", type=Path)
     research_run.add_argument("--output-dir", default=Path("research-dist"), type=Path)
@@ -270,12 +285,13 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_run.add_argument("--offline-prices", action="store_true")
     research_run.add_argument("--valuation-csv", type=Path)
     research_run.add_argument("--skip-valuation", action="store_true")
+    research_run.add_argument("--skip-memos", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
-    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "workflow", "research"}:
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "research"}:
         args = build_command_arg_parser().parse_args(raw_args)
     else:
         args = build_arg_parser().parse_args(raw_args)
@@ -333,6 +349,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {output_path}")
         return 0
 
+    if args.command == "memo":
+        output_path = write_memo(args.analysis_json, args.output, output_format=args.format)
+        print(f"Wrote {output_path}")
+        return 0
+
     if args.command == "workflow":
         from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
@@ -357,6 +378,18 @@ def main(argv: list[str] | None = None) -> int:
             output_path = write_research_summary(args.research_csv, args.workflow_dir, args.output)
             print(f"Wrote {output_path}")
             return 0
+        if args.research_command == "memo":
+            research_summary_path = args.workflow_dir / "research_summary.json"
+            if not research_summary_path.exists():
+                write_research_summary(args.research_csv, args.workflow_dir, research_summary_path)
+            output_path = write_research_memos(
+                research_summary_path,
+                args.workflow_dir,
+                args.output_dir,
+                output_format=args.format,
+            )
+            print(f"Wrote {output_path}")
+            return 0
         if args.research_command == "run":
             from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
@@ -375,8 +408,16 @@ def main(argv: list[str] | None = None) -> int:
                 args.output_dir,
                 args.output_dir / "research_summary.json",
             )
+            if not args.skip_memos:
+                memo_summary = write_research_memos(
+                    research_summary,
+                    args.output_dir,
+                    args.output_dir / "memos",
+                )
             print(f"Wrote {workflow_summary}")
             print(f"Wrote {research_summary}")
+            if not args.skip_memos:
+                print(f"Wrote {memo_summary}")
             print(f"Open {args.output_dir / 'dashboard.html'}")
             return 0
         build_command_arg_parser().error("research command is required")
