@@ -44,7 +44,7 @@ def render_memo_markdown(context) -> str:
     title = _title(ctx)
 
     sections = [
-        f"# Research Memo: {title}",
+        f"# Research Memo: {_markdown_text(title)}",
         _metadata_markdown(ctx),
         _reliability_markdown(ctx),
         _metrics_markdown(ctx),
@@ -286,7 +286,7 @@ def _diagnostics_markdown(ctx: dict[str, Any]) -> str:
 
 
 def _checklist_markdown(ctx: dict[str, Any]) -> str:
-    return "## Review Checklist\n\n" + "\n".join(f"- [ ] {item}" for item in _checklist(ctx))
+    return "## Review Checklist\n\n" + "\n".join(f"- [ ] {_markdown_text(item)}" for item in _checklist(ctx))
 
 
 def _sources_markdown(ctx: dict[str, Any]) -> str:
@@ -300,7 +300,7 @@ def _sources_markdown(ctx: dict[str, Any]) -> str:
 
 
 def _disclaimer_markdown() -> str:
-    return f"## Disclaimer\n\n{DISCLAIMER}"
+    return f"## Disclaimer\n\n{_markdown_text(DISCLAIMER)}"
 
 
 def _metadata_html(ctx: dict[str, Any]) -> str:
@@ -496,7 +496,20 @@ def _markdown_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> st
 
 
 def _markdown_cell(value: Any) -> str:
-    return _text(value).replace("|", "\\|")
+    return _markdown_text(value).replace("|", "\\|")
+
+
+def _markdown_text(value: Any) -> str:
+    text = _text(value)
+    if text == "-":
+        return text
+    normalized = " ".join(text.split())
+    return (
+        normalized
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 def _html_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> str:

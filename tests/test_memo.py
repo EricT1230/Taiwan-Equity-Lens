@@ -68,6 +68,29 @@ class MemoTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
         self.assertNotIn("<script>alert(1)</script>", html)
 
+    def test_render_memo_markdown_escapes_html_and_normalizes_table_cells(self):
+        payload = _analysis_payload()
+        payload["diagnostics"] = {"issues": [{"level": "warning", "message": "<img src=x onerror=alert(1)>"}]}
+        context = {
+            **build_memo_context_from_payload(payload, self.tmp_dir),
+            "research_item": {
+                "stock_id": "2330",
+                "company_name": "<TSMC>",
+                "notes": "line one\nline two | with pipe",
+                "attention_reasons": ["review <source>"],
+            },
+            "analysis_path": "memos/<raw>.json",
+        }
+
+        markdown = render_memo_markdown(context)
+
+        self.assertIn("# Research Memo: &lt;TSMC&gt; (2330)", markdown)
+        self.assertIn("line one line two \\| with pipe", markdown)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", markdown)
+        self.assertIn("review &lt;source&gt;", markdown)
+        self.assertIn("memos/&lt;raw&gt;.json", markdown)
+        self.assertNotIn("<img src=x onerror=alert(1)>", markdown)
+
     def test_write_memo_writes_markdown_and_html(self):
         analysis_path = self.tmp_dir / "write_raw_data.json"
         markdown_path = self.tmp_dir / "write_memo.md"
