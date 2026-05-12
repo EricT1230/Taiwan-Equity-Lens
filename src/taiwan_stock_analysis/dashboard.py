@@ -249,9 +249,11 @@ def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
         by_priority = _dict_value(counts.get("by_priority"))
         items = summary.get("items", [])
         item_rows = _research_item_rows(items if isinstance(items, list) else [])
+        related_links = _research_related_links(summary)
         sections.append(
             "<div>"
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            f"{related_links}"
             '<p class="status-line">'
             f'<span class="badge">total research items: {escape(str(total))}</span>'
             f'<span class="badge error">needs attention: {escape(str(needs_attention))}</span>'
@@ -264,6 +266,34 @@ def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
             "</div>"
         )
     return f"<section><h2>研究工作台</h2>{''.join(sections)}</section>"
+
+
+def _research_related_links(summary: dict[str, Any]) -> str:
+    links = []
+    workflow_summary_path = str(summary.get("workflow_summary_path") or "")
+    if workflow_summary_path:
+        links.append(_link(workflow_summary_path, "workflow_summary.json"))
+
+    workflow_paths = summary.get("workflow_paths", {})
+    if isinstance(workflow_paths, dict):
+        dashboard_path = str(workflow_paths.get("dashboard") or "")
+        if dashboard_path:
+            links.append(_link(dashboard_path, Path(dashboard_path).name or "dashboard"))
+        batch_summary = str(workflow_paths.get("batch_summary") or "")
+        if batch_summary:
+            links.append(_link(batch_summary, Path(batch_summary).name or "batch_summary"))
+        valuation_summary = str(workflow_paths.get("valuation_batch_summary") or "")
+        if valuation_summary:
+            links.append(_link(valuation_summary, Path(valuation_summary).name or "valuation_batch_summary"))
+        comparison = workflow_paths.get("comparison", {})
+        if isinstance(comparison, dict):
+            comparison_html = str(comparison.get("html") or "")
+            if comparison_html:
+                links.append(_link(comparison_html, Path(comparison_html).name or "comparison"))
+
+    if not links:
+        return ""
+    return f'<p class="status-line">{" ".join(links)}</p>'
 
 
 def _research_item_rows(items: list[Any]) -> str:

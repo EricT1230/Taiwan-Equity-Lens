@@ -250,6 +250,13 @@ class DashboardTests(unittest.TestCase):
                 "research_summaries": [
                     {
                         "path": "research-dist/research_summary.json",
+                        "workflow_summary_path": "research-dist/workflow_summary.json",
+                        "workflow_paths": {
+                            "batch_summary": "research-dist/reports/batch_summary.json",
+                            "valuation_batch_summary": "research-dist/valuation-reports/batch_summary.json",
+                            "dashboard": "research-dist/dashboard.html",
+                            "comparison": {"html": "research-dist/comparison/comparison.html"},
+                        },
                         "counts": {
                             "total": 2,
                             "needs_attention": 1,
@@ -283,6 +290,11 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("研究工作台", html)
         self.assertIn("needs attention", html)
+        self.assertIn("research-dist/workflow_summary.json", html)
+        self.assertIn("research-dist/dashboard.html", html)
+        self.assertIn("research-dist/reports/batch_summary.json", html)
+        self.assertIn("research-dist/valuation-reports/batch_summary.json", html)
+        self.assertIn("research-dist/comparison/comparison.html", html)
         self.assertIn("2330", html)
         self.assertIn("TSMC &lt;Leader&gt;", html)
         self.assertIn("review: 1", html)
