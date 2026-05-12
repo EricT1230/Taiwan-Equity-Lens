@@ -278,6 +278,14 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_memo.add_argument("--output-dir", type=Path)
     research_memo.add_argument("--format", choices=["both", "markdown", "html"], default="both")
 
+    research_pack = research_subparsers.add_parser(
+        "pack",
+        help="Generate Markdown and HTML research pack handoff files.",
+    )
+    research_pack.add_argument("research_csv", type=Path)
+    research_pack.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
+    research_pack.add_argument("--output-dir", default=Path("research-dist/packs"), type=Path)
+
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
     research_run.add_argument("research_csv", type=Path)
     research_run.add_argument("--output-dir", default=Path("research-dist"), type=Path)
@@ -286,6 +294,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_run.add_argument("--valuation-csv", type=Path)
     research_run.add_argument("--skip-valuation", action="store_true")
     research_run.add_argument("--skip-memos", action="store_true")
+    research_run.add_argument("--skip-packs", action="store_true")
     return parser
 
 
@@ -391,6 +400,25 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Wrote {output_path}")
             return 0
+        if args.research_command == "pack":
+            from taiwan_stock_analysis.pack import write_research_pack
+
+            research_summary_path = args.workflow_dir / "research_summary.json"
+            if not research_summary_path.exists():
+                write_research_summary(args.research_csv, args.workflow_dir, research_summary_path)
+            workflow_summary_path = args.workflow_dir / "workflow_summary.json"
+            memo_summary_path = args.workflow_dir / "memos" / "memo_summary.json"
+            dashboard_path = args.workflow_dir / "dashboard.html"
+            output_path = write_research_pack(
+                research_summary_path,
+                args.output_dir,
+                research_csv_path=args.research_csv,
+                workflow_summary_path=workflow_summary_path if workflow_summary_path.exists() else None,
+                memo_summary_path=memo_summary_path if memo_summary_path.exists() else None,
+                dashboard_path=dashboard_path if dashboard_path.exists() else None,
+            )
+            print(f"Wrote {output_path}")
+            return 0
         if args.research_command == "run":
             from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
@@ -415,10 +443,25 @@ def main(argv: list[str] | None = None) -> int:
                     args.output_dir,
                     args.output_dir / "memos",
                 )
+            if not args.skip_packs:
+                from taiwan_stock_analysis.pack import write_research_pack
+
+                pack_summary = write_research_pack(
+                    research_summary,
+                    args.output_dir / "packs",
+                    research_csv_path=args.research_csv,
+                    workflow_summary_path=args.output_dir / "workflow_summary.json",
+                    memo_summary_path=(args.output_dir / "memos" / "memo_summary.json")
+                    if not args.skip_memos
+                    else None,
+                    dashboard_path=args.output_dir / "dashboard.html",
+                )
             print(f"Wrote {workflow_summary}")
             print(f"Wrote {research_summary}")
             if not args.skip_memos:
                 print(f"Wrote {memo_summary}")
+            if not args.skip_packs:
+                print(f"Wrote {pack_summary}")
             print(f"Open {args.output_dir / 'dashboard.html'}")
             return 0
         build_command_arg_parser().error("research command is required")

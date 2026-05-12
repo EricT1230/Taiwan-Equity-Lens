@@ -477,6 +477,52 @@ class CliTests(unittest.TestCase):
         self.assertTrue((workflow_dir / "memos" / "memo_summary.json").exists())
         self.assertFalse((Path("research-dist") / "memos" / "memo_summary.json").exists())
 
+    def test_main_research_pack_writes_summary(self):
+        root = Path(".tmp-cli-test")
+        workflow_dir = root / "research-pack-dist"
+        output_dir = workflow_dir / "packs"
+        research = root / "research-pack.csv"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,review,Track assumptions\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "research_summary.json").write_text(
+            json.dumps(
+                {
+                    "counts": {"total": 1, "needs_attention": 1},
+                    "items": [
+                        {
+                            "stock_id": "2330",
+                            "company_name": "TSMC",
+                            "research_state": "review",
+                            "priority": "high",
+                            "workflow_status": "ok",
+                            "reliability_status": "warning",
+                            "attention_reasons": ["research state requires review"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "pack",
+            str(research),
+            "--workflow-dir",
+            str(workflow_dir),
+            "--output-dir",
+            str(output_dir),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "pack_summary.json").exists())
+        self.assertTrue((output_dir / "research-pack.md").exists())
+        self.assertTrue((output_dir / "research-pack.html").exists())
+
     def test_main_research_run_writes_workflow_and_research_summary(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-fixtures"
@@ -537,6 +583,34 @@ class CliTests(unittest.TestCase):
         summary = json.loads((output_dir / "memos" / "memo_summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["generated"][0]["stock_id"], "2330")
 
+    def test_main_research_run_writes_packs_by_default(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-packs-fixtures"
+        output_dir = root / "research-run-packs-dist"
+        research = root / "research-run-packs.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "packs" / "pack_summary.json").exists())
+        self.assertTrue((output_dir / "packs" / "research-pack.md").exists())
+        self.assertTrue((output_dir / "packs" / "research-pack.html").exists())
+
     def test_main_research_run_skip_memos(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-skip-memos-fixtures"
@@ -564,6 +638,34 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue((output_dir / "research_summary.json").exists())
         self.assertFalse((output_dir / "memos" / "memo_summary.json").exists())
+
+    def test_main_research_run_skip_packs(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-skip-packs-fixtures"
+        output_dir = root / "research-run-skip-packs-dist"
+        research = root / "research-run-skip-packs.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+            "--skip-packs",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "research_summary.json").exists())
+        self.assertFalse((output_dir / "packs" / "pack_summary.json").exists())
 
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
