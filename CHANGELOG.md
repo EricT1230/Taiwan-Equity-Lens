@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.5.0 - 2026-05-12
+
+Research Memo Generator release.
+
+### Added
+
+- Single-stock `memo` command for deterministic Markdown or HTML research memos from existing analysis JSON.
+- `research memo` command for generating memo files from a research workflow directory.
+- `research run` memo generation by default, with `--skip-memos` for report-only refreshes.
+- Dashboard discovery and links for generated memo files and `memo_summary.json`.
+- v0.5.0 release notes and documentation for memo workflows.
+
+### Changed
+
+- README, usage workflow docs, and examples now document research memo commands and memo output surfaces.
+- Package version is now `0.5.0`.
+
+### Quality
+
+- Memo renderer, CLI, research integration, and dashboard memo links are covered by the existing test suite.
+
 ## v0.4.1 - 2026-05-12
 
 Documentation hotfix for research workbench onboarding.

@@ -208,14 +208,35 @@ The command writes:
 
 - `research-dist/research_watchlist.csv`
 - `research-dist/research_summary.json`
+- `research-dist/memos/memo_summary.json`
+- `research-dist/memos/*_memo.md`
+- `research-dist/memos/*_memo.html`
 - `research-dist/workflow_summary.json`
 - `research-dist/dashboard.html`
 - report, valuation, and comparison outputs when enough workflow data is available
+
+`research run` writes memo outputs by default. To skip memo generation for a report-only refresh:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices --skip-memos
+```
 
 Regenerate the research summary without rerunning source fetches:
 
 ```powershell
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
+```
+
+Generate a single memo from an existing analysis JSON file:
+
+```powershell
+python -m taiwan_stock_analysis.cli memo dist/2330_raw_data.json --output memos/2330_memo.md
+```
+
+Generate memos for an existing research workflow directory:
+
+```powershell
+python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
 ```
 
 `research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings.
