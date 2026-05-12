@@ -21,6 +21,7 @@ python -m taiwan_stock_analysis.cli research init --output research.csv
 python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
+python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
 ```
 
 Open:
@@ -29,7 +30,7 @@ Open:
 research-dist/dashboard.html
 ```
 
-`research run` writes memo files under `research-dist/memos/` unless `--skip-memos` is passed. Use `research memo` to regenerate those memo files from existing workflow outputs.
+`research run` writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/` unless `--skip-memos` or `--skip-packs` is passed. Use `research memo` or `research pack` to regenerate those outputs from existing workflow data.
 
 ## Single Research Memo
 

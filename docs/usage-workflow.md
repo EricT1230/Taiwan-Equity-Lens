@@ -211,14 +211,23 @@ The command writes:
 - `research-dist/memos/memo_summary.json`
 - `research-dist/memos/*_memo.md`
 - `research-dist/memos/*_memo.html`
+- `research-dist/packs/pack_summary.json`
+- `research-dist/packs/research-pack.md`
+- `research-dist/packs/research-pack.html`
 - `research-dist/workflow_summary.json`
 - `research-dist/dashboard.html`
 - report, valuation, and comparison outputs when enough workflow data is available
 
-`research run` writes memo outputs by default. To skip memo generation for a report-only refresh:
+`research run` writes memo and pack outputs by default. To skip memo generation for a report-only refresh:
 
 ```powershell
 python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices --skip-memos
+```
+
+To keep memo outputs but skip the consolidated handoff pack:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices --skip-packs
 ```
 
 Regenerate the research summary without rerunning source fetches:
@@ -240,7 +249,13 @@ Generate memos for an existing research workflow directory:
 python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
 ```
 
-`research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings.
+Generate a consolidated research pack from the current workflow outputs:
+
+```powershell
+python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
+```
+
+`research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings. When pack outputs exist, the dashboard also links to the generated handoff pack and its summary JSON.
 
 The research workbench is for organizing local research review. It does not provide buy, sell, hold, or allocation recommendations.
 

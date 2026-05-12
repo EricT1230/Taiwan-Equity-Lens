@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.6.0 - 2026-05-13
+
+Research Pack release.
+
+### Added
+
+- `research pack` command for consolidated Markdown and HTML research handoff files.
+- `research run` pack generation by default, with `--skip-packs` for report/memo-only refreshes.
+- `pack_summary.json`, `research-pack.md`, and `research-pack.html` outputs.
+- Dashboard discovery and links for generated research pack outputs.
+- v0.6.0 release notes and workflow documentation for pack generation.
+
+### Changed
+
+- README, usage workflow docs, and examples now document research pack commands and handoff outputs.
+- Package version is now `0.6.0`.
+
+### Quality
+
+- Research pack rendering, CLI routes, run integration, and dashboard links are covered by the test suite.
+
 ## v0.5.0 - 2026-05-12
 
 Research Memo Generator release.

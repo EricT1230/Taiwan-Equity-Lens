@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.5.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -18,6 +18,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Runs a watchlist workflow from CSV to reports, valuation template, comparison, dashboard, and workflow summary.
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
 - Generates deterministic Markdown or HTML research memos from analysis JSON and research workflow context.
+- Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -120,6 +121,12 @@ Generate research memos from a research workflow directory:
 python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
 ```
 
+Generate a consolidated research pack:
+
+```powershell
+python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
+```
+
 Generate a dashboard from existing outputs:
 
 ```powershell
@@ -161,6 +168,7 @@ When a `research_summary.json` is present, the dashboard also shows:
 - stocks that need review because of research state, workflow status, or reliability warnings
 - links back to generated workflow and research outputs
 - links to generated Markdown and HTML research memos when memo outputs are present
+- links to generated Markdown and HTML research packs when pack outputs are present
 
 ## Data Reliability
 
@@ -181,7 +189,7 @@ The research workbench starts from a CSV with `stock_id`, `company_name`, `categ
 
 Use `research init` to create an editable template, `research run` to produce reports and summaries from the CSV, and `research summary` to rebuild the research JSON after reviewing existing workflow outputs. The workflow is for organizing research status and data reliability review; it does not produce buy, sell, hold, or allocation recommendations.
 
-By default, `research run` also writes memo files under `research-dist/memos/`. Pass `--skip-memos` when you only want reports, summaries, and dashboard outputs.
+By default, `research run` also writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/`. Pass `--skip-memos` to skip memo files or `--skip-packs` to skip pack files.
 
 ## Data Sources
 
@@ -201,6 +209,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.6.0 release notes](docs/releases/v0.6.0.md)
 - [v0.5.0 release notes](docs/releases/v0.5.0.md)
 - [v0.4.0 release notes](docs/releases/v0.4.0.md)
 - [v0.3.0 release notes](docs/releases/v0.3.0.md)
@@ -226,6 +235,7 @@ src/taiwan_stock_analysis/
 |-- insights.py       # Traditional Chinese trend observations
 |-- market_price.py   # TWSE/TPEx valuation price template helper
 |-- memo.py           # Markdown and HTML research memo renderer
+|-- pack.py           # consolidated research pack renderer
 |-- metrics.py        # fundamental metric calculations
 |-- models.py         # dataclasses
 |-- parser.py         # HTML table parser
