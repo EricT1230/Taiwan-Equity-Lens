@@ -23,7 +23,7 @@ python -m taiwan_stock_analysis.cli batch examples/watchlist.csv --output-dir ba
 ## Valuation-Aware Report
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --valuation-csv examples/valuation.csv --output-dir valuation-dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --valuation-csv examples/valuation.csv --output-dir valuation-dist
 ```
 
 `valuation.csv` contains scenario assumptions. Edit price, book value per share, dividend, normalized EPS, PE range, and EPS growth rate before using the output for research.

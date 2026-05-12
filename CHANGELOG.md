@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.1 - 2026-05-12
+
+Documentation hotfix for public onboarding.
+
+### Fixed
+
+- Cleaned corrupted display text from public README and usage examples.
+- Replaced sample company names with ASCII-safe labels in command examples.
+
 ## v0.3.0 - 2026-05-12
 
 Data reliability and research workflow automation.

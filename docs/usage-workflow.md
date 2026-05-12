@@ -20,13 +20,13 @@ $env:PYTHONPATH='src'
 Live Goodinfo run:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --output-dir live-dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir live-dist
 ```
 
 Fixture run:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --fixture fixtures --output-dir dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --fixture fixtures --output-dir dist
 ```
 
 Outputs:
@@ -74,7 +74,7 @@ Fields intentionally left blank until reliable source data exists:
 After editing `valuation.csv`:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --valuation-csv valuation.csv --output-dir valuation-dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --valuation-csv valuation.csv --output-dir valuation-dist
 ```
 
 The HTML report will show:
@@ -104,8 +104,8 @@ Create `watchlist.csv`:
 
 ```csv
 stock_id,company_name
-2330,台積電
-2303,聯電
+2330,TSMC
+2303,UMC
 ```
 
 Run:

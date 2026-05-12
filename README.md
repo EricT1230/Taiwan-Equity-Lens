@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.3.1-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -30,7 +30,7 @@ python -m pip install -e .
 Run one stock:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --output-dir dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir dist
 ```
 
 Outputs:
@@ -84,7 +84,7 @@ python -m taiwan_stock_analysis.cli price-template 2330 2303 --analysis-dir dist
 Run a valuation-aware report:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name 台積電 --valuation-csv examples/valuation.csv --output-dir valuation-dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --valuation-csv examples/valuation.csv --output-dir valuation-dist
 ```
 
 Generate a dashboard from existing outputs:
@@ -107,6 +107,7 @@ Single-stock reports use Traditional Chinese sections for:
 - quality score
 - valuation scenarios
 - data quality
+- data reliability
 - operating observations
 - profitability observations
 - financial health observations
@@ -114,6 +115,7 @@ Single-stock reports use Traditional Chinese sections for:
 The workflow dashboard shows:
 
 - workflow summary status
+- data reliability status
 - successful and failed batch rows
 - valuation CSV link
 - comparison output or skipped reason
@@ -165,26 +167,27 @@ Expected: all tests pass.
 
 ```text
 src/taiwan_stock_analysis/
-├── cli.py            # CLI orchestration
-├── comparison.py     # peer comparison model
-├── dashboard.py      # static dashboard renderer
-├── diagnostics.py    # data quality diagnostics
-├── fetcher.py        # Goodinfo network boundary
-├── insights.py       # Traditional Chinese trend observations
-├── market_price.py   # TWSE/TPEx valuation price template helper
-├── metrics.py        # fundamental metric calculations
-├── models.py         # dataclasses
-├── parser.py         # HTML table parser
-├── price_data.py     # valuation CSV loader
-├── report.py         # single-stock HTML renderer
-├── report_compare.py # comparison HTML renderer
-├── score_rules.py    # scorecard rules
-├── scoring.py        # scorecard builder
-├── trends.py         # YoY / CAGR / trend helpers
-├── valuation.py      # PE/PB/yield/scenario valuation
-├── verification.py   # sanity checks
-├── workflow.py       # watchlist workflow orchestration
-└── watchlist.py      # watchlist CSV loader
+|-- cli.py            # CLI orchestration
+|-- comparison.py     # peer comparison model
+|-- dashboard.py      # static dashboard renderer
+|-- diagnostics.py    # data quality diagnostics
+|-- fetcher.py        # Goodinfo network boundary
+|-- insights.py       # Traditional Chinese trend observations
+|-- market_price.py   # TWSE/TPEx valuation price template helper
+|-- metrics.py        # fundamental metric calculations
+|-- models.py         # dataclasses
+|-- parser.py         # HTML table parser
+|-- price_data.py     # valuation CSV loader
+|-- reliability.py    # data reliability status model
+|-- report.py         # single-stock HTML renderer
+|-- report_compare.py # comparison HTML renderer
+|-- score_rules.py    # scorecard rules
+|-- scoring.py        # scorecard builder
+|-- trends.py         # YoY / CAGR / trend helpers
+|-- valuation.py      # PE/PB/yield/scenario valuation
+|-- verification.py   # sanity checks
+|-- workflow.py       # watchlist workflow orchestration
+`-- watchlist.py      # watchlist CSV loader
 ```
 
 ## License
