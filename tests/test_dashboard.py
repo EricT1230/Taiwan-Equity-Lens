@@ -263,6 +263,28 @@ class DashboardTests(unittest.TestCase):
             ],
         )
 
+    def test_discover_dashboard_items_finds_pack_outputs(self):
+        root = Path(".tmp-cli-test/dashboard-packs")
+        packs = root / "packs"
+        packs.mkdir(parents=True, exist_ok=True)
+        (packs / "research-pack.md").write_text("# Research Pack", encoding="utf-8")
+        (packs / "research-pack.html").write_text("<html>pack</html>", encoding="utf-8")
+        (packs / "pack_summary.json").write_text('{"status": "ok"}', encoding="utf-8")
+
+        items = discover_dashboard_items([root])
+
+        self.assertIn("pack_outputs", items)
+        self.assertEqual(
+            items["pack_outputs"],
+            [
+                {
+                    "markdown_path": str(packs / "research-pack.md"),
+                    "html_path": str(packs / "research-pack.html"),
+                    "summary_path": str(packs / "pack_summary.json"),
+                }
+            ],
+        )
+
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
             {
@@ -375,6 +397,30 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2330_memo.md", html)
         self.assertIn("2330_memo.html", html)
         self.assertIn("memo_summary.json", html)
+
+    def test_render_dashboard_html_contains_pack_outputs(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "memo_outputs": [],
+                "pack_outputs": [
+                    {
+                        "markdown_path": "research-dist/packs/research-pack.md",
+                        "html_path": "research-dist/packs/research-pack.html",
+                        "summary_path": "research-dist/packs/pack_summary.json",
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("Research Packs", html)
+        self.assertIn("research-pack.md", html)
+        self.assertIn("research-pack.html", html)
+        self.assertIn("pack_summary.json", html)
 
 
 if __name__ == "__main__":

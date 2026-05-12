@@ -18,6 +18,7 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "workflow_summaries": [],
         "research_summaries": [],
         "memo_outputs": [],
+        "pack_outputs": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -78,6 +79,10 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         memos_dir = directory / "memos"
         if memos_dir.exists():
             _discover_memo_outputs(memos_dir, items)
+        _discover_pack_outputs(directory, items)
+        packs_dir = directory / "packs"
+        if packs_dir.exists():
+            _discover_pack_outputs(packs_dir, items)
     return items
 
 
@@ -105,6 +110,21 @@ def _discover_memo_outputs(directory: Path, items: DashboardItems) -> None:
         )
 
 
+def _discover_pack_outputs(directory: Path, items: DashboardItems) -> None:
+    markdown_path = directory / "research-pack.md"
+    html_path = directory / "research-pack.html"
+    summary_path = directory / "pack_summary.json"
+    if not any(path.exists() for path in [markdown_path, html_path, summary_path]):
+        return
+    items["pack_outputs"].append(
+        {
+            "markdown_path": str(markdown_path) if markdown_path.exists() else "",
+            "html_path": str(html_path) if html_path.exists() else "",
+            "summary_path": str(summary_path) if summary_path.exists() else "",
+        }
+    )
+
+
 def render_dashboard_html(items: DashboardItems) -> str:
     report_count = len(items.get("reports", []))
     comparison_count = len(items.get("comparisons", []))
@@ -114,6 +134,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     workflow_count = len(items.get("workflow_summaries", []))
     research_summaries = items.get("research_summaries", [])
     memo_outputs = items.get("memo_outputs", [])
+    pack_outputs = items.get("pack_outputs", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
 
     return f"""<!DOCTYPE html>
@@ -175,6 +196,10 @@ def render_dashboard_html(items: DashboardItems) -> str:
     <section>
       <h2>Research Memos</h2>
       <table><thead><tr><th>stock_id</th><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_memo_rows(memo_outputs)}</tbody></table>
+    </section>
+    <section>
+      <h2>Research Packs</h2>
+      <table><thead><tr><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_pack_rows(pack_outputs)}</tbody></table>
     </section>
     <section>
       <h2>資料可信度</h2>
@@ -366,6 +391,19 @@ def _memo_rows(memo_outputs: list[dict[str, Any]]) -> str:
         f"<td>{_link(str(output.get('summary_path', '')), Path(str(output.get('summary_path', ''))).name)}</td>"
         "</tr>"
         for output in memo_outputs
+    )
+
+
+def _pack_rows(pack_outputs: list[dict[str, Any]]) -> str:
+    if not pack_outputs:
+        return _empty_row(3, "No research pack outputs")
+    return "".join(
+        "<tr>"
+        f"<td>{_link(str(output.get('markdown_path', '')), Path(str(output.get('markdown_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('html_path', '')), Path(str(output.get('html_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('summary_path', '')), Path(str(output.get('summary_path', ''))).name)}</td>"
+        "</tr>"
+        for output in pack_outputs
     )
 
 
@@ -610,6 +648,8 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
     for summary in items.get("research_summaries", []):
         _relativize_fields(summary, ["path"], base_dir)
     for output in items.get("memo_outputs", []):
+        _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
+    for output in items.get("pack_outputs", []):
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
 
 
