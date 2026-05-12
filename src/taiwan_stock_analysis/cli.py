@@ -275,7 +275,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     )
     research_memo.add_argument("research_csv", type=Path)
     research_memo.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
-    research_memo.add_argument("--output-dir", default=Path("research-dist") / "memos", type=Path)
+    research_memo.add_argument("--output-dir", type=Path)
     research_memo.add_argument("--format", choices=["both", "markdown", "html"], default="both")
 
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
@@ -382,10 +382,11 @@ def main(argv: list[str] | None = None) -> int:
             research_summary_path = args.workflow_dir / "research_summary.json"
             if not research_summary_path.exists():
                 write_research_summary(args.research_csv, args.workflow_dir, research_summary_path)
+            output_dir = args.output_dir or (args.workflow_dir / "memos")
             output_path = write_research_memos(
                 research_summary_path,
                 args.workflow_dir,
-                args.output_dir,
+                output_dir,
                 output_format=args.format,
             )
             print(f"Wrote {output_path}")

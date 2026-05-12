@@ -452,6 +452,31 @@ class CliTests(unittest.TestCase):
         summary = json.loads((output_dir / "memo_summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["generated"][0]["stock_id"], "2330")
 
+    def test_main_research_memo_defaults_output_dir_to_workflow_dir(self):
+        root = Path(".tmp-cli-test")
+        workflow_dir = root / "custom-research-memo-dist"
+        reports_dir = workflow_dir / "reports"
+        research = root / "custom-research-memo.csv"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,review,Track assumptions\n",
+            encoding="utf-8",
+        )
+        (reports_dir / "2330_raw_data.json").write_text(json.dumps(_memo_analysis_payload()), encoding="utf-8")
+
+        exit_code = main([
+            "research",
+            "memo",
+            str(research),
+            "--workflow-dir",
+            str(workflow_dir),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((workflow_dir / "memos" / "memo_summary.json").exists())
+        self.assertFalse((Path("research-dist") / "memos" / "memo_summary.json").exists())
+
     def test_main_research_run_writes_workflow_and_research_summary(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-fixtures"
