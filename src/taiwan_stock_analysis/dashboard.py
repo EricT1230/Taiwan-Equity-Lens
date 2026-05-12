@@ -16,6 +16,7 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "comparisons": [],
         "batch_summaries": [],
         "workflow_summaries": [],
+        "research_summaries": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -60,6 +61,17 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
                 payload = {"error": "invalid JSON"}
             payload["path"] = str(workflow_summary)
             items["workflow_summaries"].append(payload)
+
+        research_summary = directory / "research_summary.json"
+        if research_summary.exists():
+            try:
+                payload = json.loads(research_summary.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {"error": "invalid JSON"}
+            if not isinstance(payload, dict):
+                payload = {"error": "invalid JSON"}
+            payload["path"] = str(research_summary)
+            items["research_summaries"].append(payload)
     return items
 
 
@@ -70,6 +82,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     batch_count = len(batch_results)
     batch_error_count = sum(1 for result in batch_results if result.get("status") == "error")
     workflow_count = len(items.get("workflow_summaries", []))
+    research_summaries = items.get("research_summaries", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
 
     return f"""<!DOCTYPE html>
@@ -127,6 +140,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <div id="summaryBatchErrors"><strong>{batch_error_count}</strong><span>失敗筆數</span></div>
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>Workflow summary</span></div>
     </section>
+    {_research_summary_section(research_summaries)}
     <section>
       <h2>資料可信度</h2>
       {_workflow_reliability_summary(items.get("workflow_summaries", []))}
@@ -210,6 +224,80 @@ def _batch_results(items: DashboardItems) -> list[dict[str, Any]]:
         for result in summary.get("results", [])
         if isinstance(result, dict)
     ]
+
+
+def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
+    if not summaries:
+        return '<section><h2>研究工作台</h2><p class="empty">尚無 research summary</p></section>'
+
+    sections: list[str] = []
+    for summary in summaries:
+        if summary.get("error"):
+            sections.append(
+                "<div>"
+                f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+                f'<p class="empty">Research summary error: {escape(str(summary.get("error")))}</p>'
+                "</div>"
+            )
+            continue
+
+        counts = summary.get("counts", {})
+        counts = counts if isinstance(counts, dict) else {}
+        total = counts.get("total", 0)
+        needs_attention = counts.get("needs_attention", 0)
+        by_state = _dict_value(counts.get("by_state"))
+        by_priority = _dict_value(counts.get("by_priority"))
+        items = summary.get("items", [])
+        item_rows = _research_item_rows(items if isinstance(items, list) else [])
+        sections.append(
+            "<div>"
+            f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            '<p class="status-line">'
+            f'<span class="badge">total research items: {escape(str(total))}</span>'
+            f'<span class="badge error">needs attention: {escape(str(needs_attention))}</span>'
+            f'<span class="badge">state counts: {_count_pairs(by_state)}</span>'
+            f'<span class="badge">priority counts: {_count_pairs(by_priority)}</span>'
+            "</p>"
+            "<table><thead><tr><th>stock_id</th><th>company_name</th><th>priority</th><th>research_state</th>"
+            "<th>workflow_status</th><th>reliability_status</th><th>attention_reasons</th></tr></thead>"
+            f"<tbody>{item_rows}</tbody></table>"
+            "</div>"
+        )
+    return f"<section><h2>研究工作台</h2>{''.join(sections)}</section>"
+
+
+def _research_item_rows(items: list[Any]) -> str:
+    rows: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        reasons = item.get("attention_reasons", [])
+        if isinstance(reasons, list):
+            reasons_text = ", ".join(str(reason) for reason in reasons)
+        else:
+            reasons_text = str(reasons)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('stock_id', '-')))}</td>"
+            f"<td>{escape(str(item.get('company_name', '')))}</td>"
+            f"<td>{escape(str(item.get('priority', '')))}</td>"
+            f"<td>{escape(str(item.get('research_state', '')))}</td>"
+            f"<td>{escape(str(item.get('workflow_status', '')))}</td>"
+            f"<td>{escape(str(item.get('reliability_status', '')))}</td>"
+            f"<td>{escape(reasons_text)}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or _empty_row(7, "尚無 research items")
+
+
+def _dict_value(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _count_pairs(counts: dict[str, Any]) -> str:
+    if not counts:
+        return "-"
+    return escape(", ".join(f"{key}: {value}" for key, value in sorted(counts.items())))
 
 
 def _report_rows(reports: list[dict[str, Any]]) -> str:
@@ -440,6 +528,8 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
             comparison = paths.get("comparison", {})
             if isinstance(comparison, dict):
                 _relativize_fields(comparison, ["html", "json"], base_dir)
+    for summary in items.get("research_summaries", []):
+        _relativize_fields(summary, ["path"], base_dir)
 
 
 def _relativize_fields(target: dict[str, Any], fields: list[str], base_dir: Path) -> None:

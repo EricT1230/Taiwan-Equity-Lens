@@ -201,6 +201,122 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn('class="badge error">Workflow summary 錯誤：invalid JSON', html)
 
+    def test_discover_dashboard_items_finds_research_summaries(self):
+        root = Path(".tmp-cli-test/dashboard-research")
+        valid = root / "valid"
+        invalid = root / "invalid"
+        non_dict = root / "non-dict"
+        valid.mkdir(parents=True, exist_ok=True)
+        invalid.mkdir(parents=True, exist_ok=True)
+        non_dict.mkdir(parents=True, exist_ok=True)
+        (valid / "research_summary.json").write_text(
+            json.dumps(
+                {
+                    "counts": {
+                        "total": 2,
+                        "needs_attention": 1,
+                        "by_state": {"review": 1, "watching": 1},
+                        "by_priority": {"high": 1, "medium": 1},
+                    },
+                    "items": [{"stock_id": "2330", "company_name": "TSMC"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (invalid / "research_summary.json").write_text("{", encoding="utf-8")
+        (non_dict / "research_summary.json").write_text("[1, 2]", encoding="utf-8")
+
+        items = discover_dashboard_items([valid, invalid, non_dict])
+
+        self.assertIn("research_summaries", items)
+        self.assertEqual(items["research_summaries"][0]["path"], str(valid / "research_summary.json"))
+        self.assertEqual(items["research_summaries"][0]["counts"]["total"], 2)
+        self.assertEqual(
+            items["research_summaries"][1],
+            {"path": str(invalid / "research_summary.json"), "error": "invalid JSON"},
+        )
+        self.assertEqual(
+            items["research_summaries"][2],
+            {"path": str(non_dict / "research_summary.json"), "error": "invalid JSON"},
+        )
+
+    def test_render_dashboard_html_contains_research_summary(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "counts": {
+                            "total": 2,
+                            "needs_attention": 1,
+                            "by_state": {"review": 1, "watching": 1},
+                            "by_priority": {"high": 1, "medium": 1},
+                        },
+                        "items": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC <Leader>",
+                                "priority": "high",
+                                "research_state": "review",
+                                "workflow_status": "ok",
+                                "reliability_status": "warning",
+                                "attention_reasons": ["research state requires review"],
+                            },
+                            {
+                                "stock_id": "2303",
+                                "company_name": "UMC",
+                                "priority": "medium",
+                                "research_state": "watching",
+                                "workflow_status": "skipped",
+                                "reliability_status": "skipped",
+                                "attention_reasons": [],
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("研究工作台", html)
+        self.assertIn("needs attention", html)
+        self.assertIn("2330", html)
+        self.assertIn("TSMC &lt;Leader&gt;", html)
+        self.assertIn("review: 1", html)
+        self.assertIn("high: 1", html)
+        self.assertIn("research state requires review", html)
+
+    def test_render_dashboard_html_shows_research_empty_state(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+            }
+        )
+
+        self.assertIn("研究工作台", html)
+        self.assertIn("尚無 research summary", html)
+
+    def test_render_dashboard_html_shows_invalid_research_summary(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [{"path": "research_summary.json", "error": "invalid JSON"}],
+            }
+        )
+
+        self.assertIn("research_summary.json", html)
+        self.assertIn("invalid JSON", html)
+
 
 if __name__ == "__main__":
     unittest.main()
