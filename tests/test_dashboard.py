@@ -240,6 +240,29 @@ class DashboardTests(unittest.TestCase):
             {"path": str(non_dict / "research_summary.json"), "error": "invalid JSON"},
         )
 
+    def test_discover_dashboard_items_finds_memo_outputs(self):
+        root = Path(".tmp-cli-test/dashboard-memos")
+        memos = root / "memos"
+        memos.mkdir(parents=True, exist_ok=True)
+        (memos / "2330_memo.md").write_text("# Research Memo", encoding="utf-8")
+        (memos / "2330_memo.html").write_text("<html>memo</html>", encoding="utf-8")
+        (memos / "memo_summary.json").write_text('{"generated": []}', encoding="utf-8")
+
+        items = discover_dashboard_items([memos])
+
+        self.assertIn("memo_outputs", items)
+        self.assertEqual(
+            items["memo_outputs"],
+            [
+                {
+                    "stock_id": "2330",
+                    "markdown_path": str(memos / "2330_memo.md"),
+                    "html_path": str(memos / "2330_memo.html"),
+                    "summary_path": str(memos / "memo_summary.json"),
+                }
+            ],
+        )
+
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
             {
@@ -328,6 +351,30 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("research_summary.json", html)
         self.assertIn("invalid JSON", html)
+
+    def test_render_dashboard_html_contains_memo_outputs(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "memo_outputs": [
+                    {
+                        "stock_id": "2330",
+                        "markdown_path": "research-dist/memos/2330_memo.md",
+                        "html_path": "research-dist/memos/2330_memo.html",
+                        "summary_path": "research-dist/memos/memo_summary.json",
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("Research Memos", html)
+        self.assertIn("2330_memo.md", html)
+        self.assertIn("2330_memo.html", html)
+        self.assertIn("memo_summary.json", html)
 
 
 if __name__ == "__main__":

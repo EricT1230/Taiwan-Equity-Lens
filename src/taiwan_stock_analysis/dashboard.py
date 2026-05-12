@@ -17,6 +17,7 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "batch_summaries": [],
         "workflow_summaries": [],
         "research_summaries": [],
+        "memo_outputs": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -72,6 +73,28 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
                 payload = {"error": "invalid JSON"}
             payload["path"] = str(research_summary)
             items["research_summaries"].append(payload)
+
+        memo_summary = directory / "memo_summary.json"
+        memo_summary_path = str(memo_summary) if memo_summary.exists() else ""
+        memo_paths: dict[str, dict[str, Any]] = {}
+        for markdown_path in sorted(directory.glob("*_memo.md")):
+            stock_id = markdown_path.name.removesuffix("_memo.md")
+            memo_paths.setdefault(stock_id, {"stock_id": stock_id})["markdown_path"] = str(markdown_path)
+        for html_path in sorted(directory.glob("*_memo.html")):
+            stock_id = html_path.name.removesuffix("_memo.html")
+            memo_paths.setdefault(stock_id, {"stock_id": stock_id})["html_path"] = str(html_path)
+
+        if memo_paths:
+            for stock_id in sorted(memo_paths):
+                output = memo_paths[stock_id]
+                output.setdefault("markdown_path", "")
+                output.setdefault("html_path", "")
+                output["summary_path"] = memo_summary_path
+                items["memo_outputs"].append(output)
+        elif memo_summary_path:
+            items["memo_outputs"].append(
+                {"stock_id": "-", "markdown_path": "", "html_path": "", "summary_path": memo_summary_path}
+            )
     return items
 
 
@@ -83,6 +106,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     batch_error_count = sum(1 for result in batch_results if result.get("status") == "error")
     workflow_count = len(items.get("workflow_summaries", []))
     research_summaries = items.get("research_summaries", [])
+    memo_outputs = items.get("memo_outputs", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
 
     return f"""<!DOCTYPE html>
@@ -141,6 +165,10 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>Workflow summary</span></div>
     </section>
     {_research_summary_section(research_summaries)}
+    <section>
+      <h2>Research Memos</h2>
+      <table><thead><tr><th>stock_id</th><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_memo_rows(memo_outputs)}</tbody></table>
+    </section>
     <section>
       <h2>資料可信度</h2>
       {_workflow_reliability_summary(items.get("workflow_summaries", []))}
@@ -318,6 +346,20 @@ def _research_item_rows(items: list[Any]) -> str:
             "</tr>"
         )
     return "".join(rows) or _empty_row(7, "尚無 research items")
+
+
+def _memo_rows(memo_outputs: list[dict[str, Any]]) -> str:
+    if not memo_outputs:
+        return _empty_row(4, "尚無 research memo outputs")
+    return "".join(
+        "<tr>"
+        f"<td>{escape(str(output.get('stock_id', '-')))}</td>"
+        f"<td>{_link(str(output.get('markdown_path', '')), Path(str(output.get('markdown_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('html_path', '')), Path(str(output.get('html_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('summary_path', '')), Path(str(output.get('summary_path', ''))).name)}</td>"
+        "</tr>"
+        for output in memo_outputs
+    )
 
 
 def _dict_value(value: object) -> dict[str, Any]:
@@ -560,6 +602,8 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
                 _relativize_fields(comparison, ["html", "json"], base_dir)
     for summary in items.get("research_summaries", []):
         _relativize_fields(summary, ["path"], base_dir)
+    for output in items.get("memo_outputs", []):
+        _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
 
 
 def _relativize_fields(target: dict[str, Any], fields: list[str], base_dir: Path) -> None:
