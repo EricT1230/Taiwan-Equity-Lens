@@ -34,7 +34,8 @@ research-dist/dashboard.html
 ## Single Research Memo
 
 ```powershell
-python -m taiwan_stock_analysis.cli memo dist/2330_raw_data.json --output memos/2330_memo.md
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir memo-dist
+python -m taiwan_stock_analysis.cli memo memo-dist/2330_raw_data.json --output memos/2330_memo.md
 ```
 
 The memo summarizes existing analysis JSON, data reliability context, valuation scenarios, diagnostics, and follow-up checks for research review.

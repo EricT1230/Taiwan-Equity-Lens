@@ -23,7 +23,7 @@ Live Goodinfo run:
 python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir live-dist
 ```
 
-Fixture run:
+Optional local fixture run, if you maintain your own `fixtures/` directory:
 
 ```powershell
 python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --fixture fixtures --output-dir dist
@@ -128,7 +128,7 @@ The workflow command runs the normal watchlist path end to end:
 python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist
 ```
 
-For fixture or CI-style runs, keep price lookup offline:
+For fixture or CI-style runs, keep price lookup offline. The `fixtures/` directory is intentionally not shipped; use this only after adding your own fixture files:
 
 ```powershell
 python -m taiwan_stock_analysis.cli workflow watchlist.csv --fixture-root fixtures --output-dir workflow-dist --offline-prices
@@ -230,7 +230,8 @@ python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir
 Generate a single memo from an existing analysis JSON file:
 
 ```powershell
-python -m taiwan_stock_analysis.cli memo dist/2330_raw_data.json --output memos/2330_memo.md
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir memo-dist
+python -m taiwan_stock_analysis.cli memo memo-dist/2330_raw_data.json --output memos/2330_memo.md
 ```
 
 Generate memos for an existing research workflow directory:

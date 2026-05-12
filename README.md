@@ -110,7 +110,8 @@ python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir
 Generate a single research memo from existing analysis JSON:
 
 ```powershell
-python -m taiwan_stock_analysis.cli memo dist/2330_raw_data.json --output memos/2330_memo.md
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir memo-dist
+python -m taiwan_stock_analysis.cli memo memo-dist/2330_raw_data.json --output memos/2330_memo.md
 ```
 
 Generate research memos from a research workflow directory:
