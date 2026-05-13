@@ -6,6 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
+
 
 RESEARCH_COLUMNS = ["stock_id", "company_name", "category", "priority", "research_state", "notes"]
 ALLOWED_PRIORITIES = {"high", "medium", "low"}
@@ -127,7 +129,7 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             }
         )
 
-    return {
+    summary = {
         "research_path": str(research_path),
         "workflow_summary_path": str(workflow_summary_path) if workflow_summary_path is not None else "",
         "counts": {
@@ -139,10 +141,22 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
         "items": items,
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
     }
+    run_metadata = read_run_metadata(workflow_payload)
+    if run_metadata:
+        summary["run_metadata"] = run_metadata
+    return summary
 
 
 def write_research_summary(research_path: Path, workflow_dir: Path | None, output_path: Path) -> Path:
     summary = build_research_summary(research_path, workflow_dir=workflow_dir)
+    workflow_summary_path = (workflow_dir / "workflow_summary.json") if workflow_dir is not None else None
+    dependencies = {}
+    if workflow_summary_path is not None:
+        dependencies["workflow_summary"] = str(workflow_summary_path)
+    summary["artifact_registry"] = build_artifact_registry(
+        str(output_path),
+        dependencies=dependencies,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_path

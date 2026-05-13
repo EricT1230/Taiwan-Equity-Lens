@@ -241,6 +241,51 @@ class MemoTests(unittest.TestCase):
         self.assertIn("markdown_path", summary["generated"][0])
         self.assertIn("html_path", summary["generated"][0])
 
+    def test_write_research_memos_inherits_research_traceability(self):
+        workflow_dir = self.tmp_dir / "traceable-workflow"
+        reports_dir = workflow_dir / "reports"
+        output_dir = workflow_dir / "memos"
+        reports_dir.mkdir(parents=True)
+        (reports_dir / "2330_raw_data.json").write_text(json.dumps(_analysis_payload()), encoding="utf-8")
+        workflow_summary_path = workflow_dir / "workflow_summary.json"
+        research_summary_path = workflow_dir / "research_summary.json"
+        research_summary_path.write_text(
+            json.dumps(
+                {
+                    "run_metadata": {
+                        "run_id": "run-20260513-memo",
+                        "generated_at": "2026-05-13T12:00:00Z",
+                        "kind": "research",
+                        "command": "research summarize",
+                        "inputs": {"workflow_summary": str(workflow_summary_path)},
+                        "output_root": str(workflow_dir),
+                    },
+                    "items": [{"stock_id": "2330", "company_name": "TSMC", "research_state": "review"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary_path = write_research_memos(research_summary_path, workflow_dir, output_dir)
+
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual("run-20260513-memo", payload["run_metadata"]["run_id"])
+        self.assertEqual(str(summary_path), payload["artifact_registry"]["self"])
+        self.assertEqual(
+            {
+                "workflow_summary": str(workflow_summary_path),
+                "research_summary": str(research_summary_path),
+            },
+            payload["artifact_registry"]["dependencies"],
+        )
+        self.assertEqual(
+            {
+                "markdown": [str(output_dir / "2330_memo.md")],
+                "html": [str(output_dir / "2330_memo.html")],
+            },
+            payload["artifact_registry"]["outputs"],
+        )
+
 
 def _analysis_payload():
     return {

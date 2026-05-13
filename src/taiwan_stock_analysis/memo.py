@@ -5,6 +5,8 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
+
 
 DISCLAIMER = (
     "This memo is research workflow support only and is not investment advice, "
@@ -220,7 +222,29 @@ def write_research_memos(
         "output_dir": str(output_dir),
         "generated": generated,
         "skipped": skipped,
+        "artifact_registry": build_artifact_registry(
+            str(summary_path),
+            dependencies={
+                "workflow_summary": str(workflow_dir / "workflow_summary.json"),
+                "research_summary": str(research_summary_path),
+            },
+            outputs={
+                "markdown": [
+                    item["markdown_path"]
+                    for item in generated
+                    if "markdown_path" in item
+                ],
+                "html": [
+                    item["html_path"]
+                    for item in generated
+                    if "html_path" in item
+                ],
+            },
+        ),
     }
+    run_metadata = read_run_metadata(payload)
+    if run_metadata:
+        summary["run_metadata"] = run_metadata
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary_path
 

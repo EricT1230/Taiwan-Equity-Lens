@@ -216,6 +216,44 @@ class ResearchTests(unittest.TestCase):
         payload = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(payload["items"][0]["stock_id"], "2330")
 
+    def test_write_research_summary_inherits_workflow_traceability(self):
+        root = Path(".tmp-research-test")
+        research = root / "traceable-research.csv"
+        workflow_dir = root / "traceable-workflow"
+        output = root / "traceable-research-summary.json"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,medium,done,\n",
+            encoding="utf-8",
+        )
+        workflow_summary_path = workflow_dir / "workflow_summary.json"
+        workflow_summary_path.write_text(
+            json.dumps(
+                {
+                    "run_metadata": {
+                        "run_id": "run-20260513-research",
+                        "generated_at": "2026-05-13T12:00:00Z",
+                        "kind": "workflow",
+                        "command": "workflow run",
+                        "inputs": {"watchlist": "watchlist.csv"},
+                        "output_root": str(workflow_dir),
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        write_research_summary(research, workflow_dir, output)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual("run-20260513-research", payload["run_metadata"]["run_id"])
+        self.assertEqual(str(output), payload["artifact_registry"]["self"])
+        self.assertEqual(
+            {"workflow_summary": str(workflow_summary_path)},
+            payload["artifact_registry"]["dependencies"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
