@@ -2,6 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
+import taiwan_stock_analysis.research as research_module
 from taiwan_stock_analysis.research import (
     ALLOWED_PRIORITIES,
     ALLOWED_STATES,
@@ -182,6 +183,101 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(items["9999"]["workflow_status"], "error")
         self.assertIn("workflow failed at batch: fixture missing", items["9999"]["attention_reasons"])
         self.assertEqual(summary["workflow_paths"], {"dashboard": "workflow/dashboard.html"})
+
+    def test_build_research_summary_includes_universe_review_counts_and_buckets(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-universe-review.csv"
+        workflow_dir = root / "universe-review-workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,review,Needs final review\n"
+            "2303,UMC,Semiconductor,medium,watching,\n"
+            "9999,Broken,,high,blocked,Source failed\n"
+            "1111,NewCo,Finance,low,new,Add notes\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330", "2303", "1111"],
+                    "stock_failures": [
+                        {"stock_id": "9999", "stage": "batch", "reason": "fixture missing"}
+                    ],
+                    "data_reliability": {"overall_status": "ok"},
+                    "paths": {"valuation_batch_summary": "workflow/valuation.json"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        self.assertIn("universe_review", summary)
+        review = summary["universe_review"]
+        self.assertEqual(
+            review["category_counts"],
+            {"Finance": 1, "Semiconductor": 2, "Uncategorized": 1},
+        )
+        self.assertEqual(
+            review["counts"],
+            {
+                "total": 4,
+                "needs_attention": 3,
+                "high_priority_attention": 2,
+                "blocked": 1,
+                "new": 1,
+                "active_review": 1,
+            },
+        )
+        self.assertEqual(review["state_counts"], {"blocked": 1, "new": 1, "review": 1, "watching": 1})
+        self.assertEqual(review["priority_counts"], {"high": 2, "low": 1, "medium": 1})
+        self.assertEqual(review["review_buckets"]["needs_attention"], ["1111", "2330", "9999"])
+        self.assertEqual(review["review_buckets"]["high_priority_attention"], ["2330", "9999"])
+        self.assertEqual(review["review_buckets"]["blocked"], ["9999"])
+        self.assertEqual(review["review_buckets"]["new"], ["1111"])
+        self.assertEqual(review["review_buckets"]["active_review"], ["2330"])
+
+    def test_build_universe_review_sorts_attention_queue_by_status_priority_and_stock_id(self):
+        builder = getattr(research_module, "build_universe_review", None)
+        self.assertIsNotNone(builder)
+
+        review = builder(
+            [
+                {
+                    "stock_id": "3001",
+                    "company_name": "Low Error",
+                    "category": "Test",
+                    "priority": "low",
+                    "research_state": "watching",
+                    "workflow_status": "error",
+                    "attention_reasons": ["workflow failed"],
+                },
+                {
+                    "stock_id": "2001",
+                    "company_name": "High Warning",
+                    "category": "Test",
+                    "priority": "high",
+                    "research_state": "watching",
+                    "workflow_status": "warning",
+                    "attention_reasons": ["workflow status is warning"],
+                },
+                {
+                    "stock_id": "1001",
+                    "company_name": "High OK",
+                    "category": "Test",
+                    "priority": "high",
+                    "research_state": "review",
+                    "workflow_status": "ok",
+                    "attention_reasons": ["research state requires review"],
+                },
+            ]
+        )
+
+        self.assertEqual(
+            [item["stock_id"] for item in review["attention_queue"]],
+            ["3001", "2001", "1001"],
+        )
 
     def test_build_research_summary_treats_invalid_workflow_json_as_skipped(self):
         root = Path(".tmp-research-test")

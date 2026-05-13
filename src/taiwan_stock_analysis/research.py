@@ -4,7 +4,7 @@ import csv
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
 
@@ -12,6 +12,8 @@ from taiwan_stock_analysis.traceability import build_artifact_registry, read_run
 RESEARCH_COLUMNS = ["stock_id", "company_name", "category", "priority", "research_state", "notes"]
 ALLOWED_PRIORITIES = {"high", "medium", "low"}
 ALLOWED_STATES = {"new", "watching", "review", "done", "blocked"}
+WORKFLOW_STATUS_SEVERITY = {"error": 0, "warning": 1, "skipped": 2, "ok": 3}
+PRIORITY_SEVERITY = {"high": 0, "medium": 1, "low": 2}
 
 
 def load_research_rows(path: Path) -> list[dict[str, str]]:
@@ -139,12 +141,52 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             "needs_attention": sum(1 for item in items if item["attention_reasons"]),
         },
         "items": items,
+        "universe_review": build_universe_review(items),
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
     }
     run_metadata = read_run_metadata(workflow_payload)
     if run_metadata:
         summary["run_metadata"] = run_metadata
     return summary
+
+
+def build_universe_review(items: list[dict[str, Any]]) -> dict[str, Any]:
+    attention_items = [item for item in items if item.get("attention_reasons")]
+    high_priority_attention = [
+        item for item in attention_items if str(item.get("priority") or "") == "high"
+    ]
+
+    review_buckets = {
+        "needs_attention": _sorted_stock_ids(attention_items),
+        "high_priority_attention": _sorted_stock_ids(high_priority_attention),
+        "blocked": _sorted_stock_ids(
+            item for item in items if str(item.get("research_state") or "") == "blocked"
+        ),
+        "new": _sorted_stock_ids(
+            item for item in items if str(item.get("research_state") or "") == "new"
+        ),
+        "active_review": _sorted_stock_ids(
+            item for item in items if str(item.get("research_state") or "") == "review"
+        ),
+    }
+
+    return {
+        "counts": {
+            "total": len(items),
+            "needs_attention": len(attention_items),
+            "high_priority_attention": len(high_priority_attention),
+            "blocked": len(review_buckets["blocked"]),
+            "new": len(review_buckets["new"]),
+            "active_review": len(review_buckets["active_review"]),
+        },
+        "category_counts": _count_by(items, _review_category),
+        "state_counts": _count_by(items, lambda item: str(item.get("research_state") or "")),
+        "priority_counts": _count_by(items, lambda item: str(item.get("priority") or "")),
+        "review_buckets": review_buckets,
+        "attention_queue": [
+            _attention_queue_item(item) for item in sorted(attention_items, key=_attention_sort_key)
+        ],
+    }
 
 
 def write_research_summary(research_path: Path, workflow_dir: Path | None, output_path: Path) -> Path:
@@ -167,6 +209,42 @@ def _normalized_choice(row: dict[str, str], field: str, default: str) -> str:
     if not value:
         return default
     return value.lower()
+
+
+def _review_category(item: dict[str, Any]) -> str:
+    category = str(item.get("category") or "").strip()
+    return category or "Uncategorized"
+
+
+def _count_by(items: list[dict[str, Any]], key_func: Callable[[dict[str, Any]], str]) -> dict[str, int]:
+    counts = Counter(key_func(item) for item in items)
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def _sorted_stock_ids(items: Iterable[dict[str, Any]]) -> list[str]:
+    return sorted(str(item.get("stock_id") or "") for item in items)
+
+
+def _attention_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+    workflow_status = str(item.get("workflow_status") or "")
+    priority = str(item.get("priority") or "")
+    return (
+        WORKFLOW_STATUS_SEVERITY.get(workflow_status, len(WORKFLOW_STATUS_SEVERITY)),
+        PRIORITY_SEVERITY.get(priority, len(PRIORITY_SEVERITY)),
+        str(item.get("stock_id") or ""),
+    )
+
+
+def _attention_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "stock_id": str(item.get("stock_id") or ""),
+        "company_name": str(item.get("company_name") or ""),
+        "category": _review_category(item),
+        "priority": str(item.get("priority") or ""),
+        "research_state": str(item.get("research_state") or ""),
+        "workflow_status": str(item.get("workflow_status") or ""),
+        "attention_reasons": list(item.get("attention_reasons") or []),
+    }
 
 
 def _load_workflow_summary(path: Path | None) -> dict[str, Any]:
