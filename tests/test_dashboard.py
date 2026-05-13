@@ -356,6 +356,75 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("high: 1", html)
         self.assertIn("research state requires review", html)
 
+    def test_render_dashboard_html_contains_universe_review(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "counts": {"total": 3, "needs_attention": 2},
+                        "universe_review": {
+                            "counts": {
+                                "total": 3,
+                                "needs_attention": 2,
+                                "high_priority_attention": 1,
+                                "blocked": 1,
+                                "new": 1,
+                                "active_review": 1,
+                            },
+                            "category_counts": {
+                                "Semiconductor": 2,
+                                "Uncategorized": 1,
+                            },
+                            "state_counts": {"blocked": 1, "new": 1, "review": 1},
+                            "priority_counts": {"high": 1, "medium": 2},
+                            "review_buckets": {
+                                "needs_attention": ["2330", "2303"],
+                                "high_priority_attention": ["2330"],
+                                "blocked": ["2303"],
+                                "new": ["2454"],
+                                "active_review": ["2330"],
+                            },
+                            "attention_queue": [
+                                {
+                                    "stock_id": "2330",
+                                    "company_name": "TSMC",
+                                    "category": "Semiconductor",
+                                    "priority": "high",
+                                    "research_state": "review",
+                                    "workflow_status": "ok",
+                                    "reliability_status": "warning",
+                                    "attention_reasons": ["high priority attention"],
+                                },
+                                {
+                                    "stock_id": "2303",
+                                    "company_name": "UMC",
+                                    "category": "Semiconductor",
+                                    "priority": "medium",
+                                    "research_state": "blocked",
+                                    "workflow_status": "error",
+                                    "reliability_status": "error",
+                                    "attention_reasons": ["workflow failed"],
+                                },
+                            ],
+                        },
+                        "items": [],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("Universe Review", html)
+        self.assertIn("high priority attention", html)
+        self.assertIn("Semiconductor: 2", html)
+        self.assertIn("Uncategorized: 1", html)
+        self.assertIn("2330", html)
+        self.assertIn("2303", html)
+
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
         html = render_dashboard_html(
             {
@@ -383,6 +452,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("workflow-dist/workflow_summary.json", html)
         self.assertIn("research-dist/research_summary.json", html)
+        self.assertIn("total research items: 0", html)
+        self.assertNotIn("Universe Review", html)
 
     def test_render_dashboard_html_shows_research_empty_state(self):
         html = render_dashboard_html(

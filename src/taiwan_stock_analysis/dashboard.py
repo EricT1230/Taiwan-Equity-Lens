@@ -311,6 +311,7 @@ def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
         item_rows = _research_item_rows(items if isinstance(items, list) else [])
         related_links = _research_related_links(summary)
         traceability = _research_traceability_line(summary)
+        universe_review = _universe_review_section(summary)
         sections.append(
             "<div>"
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
@@ -322,12 +323,85 @@ def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
             f'<span class="badge">state counts: {_count_pairs(by_state)}</span>'
             f'<span class="badge">priority counts: {_count_pairs(by_priority)}</span>'
             "</p>"
+            f"{universe_review}"
             "<table><thead><tr><th>stock_id</th><th>company_name</th><th>priority</th><th>research_state</th>"
             "<th>workflow_status</th><th>reliability_status</th><th>attention_reasons</th></tr></thead>"
             f"<tbody>{item_rows}</tbody></table>"
             "</div>"
         )
     return f"<section><h2>研究工作台</h2>{''.join(sections)}</section>"
+
+
+def _universe_review_section(summary: dict[str, Any]) -> str:
+    review = summary.get("universe_review")
+    if not isinstance(review, dict):
+        return ""
+
+    counts = _dict_value(review.get("counts"))
+    category_counts = _dict_value(review.get("category_counts"))
+    state_counts = _dict_value(review.get("state_counts"))
+    priority_counts = _dict_value(review.get("priority_counts"))
+    review_buckets = _dict_value(review.get("review_buckets"))
+    queue = review.get("attention_queue", [])
+    queue_items = queue if isinstance(queue, list) else []
+
+    bucket_badges = []
+    for bucket, stock_ids in sorted(review_buckets.items()):
+        ids = _list_value(stock_ids)
+        bucket_badges.append(
+            f'<span class="badge">{escape(str(bucket).replace("_", " "))}: {escape(", ".join(ids) or "-")}</span>'
+        )
+    bucket_html = "".join(bucket_badges) or '<span class="badge">review buckets: -</span>'
+
+    return (
+        '<div class="tool">'
+        "<h3>Universe Review</h3>"
+        f'<p class="status-line">{_universe_count_badges(counts)}</p>'
+        '<p class="status-line">'
+        f'<span class="badge">category counts: {_count_pairs(category_counts)}</span>'
+        f'<span class="badge">state counts: {_count_pairs(state_counts)}</span>'
+        f'<span class="badge">priority counts: {_count_pairs(priority_counts)}</span>'
+        "</p>"
+        f'<p class="status-line">{bucket_html}</p>'
+        "<table><thead><tr><th>stock_id</th><th>company_name</th><th>category</th><th>priority</th>"
+        "<th>research_state</th><th>workflow_status</th><th>reliability_status</th><th>attention_reasons</th></tr></thead>"
+        f"<tbody>{_universe_attention_rows(queue_items)}</tbody></table>"
+        "</div>"
+    )
+
+
+def _universe_attention_rows(queue: list[Any]) -> str:
+    rows: list[str] = []
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        reasons = item.get("attention_reasons", [])
+        if isinstance(reasons, list):
+            reasons_text = ", ".join(str(reason) for reason in reasons)
+        else:
+            reasons_text = str(reasons)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('stock_id', '-')))}</td>"
+            f"<td>{escape(str(item.get('company_name', '')))}</td>"
+            f"<td>{escape(str(item.get('category', '')))}</td>"
+            f"<td>{escape(str(item.get('priority', '')))}</td>"
+            f"<td>{escape(str(item.get('research_state', '')))}</td>"
+            f"<td>{escape(str(item.get('workflow_status', '')))}</td>"
+            f"<td>{escape(str(item.get('reliability_status', '')))}</td>"
+            f"<td>{escape(reasons_text)}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or _empty_row(8, "No universe attention queue items")
+
+
+def _universe_count_badges(counts: dict[str, Any]) -> str:
+    if not counts:
+        return '<span class="badge">universe counts: -</span>'
+    return "".join(
+        f'<span class="badge">{escape(str(key).replace("_", " "))}: {escape(str(value))}</span>'
+        for key, value in sorted(counts.items())
+    )
 
 
 def _research_related_links(summary: dict[str, Any]) -> str:
