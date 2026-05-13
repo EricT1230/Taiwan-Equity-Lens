@@ -208,7 +208,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     <section>
       <h2>Workflow 狀態</h2>
       {_workflow_status_line(items.get("workflow_summaries", []))}
-      <table><thead><tr><th>Summary</th><th>Watchlist</th><th>成功股票</th><th>估值 CSV</th><th>Dashboard</th><th>同業比較</th><th>備註</th></tr></thead><tbody>{_workflow_summary_rows(items.get("workflow_summaries", []))}</tbody></table>
+      <table><thead><tr><th>Summary</th><th>Run ID</th><th>Watchlist</th><th>成功股票</th><th>估值 CSV</th><th>Dashboard</th><th>同業比較</th><th>備註</th></tr></thead><tbody>{_workflow_summary_rows(items.get("workflow_summaries", []))}</tbody></table>
     </section>
     <section>
       <h2>批次狀態</h2>
@@ -310,9 +310,11 @@ def _research_summary_section(summaries: list[dict[str, Any]]) -> str:
         items = summary.get("items", [])
         item_rows = _research_item_rows(items if isinstance(items, list) else [])
         related_links = _research_related_links(summary)
+        traceability = _research_traceability_line(summary)
         sections.append(
             "<div>"
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            f"{traceability}"
             f"{related_links}"
             '<p class="status-line">'
             f'<span class="badge">total research items: {escape(str(total))}</span>'
@@ -354,6 +356,25 @@ def _research_related_links(summary: dict[str, Any]) -> str:
     if not links:
         return ""
     return f'<p class="status-line">{" ".join(links)}</p>'
+
+
+def _research_traceability_line(summary: dict[str, Any]) -> str:
+    labels: list[str] = []
+    run_id = _run_id(summary)
+    if run_id:
+        labels.append(f'<span class="badge">run id: {escape(run_id)}</span>')
+
+    dependency_path = _workflow_dependency(summary)
+    if dependency_path:
+        labels.append(
+            '<span class="badge">'
+            f'workflow dependency: {_link(dependency_path, Path(dependency_path).name or dependency_path)}'
+            "</span>"
+        )
+
+    if not labels:
+        return ""
+    return f'<p class="status-line">{" ".join(labels)}</p>'
 
 
 def _research_item_rows(items: list[Any]) -> str:
@@ -473,7 +494,7 @@ def _batch_rows(batch_summaries: list[dict[str, Any]]) -> str:
 
 def _workflow_summary_rows(workflow_summaries: list[dict[str, Any]]) -> str:
     if not workflow_summaries:
-        return _empty_row(7, "尚無 workflow summary。執行 workflow 後會顯示 watchlist、估值 CSV 與比較結果。")
+        return _empty_row(8, "尚無 workflow summary。執行 workflow 後會顯示 watchlist、估值 CSV 與比較結果。")
 
     rows = []
     for summary in workflow_summaries:
@@ -487,6 +508,7 @@ def _workflow_summary_rows(workflow_summaries: list[dict[str, Any]]) -> str:
         rows.append(
             "<tr>"
             f"<td>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</td>"
+            f"<td>{escape(_run_id(summary) or '-')}</td>"
             f"<td>{escape(str(summary.get('watchlist_path', '')))}</td>"
             f"<td>成功 {len(successful_stock_ids)} / {len(stock_ids)}<br>{escape(', '.join(successful_stock_ids) or '-')}</td>"
             f"<td>{_link(str(paths.get('valuation_csv', '')), Path(str(paths.get('valuation_csv', ''))).name)}</td>"
@@ -575,6 +597,23 @@ def _batch_status_line(batch_results: list[dict[str, Any]]) -> str:
 def _workflow_paths(summary: dict[str, Any]) -> dict[str, Any]:
     paths = summary.get("paths", {})
     return paths if isinstance(paths, dict) else {}
+
+
+def _run_id(summary: dict[str, Any]) -> str:
+    metadata = summary.get("run_metadata", {})
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("run_id") or "")
+
+
+def _workflow_dependency(summary: dict[str, Any]) -> str:
+    registry = summary.get("artifact_registry", {})
+    if not isinstance(registry, dict):
+        return ""
+    dependencies = registry.get("dependencies", {})
+    if not isinstance(dependencies, dict):
+        return ""
+    return str(dependencies.get("workflow_summary") or "")
 
 
 def _comparison_link(comparison: dict[str, Any]) -> str:

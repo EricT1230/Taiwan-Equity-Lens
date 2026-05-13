@@ -120,6 +120,7 @@ class DashboardTests(unittest.TestCase):
                 "workflow_summaries": [
                     {
                         "path": "workflow-dist/workflow_summary.json",
+                        "run_metadata": {"run_id": "run-dashboard-workflow"},
                         "watchlist_path": "watchlist.csv",
                         "stock_ids": ["2330", "2303"],
                         "successful_stock_ids": ["2330"],
@@ -166,6 +167,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("同業比較略過", html)
         self.assertIn('class="badge error">同業比較略過', html)
         self.assertIn("workflow-dist/workflow_summary.json", html)
+        self.assertIn("run-dashboard-workflow", html)
         self.assertIn("workflow-dist/valuation.csv", html)
         self.assertIn("fewer than two successful stocks", html)
         self.assertIn("2330", html)
@@ -295,6 +297,12 @@ class DashboardTests(unittest.TestCase):
                 "research_summaries": [
                     {
                         "path": "research-dist/research_summary.json",
+                        "run_metadata": {"run_id": "run-dashboard-research"},
+                        "artifact_registry": {
+                            "dependencies": {
+                                "workflow_summary": "research-dist/workflow_summary.json",
+                            }
+                        },
                         "workflow_summary_path": "research-dist/workflow_summary.json",
                         "workflow_paths": {
                             "batch_summary": "research-dist/reports/batch_summary.json",
@@ -335,6 +343,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("研究工作台", html)
         self.assertIn("needs attention", html)
+        self.assertIn("run-dashboard-research", html)
+        self.assertIn("workflow dependency", html)
         self.assertIn("research-dist/workflow_summary.json", html)
         self.assertIn("research-dist/dashboard.html", html)
         self.assertIn("research-dist/reports/batch_summary.json", html)
@@ -345,6 +355,34 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("review: 1", html)
         self.assertIn("high: 1", html)
         self.assertIn("research state requires review", html)
+
+    def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [
+                    {
+                        "path": "workflow-dist/workflow_summary.json",
+                        "watchlist_path": "watchlist.csv",
+                        "stock_ids": ["2330"],
+                        "successful_stock_ids": ["2330"],
+                        "paths": {},
+                    }
+                ],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "counts": {"total": 0, "needs_attention": 0},
+                        "items": [],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("workflow-dist/workflow_summary.json", html)
+        self.assertIn("research-dist/research_summary.json", html)
 
     def test_render_dashboard_html_shows_research_empty_state(self):
         html = render_dashboard_html(

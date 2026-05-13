@@ -5,6 +5,8 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
+
 
 _PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -108,6 +110,7 @@ def build_pack_context(
         "counts": research_summary.get("counts", {}),
         "research_state_counts": research_summary.get("research_state_counts", {}),
         "priority_counts": research_summary.get("priority_counts", {}),
+        "run_metadata": read_run_metadata(research_summary),
         "workflow_reliability": workflow_reliability,
         "workflow_summary": workflow_summary,
         "items": items,
@@ -346,19 +349,43 @@ def write_research_pack(
         warnings.append("memo summary not provided")
 
     summary_path = output_dir / "pack_summary.json"
+    markdown_output = str(markdown_path) if normalized_format in {"both", "markdown"} else ""
+    html_output = str(html_path) if normalized_format in {"both", "html"} else ""
+    outputs = {}
+    if markdown_output:
+        outputs["markdown"] = markdown_output
+    if html_output:
+        outputs["html"] = html_output
+
+    dependencies = {"research_summary": str(research_summary_path)}
+    if workflow_summary_path is not None:
+        dependencies["workflow_summary"] = str(workflow_summary_path)
+    if memo_summary_path is not None:
+        dependencies["memo_summary"] = str(memo_summary_path)
+
+    summary_payload = {
+        "output_dir": str(output_dir),
+        "status": "ok",
+        "warnings": warnings,
+        "research_summary_path": str(research_summary_path),
+        "research_csv_path": str(research_csv_path),
+        "markdown_path": markdown_output,
+        "html_path": html_output,
+        "item_count": len(context["items"]),
+        "review_queue_count": len(context["review_queue"]),
+        "artifact_registry": build_artifact_registry(
+            str(summary_path),
+            dependencies=dependencies,
+            outputs=outputs,
+        ),
+    }
+    run_metadata = context["run_metadata"]
+    if run_metadata:
+        summary_payload["run_metadata"] = run_metadata
+
     summary_path.write_text(
         json.dumps(
-            {
-                "output_dir": str(output_dir),
-                "status": "ok",
-                "warnings": warnings,
-                "research_summary_path": str(research_summary_path),
-                "research_csv_path": str(research_csv_path),
-                "markdown_path": str(markdown_path) if normalized_format in {"both", "markdown"} else "",
-                "html_path": str(html_path) if normalized_format in {"both", "html"} else "",
-                "item_count": len(context["items"]),
-                "review_queue_count": len(context["review_queue"]),
-            },
+            summary_payload,
             ensure_ascii=False,
             indent=2,
         ),

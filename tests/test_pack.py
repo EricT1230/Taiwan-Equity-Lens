@@ -86,11 +86,52 @@ class ResearchPackTests(unittest.TestCase):
         self.assertEqual("ok", payload["status"])
         self.assertEqual([], payload["warnings"])
 
+    def test_write_research_pack_inherits_traceability_from_research_summary(self):
+        output_dir = self.root / "traceable-packs"
+        research_summary_path = self._write_research_summary()
+        workflow_summary_path = self._write_workflow_summary()
+        memo_summary_path = self._write_memo_summary()
+
+        summary_path = write_research_pack(
+            research_summary_path,
+            output_dir,
+            research_csv_path=Path("research.csv"),
+            workflow_summary_path=workflow_summary_path,
+            memo_summary_path=memo_summary_path,
+        )
+
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual("run-20260513-pack", payload["run_metadata"]["run_id"])
+        self.assertEqual(str(summary_path), payload["artifact_registry"]["self"])
+        self.assertEqual(
+            {
+                "research_summary": str(research_summary_path),
+                "workflow_summary": str(workflow_summary_path),
+                "memo_summary": str(memo_summary_path),
+            },
+            payload["artifact_registry"]["dependencies"],
+        )
+        self.assertEqual(
+            {
+                "markdown": str(output_dir / "research-pack.md"),
+                "html": str(output_dir / "research-pack.html"),
+            },
+            payload["artifact_registry"]["outputs"],
+        )
+
     def _write_research_summary(self, company_name="TSMC"):
         path = self.root / "research_summary.json"
         path.write_text(
             json.dumps(
                 {
+                    "run_metadata": {
+                        "run_id": "run-20260513-pack",
+                        "generated_at": "2026-05-13T12:00:00Z",
+                        "kind": "research",
+                        "command": "research summarize",
+                        "inputs": {"workflow_summary": "workflow_summary.json"},
+                        "output_root": "research-dist",
+                    },
                     "counts": {"total": 2, "needs_attention": 1},
                     "research_state_counts": {"review": 1, "monitor": 1},
                     "priority_counts": {"high": 1, "medium": 1},
