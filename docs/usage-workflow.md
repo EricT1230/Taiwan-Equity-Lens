@@ -164,6 +164,11 @@ The dashboard uses Traditional Chinese labels and clear empty states, so missing
 - `data_reliability`: aggregate counts for `ok`, `warning`, `error`, and `skipped`
 - `stock_failures`: per-stock failure reason and retry hint
 
+From v0.8.0 onward, summary outputs also include traceability fields:
+
+- `run_metadata`: run id, generation timestamp, command context, inputs, and output root
+- `artifact_registry`: self path, dependency paths, and downstream outputs
+
 Status values mean:
 
 - `ok`: the stage completed without detected data issues
@@ -257,7 +262,7 @@ Generate a consolidated research pack from the current workflow outputs:
 python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
 ```
 
-`research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings. When pack outputs exist, the dashboard also links to the generated handoff pack and its summary JSON.
+`research_summary.json` preserves your research metadata and adds workflow status, reliability status, attention reasons, and traceability metadata. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings. When memo or pack outputs exist, the dashboard links to those artifacts and can surface their run lineage.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 

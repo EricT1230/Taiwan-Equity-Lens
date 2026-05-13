@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.0 - 2026-05-13
+
+Traceability Layer release.
+
+### Added
+
+- Run metadata with run id, generation timestamp, command context, and output root.
+- Artifact registries linking workflow, research summary, memo summary, and pack summary outputs.
+- Dashboard traceability surfaces for inspecting run lineage.
+- v0.8.0 release notes and workflow documentation for traceability fields.
+
+### Changed
+
+- README, usage workflow docs, and examples now describe run lineage and artifact registries.
+- Package version is now `0.8.0`.
+
+### Quality
+
+- Traceability generation, inheritance, and dashboard compatibility are covered by the test suite.
+
 ## v0.7.0 - 2026-05-13
 
 Memo Intelligence Upgrade release.

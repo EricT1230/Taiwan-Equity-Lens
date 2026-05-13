@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.7.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.8.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -19,6 +19,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
 - Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
+- Adds lightweight traceability metadata so workflow, summary, memo, and pack outputs can be followed across a run.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -182,6 +183,13 @@ When a `research_summary.json` is present, the dashboard also shows:
 
 Generated workflow outputs include a reliability summary that explains which steps succeeded, which inputs used fallback sources, and which stocks failed or were skipped.
 
+Summary files also expose a lightweight traceability layer:
+
+- `run_id`
+- `generated_at`
+- artifact dependencies
+- downstream outputs derived from the same run
+
 The project uses four status values:
 
 - `ok`: the stage completed without detected data issues
@@ -217,6 +225,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.8.0 release notes](docs/releases/v0.8.0.md)
 - [v0.7.0 release notes](docs/releases/v0.7.0.md)
 - [v0.6.0 release notes](docs/releases/v0.6.0.md)
 - [v0.5.0 release notes](docs/releases/v0.5.0.md)
@@ -245,6 +254,7 @@ src/taiwan_stock_analysis/
 |-- market_price.py   # TWSE/TPEx valuation price template helper
 |-- memo.py           # Markdown and HTML research memo renderer
 |-- pack.py           # consolidated research pack renderer
+|-- traceability.py   # run metadata and artifact registry helpers
 |-- metrics.py        # fundamental metric calculations
 |-- models.py         # dataclasses
 |-- parser.py         # HTML table parser
