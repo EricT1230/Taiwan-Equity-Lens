@@ -9,6 +9,11 @@ from typing import Any
 from taiwan_stock_analysis.dashboard import write_dashboard_index
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
 from taiwan_stock_analysis.reliability import ReliabilityStatus, build_retry_hint, summarize_reliability
+from taiwan_stock_analysis.traceability import (
+    build_artifact_registry,
+    build_run_metadata,
+    merge_traceability,
+)
 from taiwan_stock_analysis.watchlist import load_watchlist
 
 
@@ -164,6 +169,20 @@ def run_watchlist_workflow(
         "data_reliability": summarize_reliability(statuses),
         "stock_failures": stock_failures,
     }
+    summary = merge_traceability(
+        summary,
+        run_metadata=build_run_metadata(
+            "workflow",
+            "workflow run",
+            {"watchlist": str(watchlist_path)},
+            str(output_dir),
+        ),
+        artifact_registry=build_artifact_registry(
+            str(summary_path),
+            dependencies={"watchlist": str(watchlist_path)},
+            outputs={"dashboard": str(dashboard_path)},
+        ),
+    )
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
     scan_dirs = [output_dir, reports_dir, comparison_dir]
