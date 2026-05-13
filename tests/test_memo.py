@@ -45,7 +45,12 @@ class MemoTests(unittest.TestCase):
         markdown = render_memo_markdown(context)
 
         self.assertIn("# Research Memo: TSMC (2330)", markdown)
+        self.assertIn("## Executive Summary", markdown)
         self.assertIn("## Research Metadata", markdown)
+        self.assertIn("## Key Observations", markdown)
+        self.assertIn("## Catalysts", markdown)
+        self.assertIn("## Risks", markdown)
+        self.assertIn("## Open Questions", markdown)
         self.assertIn("## Data Reliability", markdown)
         self.assertIn("## Latest Metrics Snapshot", markdown)
         self.assertIn("Revenue | 1,000.00", markdown)
@@ -53,9 +58,47 @@ class MemoTests(unittest.TestCase):
         self.assertIn("Target-price scenarios are research scenarios, not recommendations.", markdown)
         self.assertIn("## Quality Scorecard", markdown)
         self.assertIn("## Diagnostics", markdown)
+        self.assertIn("## Next Research Actions", markdown)
+        self.assertIn("### Data Checks", markdown)
+        self.assertIn("### Valuation Checks", markdown)
+        self.assertIn("### Thesis Checks", markdown)
         self.assertIn("- [ ] Review data reliability warning", markdown)
         self.assertIn("## Source Links", markdown)
         self.assertIn("This memo is research workflow support only", markdown)
+
+    def test_render_memo_markdown_surfaces_risks_questions_and_actions(self):
+        payload = _analysis_payload()
+        payload["valuation"]["assumptions"] = {}
+        context = {
+            **build_memo_context_from_payload(payload, self.tmp_dir),
+            "research_item": {
+                "stock_id": "2330",
+                "company_name": "TSMC",
+                "research_state": "review",
+                "reliability_status": "warning",
+                "attention_reasons": ["manual follow-up"],
+            },
+        }
+
+        markdown = render_memo_markdown(context)
+
+        self.assertIn("## Risks", markdown)
+        self.assertIn("Diagnostics reported", markdown)
+        self.assertIn("Valuation assumptions need manual review.", markdown)
+        self.assertIn("## Open Questions", markdown)
+        self.assertIn("What data issue caused the current warning state?", markdown)
+        self.assertIn("### Valuation Checks", markdown)
+
+    def test_render_memo_markdown_uses_empty_states_when_optional_context_missing(self):
+        payload = {"stock_id": "2330", "years": []}
+        context = build_memo_context_from_payload(payload, self.tmp_dir)
+
+        markdown = render_memo_markdown(context)
+
+        self.assertIn("## Executive Summary", markdown)
+        self.assertIn("-", markdown)
+        self.assertIn("## Catalysts", markdown)
+        self.assertIn("## Risks", markdown)
 
     def test_render_memo_html_escapes_user_values(self):
         context = {
@@ -68,6 +111,52 @@ class MemoTests(unittest.TestCase):
         self.assertIn("&lt;TSMC&gt;", html)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
         self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertIn("<h2>Executive Summary</h2>", html)
+        self.assertIn("<h2>Key Observations</h2>", html)
+        self.assertIn("<h2>Catalysts</h2>", html)
+        self.assertIn("<h2>Risks</h2>", html)
+        self.assertIn("<h2>Open Questions</h2>", html)
+        self.assertIn("<h2>Next Research Actions</h2>", html)
+
+    def test_render_memo_sections_follow_review_order(self):
+        context = build_memo_context_from_payload(_analysis_payload(), self.tmp_dir)
+
+        markdown = render_memo_markdown(context)
+        html = render_memo_html(context)
+
+        markdown_sections = [
+            "## Executive Summary",
+            "## Research Metadata",
+            "## Key Observations",
+            "## Catalysts",
+            "## Risks",
+            "## Open Questions",
+            "## Latest Metrics Snapshot",
+            "## Valuation Context",
+            "## Quality Scorecard",
+            "## Diagnostics",
+            "## Next Research Actions",
+            "## Source Links",
+            "## Disclaimer",
+        ]
+        html_sections = [
+            "<h2>Executive Summary</h2>",
+            "<h2>Research Metadata</h2>",
+            "<h2>Key Observations</h2>",
+            "<h2>Catalysts</h2>",
+            "<h2>Risks</h2>",
+            "<h2>Open Questions</h2>",
+            "<h2>Latest Metrics Snapshot</h2>",
+            "<h2>Valuation Context</h2>",
+            "<h2>Quality Scorecard</h2>",
+            "<h2>Diagnostics</h2>",
+            "<h2>Next Research Actions</h2>",
+            "<h2>Source Links</h2>",
+            "<h2>Disclaimer</h2>",
+        ]
+
+        self.assertEqual(sorted(markdown.find(section) for section in markdown_sections), [markdown.find(section) for section in markdown_sections])
+        self.assertEqual(sorted(html.find(section) for section in html_sections), [html.find(section) for section in html_sections])
 
     def test_render_memo_markdown_escapes_html_and_normalizes_table_cells(self):
         payload = _analysis_payload()

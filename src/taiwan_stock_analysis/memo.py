@@ -45,12 +45,18 @@ def render_memo_markdown(context) -> str:
 
     sections = [
         f"# Research Memo: {_markdown_text(title)}",
+        _executive_summary_markdown(ctx),
         _metadata_markdown(ctx),
+        _observations_markdown(ctx),
+        _catalysts_markdown(ctx),
+        _risks_markdown(ctx),
+        _open_questions_markdown(ctx),
         _reliability_markdown(ctx),
         _metrics_markdown(ctx),
         _valuation_markdown(ctx),
         _scorecard_markdown(ctx),
         _diagnostics_markdown(ctx),
+        _next_actions_markdown(ctx),
         _checklist_markdown(ctx),
         _sources_markdown(ctx),
         _disclaimer_markdown(),
@@ -91,12 +97,18 @@ def render_memo_html(context) -> str:
     <h1>Research Memo: {_e(title)}</h1>
   </header>
   <main>
+    {_executive_summary_html(ctx)}
     {_metadata_html(ctx)}
+    {_observations_html(ctx)}
+    {_catalysts_html(ctx)}
+    {_risks_html(ctx)}
+    {_open_questions_html(ctx)}
     {_reliability_html(ctx)}
     {_metrics_html(ctx)}
     {_valuation_html(ctx)}
     {_scorecard_html(ctx)}
     {_diagnostics_html(ctx)}
+    {_next_actions_html(ctx)}
     {_checklist_html(ctx)}
     {_sources_html(ctx)}
     <section class="disclaimer" id="disclaimer">
@@ -264,6 +276,36 @@ def _metadata_markdown(ctx: dict[str, Any]) -> str:
     return "## Research Metadata\n\n" + _markdown_table(("Field", "Value"), rows)
 
 
+def _executive_summary_markdown(ctx: dict[str, Any]) -> str:
+    return "## Executive Summary\n\n" + _markdown_bullets(_executive_summary_lines(ctx))
+
+
+def _observations_markdown(ctx: dict[str, Any]) -> str:
+    lines = ["## Key Observations"]
+    for heading, items in _observation_groups(ctx).items():
+        lines.extend(["", f"### {_markdown_text(heading)}", "", _markdown_bullets(items)])
+    return "\n".join(lines)
+
+
+def _catalysts_markdown(ctx: dict[str, Any]) -> str:
+    return "## Catalysts\n\n" + _markdown_bullets(_catalyst_lines(ctx))
+
+
+def _risks_markdown(ctx: dict[str, Any]) -> str:
+    return "## Risks\n\n" + _markdown_bullets(_risk_lines(ctx))
+
+
+def _open_questions_markdown(ctx: dict[str, Any]) -> str:
+    return "## Open Questions\n\n" + _markdown_bullets(_open_question_lines(ctx))
+
+
+def _next_actions_markdown(ctx: dict[str, Any]) -> str:
+    lines = ["## Next Research Actions"]
+    for heading, items in _next_action_groups(ctx).items():
+        lines.extend(["", f"### {_markdown_text(heading)}", "", _markdown_bullets(items)])
+    return "\n".join(lines)
+
+
 def _reliability_markdown(ctx: dict[str, Any]) -> str:
     item = ctx["research_item"]
     rows = [
@@ -405,6 +447,36 @@ def _metadata_html(ctx: dict[str, Any]) -> str:
     return _html_section("research-metadata", "Research Metadata", _html_table(("Field", "Value"), rows))
 
 
+def _executive_summary_html(ctx: dict[str, Any]) -> str:
+    return _html_section("executive-summary", "Executive Summary", _html_list(_executive_summary_lines(ctx)))
+
+
+def _observations_html(ctx: dict[str, Any]) -> str:
+    body = ""
+    for heading, items in _observation_groups(ctx).items():
+        body += f"<h3>{_e(heading)}</h3>{_html_list(items)}"
+    return _html_section("key-observations", "Key Observations", body)
+
+
+def _catalysts_html(ctx: dict[str, Any]) -> str:
+    return _html_section("catalysts", "Catalysts", _html_list(_catalyst_lines(ctx)))
+
+
+def _risks_html(ctx: dict[str, Any]) -> str:
+    return _html_section("risks", "Risks", _html_list(_risk_lines(ctx)))
+
+
+def _open_questions_html(ctx: dict[str, Any]) -> str:
+    return _html_section("open-questions", "Open Questions", _html_list(_open_question_lines(ctx)))
+
+
+def _next_actions_html(ctx: dict[str, Any]) -> str:
+    body = ""
+    for heading, items in _next_action_groups(ctx).items():
+        body += f"<h3>{_e(heading)}</h3>{_html_list(items)}"
+    return _html_section("next-research-actions", "Next Research Actions", body)
+
+
 def _reliability_html(ctx: dict[str, Any]) -> str:
     item = ctx["research_item"]
     summary = _html_table(
@@ -529,6 +601,113 @@ def _latest_metrics(ctx: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return latest_year, _dict(metrics_by_year.get(latest_year))
 
 
+def _executive_summary_lines(ctx: dict[str, Any]) -> list[str]:
+    latest_year, metrics = _latest_metrics(ctx)
+    item = ctx["research_item"]
+    lines: list[str] = []
+    if latest_year != "-":
+        lines.append(f"Latest metrics cover {latest_year}.")
+    revenue = _number(metrics.get("revenue"))
+    eps = _number(metrics.get("eps"))
+    if revenue != "-" or eps != "-":
+        lines.append(f"Latest snapshot: revenue {revenue}; EPS {eps}.")
+    research_state = _text(item.get("research_state"))
+    if research_state != "-":
+        lines.append(f"Research state is {research_state}.")
+    return lines or ["-"]
+
+
+def _observation_groups(ctx: dict[str, Any]) -> dict[str, list[str]]:
+    latest_year, metrics = _latest_metrics(ctx)
+    diagnostics = _diagnostic_rows(ctx)
+    metrics_lines: list[str] = []
+    if latest_year != "-":
+        metrics_lines.append(f"Latest reporting year: {latest_year}.")
+    gross_margin = _number(metrics.get("gross_margin"), "%")
+    roe = _number(metrics.get("roe"), "%")
+    if gross_margin != "-" or roe != "-":
+        metrics_lines.append(f"Profitability snapshot: gross margin {gross_margin}; ROE {roe}.")
+
+    evidence_lines: list[str] = []
+    if diagnostics != [("-", "-", "-", "-")]:
+        evidence_lines.append(f"Diagnostics reported {len(diagnostics)} item(s) for review.")
+    reasons = _join_values(ctx["research_item"].get("attention_reasons"))
+    if reasons != "-":
+        evidence_lines.append(f"Attention reasons: {reasons}.")
+
+    return {
+        "Operating Snapshot": metrics_lines or ["-"],
+        "Review Signals": evidence_lines or ["-"],
+    }
+
+
+def _catalyst_lines(ctx: dict[str, Any]) -> list[str]:
+    valuation = _dict(ctx["analysis"].get("valuation"))
+    target_prices = _dict(valuation.get("target_prices"))
+    scorecard = _dict(ctx["analysis"].get("scorecard"))
+    lines: list[str] = []
+    if target_prices:
+        lines.append("Valuation scenarios are available for review.")
+    confidence = _number(scorecard.get("confidence"), "%")
+    if confidence != "-":
+        lines.append(f"Scorecard confidence is {confidence}.")
+    return lines or ["-"]
+
+
+def _risk_lines(ctx: dict[str, Any]) -> list[str]:
+    diagnostics = _diagnostic_rows(ctx)
+    valuation = _dict(ctx["analysis"].get("valuation"))
+    assumptions = _dict(valuation.get("assumptions"))
+    reliability_status = _text(ctx["research_item"].get("reliability_status"))
+    lines: list[str] = []
+    if diagnostics != [("-", "-", "-", "-")]:
+        lines.append(f"Diagnostics reported {len(diagnostics)} item(s) that need review.")
+    if reliability_status in {"warning", "error"}:
+        lines.append(f"Reliability status is {reliability_status}.")
+    if not assumptions:
+        lines.append("Valuation assumptions need manual review.")
+    return lines or ["-"]
+
+
+def _open_question_lines(ctx: dict[str, Any]) -> list[str]:
+    valuation = _dict(ctx["analysis"].get("valuation"))
+    assumptions = _dict(valuation.get("assumptions"))
+    reliability_status = _text(ctx["research_item"].get("reliability_status"))
+    lines: list[str] = []
+    if reliability_status in {"warning", "error"}:
+        lines.append("What data issue caused the current warning state?")
+    if not assumptions:
+        lines.append("Which valuation assumptions should be supplied before review?")
+    return lines or ["-"]
+
+
+def _next_action_groups(ctx: dict[str, Any]) -> dict[str, list[str]]:
+    valuation = _dict(ctx["analysis"].get("valuation"))
+    assumptions = _dict(valuation.get("assumptions"))
+    target_prices = _dict(valuation.get("target_prices"))
+    diagnostics = _diagnostic_rows(ctx)
+    reliability_status = _text(ctx["research_item"].get("reliability_status"))
+
+    data_checks: list[str] = []
+    if reliability_status in {"warning", "error"}:
+        data_checks.append("Trace the current reliability warning.")
+    if diagnostics != [("-", "-", "-", "-")]:
+        data_checks.append("Review reported diagnostics.")
+
+    valuation_checks: list[str] = []
+    if not assumptions:
+        valuation_checks.append("Fill or verify valuation assumptions.")
+    if not target_prices:
+        valuation_checks.append("Confirm whether valuation scenarios are expected.")
+
+    thesis_checks = ["Compare the memo against source filings and research notes."]
+    return {
+        "Data Checks": data_checks or ["-"],
+        "Valuation Checks": valuation_checks or ["-"],
+        "Thesis Checks": thesis_checks,
+    }
+
+
 def _reliability_statuses(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     metadata = _dict(ctx["analysis"].get("metadata"))
     statuses = metadata.get("reliability", [])
@@ -584,6 +763,10 @@ def _markdown_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> st
     return "\n".join(lines)
 
 
+def _markdown_bullets(items: list[str]) -> str:
+    return "\n".join(f"- {_markdown_text(item)}" for item in (items or ["-"]))
+
+
 def _markdown_cell(value: Any) -> str:
     return _markdown_text(value).replace("|", "\\|")
 
@@ -609,6 +792,11 @@ def _html_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> str:
         padded = list(row) + ["-"] * (len(headers) - len(row))
         body_html += "<tr>" + "".join(f"<td>{_e(_text(value))}</td>" for value in padded[: len(headers)]) + "</tr>"
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
+
+
+def _html_list(items: list[str]) -> str:
+    rendered_items = items or ["-"]
+    return "<ul>" + "".join(f"<li>{_e(item)}</li>" for item in rendered_items) + "</ul>"
 
 
 def _join_values(value: Any) -> str:
