@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.7.0 - 2026-05-13
+
+Memo Intelligence Upgrade release.
+
+### Added
+
+- Executive summary, key observations, catalysts, risks, open questions, and grouped next research actions in generated memos.
+- Matching Markdown and HTML memo section coverage with deterministic wording.
+- v0.7.0 release notes and documentation for the richer memo structure.
+
+### Changed
+
+- README, usage workflow docs, and examples now describe memos as review-ready research drafts.
+- Package version is now `0.7.0`.
+
+### Quality
+
+- Memo section order, risk/question generation, empty-state behavior, and HTML coverage are exercised by the test suite.
+
 ## v0.6.0 - 2026-05-13
 
 Research Pack release.

@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.7.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -17,7 +17,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Compares multiple stocks in a peer comparison report.
 - Runs a watchlist workflow from CSV to reports, valuation template, comparison, dashboard, and workflow summary.
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
-- Generates deterministic Markdown or HTML research memos from analysis JSON and research workflow context.
+- Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
@@ -153,6 +153,14 @@ Single-stock reports use Traditional Chinese sections for:
 - profitability observations
 - financial health observations
 
+Research memos add a review-oriented layer for:
+
+- executive summary
+- key observations
+- catalysts and risks
+- open questions
+- grouped next research actions
+
 The workflow dashboard shows:
 
 - workflow summary status
@@ -209,6 +217,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.7.0 release notes](docs/releases/v0.7.0.md)
 - [v0.6.0 release notes](docs/releases/v0.6.0.md)
 - [v0.5.0 release notes](docs/releases/v0.5.0.md)
 - [v0.4.0 release notes](docs/releases/v0.4.0.md)

@@ -39,7 +39,7 @@ python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir memo-d
 python -m taiwan_stock_analysis.cli memo memo-dist/2330_raw_data.json --output memos/2330_memo.md
 ```
 
-The memo summarizes existing analysis JSON, data reliability context, valuation scenarios, diagnostics, and follow-up checks for research review.
+The memo summarizes existing analysis JSON into a deterministic review draft with executive summary, observations, catalysts, risks, open questions, valuation scenarios, diagnostics, and next research actions.
 
 ## Batch Analysis
 

@@ -243,6 +243,8 @@ python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir memo-d
 python -m taiwan_stock_analysis.cli memo memo-dist/2330_raw_data.json --output memos/2330_memo.md
 ```
 
+The memo is a deterministic review draft. It includes an executive summary, observations, catalysts, risks, open questions, valuation context, diagnostics, and grouped next research actions.
+
 Generate memos for an existing research workflow directory:
 
 ```powershell
@@ -257,7 +259,7 @@ python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir re
 
 `research_summary.json` preserves your research metadata and adds workflow status, reliability status, and attention reasons. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings. When pack outputs exist, the dashboard also links to the generated handoff pack and its summary JSON.
 
-The research workbench is for organizing local research review. It does not provide buy, sell, hold, or allocation recommendations.
+The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 9. Generate Dashboard
 
