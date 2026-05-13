@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.1 - 2026-05-14
+
+Python 3.10 compatibility patch.
+
+### Fixed
+
+- Replaced the Python 3.11+ `datetime.UTC` timestamp helper with `timezone.utc` so the traceability layer imports correctly on Python 3.10.
+
+### Changed
+
+- Package version is now `0.9.1`.
+
+### Quality
+
+- Verified the full test suite on Python 3.10 and the default local Python runtime.
+
 ## v0.9.0 - 2026-05-13
 
 Universe Review Layer release.
