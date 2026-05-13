@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.0 - 2026-05-13
+
+Universe Review Layer release.
+
+### Added
+
+- `universe_review` metadata in research summaries for category, state, priority, and attention queue review.
+- Dashboard Universe Review section for high-attention, blocked, new, and active-review research items.
+- v0.9.0 release notes and workflow documentation for the universe review layer.
+
+### Changed
+
+- README, usage workflow docs, and examples now explain the universe review queue.
+- Package version is now `0.9.0`.
+
+### Quality
+
+- Universe review queue construction, bucket assignment, dashboard rendering, and legacy compatibility are covered by the test suite.
+
 ## v0.8.0 - 2026-05-13
 
 Traceability Layer release.

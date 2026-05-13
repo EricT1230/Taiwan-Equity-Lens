@@ -264,6 +264,8 @@ python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir re
 
 `research_summary.json` preserves your research metadata and adds workflow status, reliability status, attention reasons, and traceability metadata. The dashboard shows research counts by state and priority, plus items that need review because of research state, workflow status, or data reliability warnings. When memo or pack outputs exist, the dashboard links to those artifacts and can surface their run lineage.
 
+`research_summary.json` also includes `universe_review`, a research workflow queue that groups the universe by category, state, and priority. It highlights high-attention, blocked, new, and active-review items without producing investment rankings or allocation advice.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 9. Generate Dashboard

@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.8.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.9.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -17,6 +17,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Compares multiple stocks in a peer comparison report.
 - Runs a watchlist workflow from CSV to reports, valuation template, comparison, dashboard, and workflow summary.
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
+- Builds a universe-level review queue for deciding which research items need attention first.
 - Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Adds lightweight traceability metadata so workflow, summary, memo, and pack outputs can be followed across a run.
@@ -175,6 +176,7 @@ When a `research_summary.json` is present, the dashboard also shows:
 
 - research item counts by state and priority
 - stocks that need review because of research state, workflow status, or reliability warnings
+- a universe review queue for high-attention and blocked research items
 - links back to generated workflow and research outputs
 - links to generated Markdown and HTML research memos when memo outputs are present
 - links to generated Markdown and HTML research packs when pack outputs are present
@@ -189,6 +191,8 @@ Summary files also expose a lightweight traceability layer:
 - `generated_at`
 - artifact dependencies
 - downstream outputs derived from the same run
+
+Research summaries include a `universe_review` object for work prioritization. It groups the research universe by category, state, and priority, then builds a deterministic attention queue. This is a research workflow queue, not a portfolio ranking or investment recommendation.
 
 The project uses four status values:
 
@@ -225,6 +229,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.9.0 release notes](docs/releases/v0.9.0.md)
 - [v0.8.0 release notes](docs/releases/v0.8.0.md)
 - [v0.7.0 release notes](docs/releases/v0.7.0.md)
 - [v0.6.0 release notes](docs/releases/v0.6.0.md)
