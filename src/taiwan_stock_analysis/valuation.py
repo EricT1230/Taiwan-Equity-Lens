@@ -148,9 +148,9 @@ def build_scenario_summary(
 ) -> dict[str, object]:
     base_eps = eps_scenarios.get("base")
     fair_value_range = {
-        "low": _round(_summary_target_price(base_eps, target_pe_low, target_prices, "low")),
-        "base": _round(_summary_target_price(base_eps, target_pe_base, target_prices, "base")),
-        "high": _round(_summary_target_price(base_eps, target_pe_high, target_prices, "high")),
+        "low": _round(_target_price_value(target_prices, "low")),
+        "base": _round(_target_price_value(target_prices, "base")),
+        "high": _round(_target_price_value(target_prices, "high")),
     }
     base_target = fair_value_range["base"]
     margin_of_safety = None
@@ -170,18 +170,6 @@ def build_scenario_summary(
         "margin_of_safety_percent": _round(margin_of_safety),
         "valuation_confidence": confidence,
     }
-
-
-def _summary_target_price(
-    base_eps: float | None,
-    target_pe: float | None,
-    target_prices: dict[str, dict[str, float | None]],
-    key: str,
-) -> float | None:
-    target_price = _fair_value(base_eps, target_pe)
-    if target_price is not None:
-        return target_price
-    return _target_price_value(target_prices, key)
 
 
 def _target_price_value(target_prices: dict[str, dict[str, float | None]], key: str) -> float | None:

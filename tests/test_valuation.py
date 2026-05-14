@@ -116,6 +116,10 @@ class ValuationTests(unittest.TestCase):
         self.assertEqual(valuation["target_prices"]["low"]["target_price"], 600.0)
         self.assertEqual(valuation["target_prices"]["base"]["target_price"], 1000.0)
         self.assertEqual(valuation["target_prices"]["high"]["target_price"], 1375.0)
+        self.assertEqual(
+            valuation["scenario_summary"]["fair_value_range"],
+            {"low": 600.0, "base": 1000.0, "high": 1375.0},
+        )
         self.assertEqual(valuation["target_prices"]["low"]["price_gap_percent"], -40.0)
         self.assertEqual(valuation["target_prices"]["base"]["price_gap_percent"], 0.0)
         self.assertEqual(valuation["target_prices"]["high"]["price_gap_percent"], 37.5)
@@ -147,7 +151,7 @@ class ValuationTests(unittest.TestCase):
 
         summary = valuation["scenario_summary"]
 
-        self.assertEqual(summary["fair_value_range"], {"low": 600.0, "base": 1000.0, "high": 1250.0})
+        self.assertEqual(summary["fair_value_range"], {"low": 540.0, "base": 1000.0, "high": 1250.0})
         self.assertEqual(summary["margin_of_safety_percent"], 0.0)
         self.assertEqual(summary["valuation_confidence"]["score"], 100)
         self.assertEqual(summary["valuation_confidence"]["label"], "high")
