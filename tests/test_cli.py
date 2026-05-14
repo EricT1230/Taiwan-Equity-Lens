@@ -94,6 +94,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["metrics_by_year"]["2024"]["gross_margin"], 40.0)
         self.assertIn("operations", data["insights"])
         self.assertTrue(data["insights"]["operations"])
+        self.assertEqual(data["metadata"]["source_mode"], "fixture")
+        self.assertEqual(data["metadata"]["source_review"]["status"], "manual_review")
         self.assertIn("total_score", data["scorecard"])
         self.assertIn("profitability", data["scorecard"]["dimensions"])
         self.assertIn("\u53f0\u7a4d\u96fb (2330)", html_path.read_text(encoding="utf-8"))

@@ -66,10 +66,29 @@ class GoodinfoClient:
         return self.http_client.get(url, headers=headers, cookies=cookies, timeout=self.timeout)
 
 
-def build_metadata(stock_id: str, years: list[str]) -> dict[str, object]:
+def _source_review(source_mode: str) -> dict[str, str]:
+    if source_mode == "fixture":
+        return {
+            "status": "manual_review",
+            "reason": "financial statements loaded from fixture files",
+        }
+    if source_mode == "live":
+        return {
+            "status": "fresh",
+            "reason": "financial statements loaded from live source",
+        }
+    return {
+        "status": "unknown",
+        "reason": "unknown source mode",
+    }
+
+
+def build_metadata(stock_id: str, years: list[str], *, source_mode: str = "live") -> dict[str, object]:
     return {
         "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
         "source": "Goodinfo.tw",
+        "source_mode": source_mode,
+        "source_review": _source_review(source_mode),
         "source_urls": {
             "income_statement": f"https://goodinfo.tw/tw/StockFinDetail.asp?RPT_CAT=IS_YEAR&STOCK_ID={stock_id}",
             "balance_sheet": f"https://goodinfo.tw/tw/StockFinDetail.asp?RPT_CAT=BS_YEAR&STOCK_ID={stock_id}",

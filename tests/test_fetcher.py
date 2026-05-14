@@ -37,6 +37,13 @@ class FetcherTests(unittest.TestCase):
         self.assertIn("STOCK_ID=2317", metadata["source_urls"]["income_statement"])
         self.assertIn("co_id=2317", metadata["mops_url"])
 
+    def test_build_metadata_records_fixture_source_review(self):
+        metadata = build_metadata("2317", ["2024", "2023"], source_mode="fixture")
+
+        self.assertEqual(metadata["source_mode"], "fixture")
+        self.assertEqual(metadata["source_review"]["status"], "manual_review")
+        self.assertIn("fixture", metadata["source_review"]["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

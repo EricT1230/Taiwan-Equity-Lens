@@ -80,7 +80,7 @@ def analyze(
         metrics_by_year=metrics_by_year,
     )
 
-    metadata = build_metadata(stock_id, years)
+    metadata = build_metadata(stock_id, years, source_mode="fixture" if fixture_dir is not None else "live")
     if reliability:
         metadata["reliability"] = reliability
 
