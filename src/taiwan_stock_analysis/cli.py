@@ -9,6 +9,7 @@ from pathlib import Path
 from taiwan_stock_analysis.comparison import compare_results
 from taiwan_stock_analysis.dashboard import write_dashboard_index
 from taiwan_stock_analysis.diagnostics import build_diagnostics
+from taiwan_stock_analysis.doctor import check_release_readiness, format_doctor_result
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
@@ -255,6 +256,11 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     workflow_parser.add_argument("--valuation-csv", type=Path, help="Existing valuation CSV to use for valuation-aware reports.")
     workflow_parser.add_argument("--skip-valuation", action="store_true", help="Skip valuation template and valuation-aware rerun.")
 
+    doctor_parser = subparsers.add_parser("doctor", help="Run local project health checks.")
+    doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
+    doctor_release = doctor_subparsers.add_parser("release", help="Check release readiness.")
+    doctor_release.add_argument("--version", help="Expected release version, for example 0.10.0.")
+
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
 
@@ -300,7 +306,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
-    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "research"}:
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "doctor", "research"}:
         args = build_command_arg_parser().parse_args(raw_args)
     else:
         args = build_arg_parser().parse_args(raw_args)
@@ -377,6 +383,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {summary_path}")
         print(f"Open {args.output_dir / 'dashboard.html'}")
         return 0
+
+    if args.command == "doctor":
+        if args.doctor_command == "release":
+            result = check_release_readiness(Path.cwd(), expected_version=args.version)
+            print(format_doctor_result(result))
+            return 0 if result.ok else 1
+        build_command_arg_parser().error("doctor command is required")
 
     if args.command == "research":
         if args.research_command == "init":

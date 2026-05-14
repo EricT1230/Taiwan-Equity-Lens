@@ -1,6 +1,8 @@
 import json
 import os
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from taiwan_stock_analysis.cli import main, run
@@ -19,6 +21,24 @@ def goodinfo_html(rows: str) -> str:
 
 
 class CliTests(unittest.TestCase):
+    def test_main_doctor_release_returns_zero_for_current_metadata(self):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "release"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Release readiness OK", output.getvalue())
+
+    def test_main_doctor_release_returns_one_for_wrong_version(self):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "release", "--version", "999.0.0"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Release readiness failed", output.getvalue())
+
     def test_run_with_fixture_writes_json_and_html(self):
         root = Path(".tmp-cli-test")
         fixture_dir = root / "fixtures"
