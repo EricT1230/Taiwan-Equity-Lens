@@ -574,6 +574,29 @@ class CliTests(unittest.TestCase):
         self.assertEqual(summary["items"][0]["stock_id"], "2330")
         self.assertEqual(summary["items"][0]["workflow_status"], "ok")
 
+    def test_main_research_run_examples_offline_demo_writes_full_outputs(self):
+        output_dir = Path(".tmp-cli-test/offline-demo-dist")
+
+        exit_code = main([
+            "research",
+            "run",
+            "examples/research.csv",
+            "--fixture-root",
+            "examples/fixtures",
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "dashboard.html").exists())
+        self.assertTrue((output_dir / "workflow_summary.json").exists())
+        self.assertTrue((output_dir / "research_summary.json").exists())
+        self.assertTrue((output_dir / "memos" / "memo_summary.json").exists())
+        self.assertTrue((output_dir / "packs" / "pack_summary.json").exists())
+        self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
+        self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
+
     def test_main_research_run_writes_memos_by_default(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-memos-fixtures"
