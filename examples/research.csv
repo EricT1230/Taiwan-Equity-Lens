@@ -1,3 +1,3 @@
-stock_id,company_name,category,priority,research_state,notes
-2330,TSMC,Semiconductor,high,review,Add valuation assumptions before final review
-2303,UMC,Semiconductor,medium,watching,Track workflow warnings
+stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions
+2330,TSMC,Semiconductor,high,review,Add valuation assumptions before final review,Leading foundry scale,Margin compression,Revenue momentum,Are EPS assumptions current?
+2303,UMC,Semiconductor,medium,watching,Track workflow warnings,Cyclical recovery optionality,Utilization pressure,Gross margin trend,Which assumptions need confirmation?

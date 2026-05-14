@@ -51,8 +51,44 @@ class ResearchTests(unittest.TestCase):
                 "priority": "high",
                 "research_state": "review",
                 "notes": "Check valuation",
+                "thesis": "",
+                "key_risks": "",
+                "watch_triggers": "",
+                "follow_up_questions": "",
             },
         )
+
+    def test_load_research_rows_reads_research_quality_fields(self):
+        path = Path(".tmp-research-test/research-quality.csv")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions\n"
+            "2330,TSMC,Semiconductor,high,review,Review valuation,Leading foundry scale,FX and cycle risk,Monthly revenue inflection,What drives next margin step?\n",
+            encoding="utf-8",
+        )
+
+        rows = load_research_rows(path)
+
+        self.assertEqual(rows[0]["thesis"], "Leading foundry scale")
+        self.assertEqual(rows[0]["key_risks"], "FX and cycle risk")
+        self.assertEqual(rows[0]["watch_triggers"], "Monthly revenue inflection")
+        self.assertEqual(rows[0]["follow_up_questions"], "What drives next margin step?")
+
+    def test_load_research_rows_defaults_missing_research_quality_fields(self):
+        path = Path(".tmp-research-test/legacy-research.csv")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2303,UMC,Semiconductor,medium,watching,Track warnings\n",
+            encoding="utf-8",
+        )
+
+        rows = load_research_rows(path)
+
+        self.assertEqual(rows[0]["thesis"], "")
+        self.assertEqual(rows[0]["key_risks"], "")
+        self.assertEqual(rows[0]["watch_triggers"], "")
+        self.assertEqual(rows[0]["follow_up_questions"], "")
 
     def test_load_research_rows_rejects_missing_stock_id_column(self):
         path = Path(".tmp-research-test/bad.csv")
@@ -96,7 +132,21 @@ class ResearchTests(unittest.TestCase):
             load_research_rows(path)
 
     def test_constants_define_allowed_values(self):
-        self.assertEqual(RESEARCH_COLUMNS, ["stock_id", "company_name", "category", "priority", "research_state", "notes"])
+        self.assertEqual(
+            RESEARCH_COLUMNS,
+            [
+                "stock_id",
+                "company_name",
+                "category",
+                "priority",
+                "research_state",
+                "notes",
+                "thesis",
+                "key_risks",
+                "watch_triggers",
+                "follow_up_questions",
+            ],
+        )
         self.assertEqual(ALLOWED_PRIORITIES, {"high", "medium", "low"})
         self.assertEqual(ALLOWED_STATES, {"new", "watching", "review", "done", "blocked"})
 

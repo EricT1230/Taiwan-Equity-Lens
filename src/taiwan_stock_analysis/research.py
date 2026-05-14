@@ -9,7 +9,18 @@ from typing import Any, Callable, Iterable
 from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
 
 
-RESEARCH_COLUMNS = ["stock_id", "company_name", "category", "priority", "research_state", "notes"]
+RESEARCH_COLUMNS = [
+    "stock_id",
+    "company_name",
+    "category",
+    "priority",
+    "research_state",
+    "notes",
+    "thesis",
+    "key_risks",
+    "watch_triggers",
+    "follow_up_questions",
+]
 ALLOWED_PRIORITIES = {"high", "medium", "low"}
 ALLOWED_STATES = {"new", "watching", "review", "done", "blocked"}
 WORKFLOW_STATUS_SEVERITY = {"error": 0, "warning": 1, "skipped": 2, "ok": 3}
@@ -51,6 +62,10 @@ def load_research_rows(path: Path) -> list[dict[str, str]]:
                     "priority": priority,
                     "research_state": research_state,
                     "notes": (row.get("notes") or "").strip(),
+                    "thesis": (row.get("thesis") or "").strip(),
+                    "key_risks": (row.get("key_risks") or "").strip(),
+                    "watch_triggers": (row.get("watch_triggers") or "").strip(),
+                    "follow_up_questions": (row.get("follow_up_questions") or "").strip(),
                 }
             )
         return rows
@@ -69,6 +84,10 @@ def write_research_template(path: Path) -> Path:
                 "priority": "high",
                 "research_state": "review",
                 "notes": "Add valuation assumptions before final review",
+                "thesis": "Leading foundry scale with resilient profitability",
+                "key_risks": "Cycle downturn or margin compression",
+                "watch_triggers": "Revenue momentum and capex discipline",
+                "follow_up_questions": "Are valuation assumptions still aligned with latest EPS?",
             }
         )
         writer.writerow(
@@ -79,6 +98,10 @@ def write_research_template(path: Path) -> Path:
                 "priority": "medium",
                 "research_state": "watching",
                 "notes": "Track workflow warnings",
+                "thesis": "Mature foundry profile with cyclical recovery optionality",
+                "key_risks": "Utilization and pricing pressure",
+                "watch_triggers": "Gross margin trend and workflow warnings",
+                "follow_up_questions": "Which assumptions need manual confirmation?",
             }
         )
     return path
