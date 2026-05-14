@@ -137,6 +137,92 @@ def build_target_prices(
     }
 
 
+def build_scenario_summary(
+    *,
+    price: float | None,
+    eps_scenarios: dict[str, float | None],
+    target_prices: dict[str, dict[str, float | None]],
+    target_pe_low: float | None,
+    target_pe_base: float | None,
+    target_pe_high: float | None,
+) -> dict[str, object]:
+    base_eps = eps_scenarios.get("base")
+    fair_value_range = {
+        "low": _round(_summary_target_price(base_eps, target_pe_low, target_prices, "low")),
+        "base": _round(_summary_target_price(base_eps, target_pe_base, target_prices, "base")),
+        "high": _round(_summary_target_price(base_eps, target_pe_high, target_prices, "high")),
+    }
+    base_target = fair_value_range["base"]
+    margin_of_safety = None
+    if price is not None and base_target not in {None, 0}:
+        margin_of_safety = (base_target - price) / base_target * 100
+
+    confidence = _valuation_confidence(
+        price=price,
+        base_eps=base_eps,
+        target_pe_low=target_pe_low,
+        target_pe_base=target_pe_base,
+        target_pe_high=target_pe_high,
+        fair_value_range=fair_value_range,
+    )
+    return {
+        "fair_value_range": fair_value_range,
+        "margin_of_safety_percent": _round(margin_of_safety),
+        "valuation_confidence": confidence,
+    }
+
+
+def _summary_target_price(
+    base_eps: float | None,
+    target_pe: float | None,
+    target_prices: dict[str, dict[str, float | None]],
+    key: str,
+) -> float | None:
+    target_price = _fair_value(base_eps, target_pe)
+    if target_price is not None:
+        return target_price
+    return _target_price_value(target_prices, key)
+
+
+def _target_price_value(target_prices: dict[str, dict[str, float | None]], key: str) -> float | None:
+    row = target_prices.get(key, {})
+    if not isinstance(row, dict):
+        return None
+    return row.get("target_price")
+
+
+def _valuation_confidence(
+    *,
+    price: float | None,
+    base_eps: float | None,
+    target_pe_low: float | None,
+    target_pe_base: float | None,
+    target_pe_high: float | None,
+    fair_value_range: dict[str, float | None],
+) -> dict[str, object]:
+    score = 0
+    reasons: list[str] = []
+    if price is not None:
+        score += 25
+        reasons.append("price_available")
+    if base_eps is not None:
+        score += 25
+        reasons.append("base_eps_available")
+    if all(value is not None for value in [target_pe_low, target_pe_base, target_pe_high]):
+        score += 25
+        reasons.append("target_pe_range_complete")
+    if all(fair_value_range.get(key) is not None for key in ["low", "base", "high"]):
+        score += 25
+        reasons.append("target_price_range_complete")
+
+    label = "low"
+    if score >= 75:
+        label = "high"
+    elif score >= 50:
+        label = "medium"
+    return {"score": score, "label": label, "reasons": reasons}
+
+
 def calculate_valuation(
     *,
     price: float | None,
@@ -198,6 +284,14 @@ def build_valuation(
         target_pe_base=price_inputs.get("target_pe_base"),
         target_pe_high=price_inputs.get("target_pe_high"),
     )
+    scenario_summary = build_scenario_summary(
+        price=price_inputs.get("price"),
+        eps_scenarios=eps_scenarios,
+        target_prices=target_prices,
+        target_pe_low=price_inputs.get("target_pe_low"),
+        target_pe_base=price_inputs.get("target_pe_base"),
+        target_pe_high=price_inputs.get("target_pe_high"),
+    )
 
     metrics = calculate_valuation(
         price=price_inputs.get("price"),
@@ -216,6 +310,7 @@ def build_valuation(
         "inputs": dict(price_inputs),
         "eps_scenarios": eps_scenarios,
         "target_prices": target_prices,
+        "scenario_summary": scenario_summary,
         "assumptions": assumptions,
         "metrics": metrics,
         "context": context,

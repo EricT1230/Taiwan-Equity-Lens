@@ -126,6 +126,55 @@ class ValuationTests(unittest.TestCase):
             "optimistic_eps_x_target_pe_high",
         )
 
+    def test_build_valuation_adds_scenario_summary_and_confidence(self):
+        valuation = build_valuation(
+            stock_id="2330",
+            metrics_by_year={
+                "2024": {"eps": 50.0},
+                "2023": {"eps": 40.0},
+            },
+            years=["2024", "2023"],
+            price_inputs={
+                "price": 1000.0,
+                "book_value_per_share": 100.0,
+                "cash_dividend_per_share": 12.0,
+                "normalized_eps": 50.0,
+                "target_pe_low": 12.0,
+                "target_pe_base": 20.0,
+                "target_pe_high": 25.0,
+            },
+        )
+
+        summary = valuation["scenario_summary"]
+
+        self.assertEqual(summary["fair_value_range"], {"low": 600.0, "base": 1000.0, "high": 1250.0})
+        self.assertEqual(summary["margin_of_safety_percent"], 0.0)
+        self.assertEqual(summary["valuation_confidence"]["score"], 100)
+        self.assertEqual(summary["valuation_confidence"]["label"], "high")
+        self.assertIn("target_pe_range_complete", summary["valuation_confidence"]["reasons"])
+
+    def test_build_valuation_confidence_degrades_with_missing_assumptions(self):
+        valuation = build_valuation(
+            stock_id="2303",
+            metrics_by_year={"2024": {"eps": None}},
+            years=["2024"],
+            price_inputs={
+                "price": 50.0,
+                "book_value_per_share": None,
+                "cash_dividend_per_share": None,
+                "normalized_eps": None,
+                "target_pe_low": None,
+                "target_pe_base": None,
+                "target_pe_high": None,
+            },
+        )
+
+        confidence = valuation["scenario_summary"]["valuation_confidence"]
+
+        self.assertEqual(confidence["score"], 25)
+        self.assertEqual(confidence["label"], "low")
+        self.assertEqual(confidence["reasons"], ["price_available"])
+
     def test_build_valuation_labels_derived_eps_assumptions_without_growth_rate(self):
         valuation = build_valuation(
             stock_id="2330",
