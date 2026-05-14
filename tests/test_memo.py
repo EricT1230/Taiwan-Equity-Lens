@@ -89,6 +89,64 @@ class MemoTests(unittest.TestCase):
         self.assertIn("What data issue caused the current warning state?", markdown)
         self.assertIn("### Valuation Checks", markdown)
 
+    def test_render_memo_markdown_includes_thesis_snapshot_and_valuation_confidence(self):
+        payload = {
+            "stock_id": "2330",
+            "company_name": "TSMC",
+            "valuation": {
+                "scenario_summary": {
+                    "fair_value_range": {"low": 600, "base": 1000, "high": 1250},
+                    "margin_of_safety_percent": 0,
+                    "valuation_confidence": {
+                        "label": "high",
+                        "score": 0.92,
+                        "reasons": ["all scenarios populated", "base price available"],
+                    },
+                }
+            },
+        }
+        context = build_memo_context_from_payload(
+            payload,
+            self.tmp_dir,
+            research_item={
+                "stock_id": "2330",
+                "company_name": "TSMC",
+                "thesis": "Leading foundry scale",
+                "key_risks": "Cycle downturn",
+                "watch_triggers": "Revenue inflection",
+                "follow_up_questions": "What drives margin expansion?",
+            },
+        )
+
+        markdown = render_memo_markdown(context)
+
+        self.assertIn("## Thesis Snapshot", markdown)
+        self.assertIn("Leading foundry scale", markdown)
+        self.assertIn("Cycle downturn", markdown)
+        self.assertIn("Revenue inflection", markdown)
+        self.assertIn("What drives margin expansion?", markdown)
+        self.assertIn("Fair-value range", markdown)
+        self.assertIn("Low: 600.00; Base: 1,000.00; High: 1,250.00", markdown)
+        self.assertIn("Margin of safety", markdown)
+        self.assertIn("Valuation confidence", markdown)
+        self.assertIn("high", markdown)
+        self.assertIn("0.92", markdown)
+        self.assertIn("all scenarios populated", markdown)
+
+    def test_render_memo_html_includes_thesis_snapshot(self):
+        context = build_memo_context_from_payload(
+            {"stock_id": "2330", "company_name": "TSMC"},
+            self.tmp_dir,
+            research_item={"thesis": "<Scale thesis>", "follow_up_questions": "Confirm assumptions?"},
+        )
+
+        html = render_memo_html(context)
+
+        self.assertIn("Thesis Snapshot", html)
+        self.assertIn("&lt;Scale thesis&gt;", html)
+        self.assertIn("Confirm assumptions?", html)
+        self.assertNotIn("<Scale thesis>", html)
+
     def test_render_memo_markdown_uses_empty_states_when_optional_context_missing(self):
         payload = {"stock_id": "2330", "years": []}
         context = build_memo_context_from_payload(payload, self.tmp_dir)
@@ -127,6 +185,7 @@ class MemoTests(unittest.TestCase):
         markdown_sections = [
             "## Executive Summary",
             "## Research Metadata",
+            "## Thesis Snapshot",
             "## Key Observations",
             "## Catalysts",
             "## Risks",
@@ -142,6 +201,7 @@ class MemoTests(unittest.TestCase):
         html_sections = [
             "<h2>Executive Summary</h2>",
             "<h2>Research Metadata</h2>",
+            "<h2>Thesis Snapshot</h2>",
             "<h2>Key Observations</h2>",
             "<h2>Catalysts</h2>",
             "<h2>Risks</h2>",
@@ -325,7 +385,7 @@ def _analysis_payload():
     }
 
 
-def build_memo_context_from_payload(payload, tmp_dir):
+def build_memo_context_from_payload(payload, tmp_dir, *, research_item=None):
     path = tmp_dir / "context_raw_data.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    return build_memo_context(path)
+    return build_memo_context(path, research_item=research_item)

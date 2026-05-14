@@ -49,6 +49,7 @@ def render_memo_markdown(context) -> str:
         f"# Research Memo: {_markdown_text(title)}",
         _executive_summary_markdown(ctx),
         _metadata_markdown(ctx),
+        _thesis_snapshot_markdown(ctx),
         _observations_markdown(ctx),
         _catalysts_markdown(ctx),
         _risks_markdown(ctx),
@@ -101,6 +102,7 @@ def render_memo_html(context) -> str:
   <main>
     {_executive_summary_html(ctx)}
     {_metadata_html(ctx)}
+    {_thesis_snapshot_html(ctx)}
     {_observations_html(ctx)}
     {_catalysts_html(ctx)}
     {_risks_html(ctx)}
@@ -300,6 +302,17 @@ def _metadata_markdown(ctx: dict[str, Any]) -> str:
     return "## Research Metadata\n\n" + _markdown_table(("Field", "Value"), rows)
 
 
+def _thesis_snapshot_markdown(ctx: dict[str, Any]) -> str:
+    item = ctx["research_item"]
+    rows = [
+        ("Thesis", item.get("thesis")),
+        ("Key risks", item.get("key_risks")),
+        ("Watch triggers", item.get("watch_triggers")),
+        ("Follow-up questions", item.get("follow_up_questions")),
+    ]
+    return "## Thesis Snapshot\n\n" + _markdown_table(("Field", "Value"), rows)
+
+
 def _executive_summary_markdown(ctx: dict[str, Any]) -> str:
     return "## Executive Summary\n\n" + _markdown_bullets(_executive_summary_lines(ctx))
 
@@ -392,17 +405,55 @@ def _valuation_markdown(ctx: dict[str, Any]) -> str:
         )
     if not target_rows:
         target_rows.append(("-", "-", "-", "-", "-"))
-    return "\n".join(
-        [
-            "## Valuation Context",
-            "",
-            _markdown_table(("Metric", "Value"), metric_rows),
-            "",
-            "Target-price scenarios are research scenarios, not recommendations.",
-            "",
-            _markdown_table(("Scenario", "EPS", "Target PE", "Target Price", "Price Gap"), target_rows),
-        ]
-    )
+    lines = [
+        "## Valuation Context",
+        "",
+        _markdown_table(("Metric", "Value"), metric_rows),
+        "",
+        "Target-price scenarios are research scenarios, not recommendations.",
+        "",
+        _markdown_table(("Scenario", "EPS", "Target PE", "Target Price", "Price Gap"), target_rows),
+    ]
+    scenario_rows = _scenario_summary_rows(valuation)
+    if scenario_rows:
+        lines.extend(["", "### Scenario Summary", "", _markdown_table(("Field", "Value"), scenario_rows)])
+    return "\n".join(lines)
+
+
+def _scenario_summary_rows(valuation: dict[str, Any]) -> list[tuple[str, str]]:
+    scenario_summary = _dict(valuation.get("scenario_summary"))
+    if not scenario_summary:
+        return []
+
+    fair_value_range = _dict(scenario_summary.get("fair_value_range"))
+    confidence = _dict(scenario_summary.get("valuation_confidence"))
+    confidence_label = _text(confidence.get("label"))
+    confidence_score = _number(confidence.get("score"))
+    if confidence_label != "-" and confidence_score != "-":
+        confidence_value = f"{confidence_label} (score {confidence_score})"
+    elif confidence_label != "-":
+        confidence_value = confidence_label
+    else:
+        confidence_value = confidence_score
+
+    rows = [
+        (
+            "Fair-value range",
+            "; ".join(
+                [
+                    f"Low: {_number(fair_value_range.get('low'))}",
+                    f"Base: {_number(fair_value_range.get('base'))}",
+                    f"High: {_number(fair_value_range.get('high'))}",
+                ]
+            ),
+        ),
+        ("Margin of safety", _number(scenario_summary.get("margin_of_safety_percent"), "%")),
+        ("Valuation confidence", confidence_value),
+    ]
+    reasons = _join_values(confidence.get("reasons"))
+    if reasons != "-":
+        rows.append(("Confidence reasons", reasons))
+    return rows
 
 
 def _scorecard_markdown(ctx: dict[str, Any]) -> str:
@@ -469,6 +520,17 @@ def _metadata_html(ctx: dict[str, Any]) -> str:
         ("Notes", item.get("notes")),
     ]
     return _html_section("research-metadata", "Research Metadata", _html_table(("Field", "Value"), rows))
+
+
+def _thesis_snapshot_html(ctx: dict[str, Any]) -> str:
+    item = ctx["research_item"]
+    rows = [
+        ("Thesis", item.get("thesis")),
+        ("Key risks", item.get("key_risks")),
+        ("Watch triggers", item.get("watch_triggers")),
+        ("Follow-up questions", item.get("follow_up_questions")),
+    ]
+    return _html_section("thesis-snapshot", "Thesis Snapshot", _html_table(("Field", "Value"), rows))
 
 
 def _executive_summary_html(ctx: dict[str, Any]) -> str:
@@ -561,10 +623,15 @@ def _valuation_html(ctx: dict[str, Any]) -> str:
             )
         )
     scenario_table = _html_table(("Scenario", "EPS", "Target PE", "Target Price", "Price Gap"), target_rows)
+    scenario_summary_rows = _scenario_summary_rows(valuation)
+    scenario_summary = ""
+    if scenario_summary_rows:
+        scenario_summary = "<h3>Scenario Summary</h3>" + _html_table(("Field", "Value"), scenario_summary_rows)
     body = (
         metric_table
         + "<p>Target-price scenarios are research scenarios, not recommendations.</p>"
         + scenario_table
+        + scenario_summary
     )
     return _html_section("valuation-context", "Valuation Context", body)
 
