@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import csv
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -297,29 +298,50 @@ def _price_audit(stock_id: str, row: dict[str, str] | None) -> dict[str, Any]:
 
     price_date = str(row.get("price_date") or "").strip()
     price_source = str(row.get("price_source") or "").strip()
-    price_status = str(row.get("price_status") or "").strip().lower()
     warning = str(row.get("warning") or "").strip()
     message = str(row.get("price_status_message") or "").strip()
     warning_text = f"{warning} {message}".lower()
 
     source_mode = "unknown"
     review_reason = ""
-    generated_at = price_date
-    if "offline mode" in warning_text or (price_status == "warning" and not price_date):
+    generated_at = _normalize_price_generated_at(price_date)
+    if "offline mode" in warning_text:
         source_mode = "offline"
         review_reason = warning or message or "offline price source requires manual review"
-        generated_at = price_date or datetime.now(timezone.utc).isoformat()
+        generated_at = generated_at or datetime.now(timezone.utc).isoformat()
+    elif not price_source and not price_date and warning_text:
+        source_mode = "manual"
+        review_reason = warning or message or "manual price source requires review"
+        generated_at = datetime.now(timezone.utc).isoformat()
     elif price_source or price_date:
         source_mode = "live"
     else:
         review_reason = "price source and date are missing"
 
-    return classify_freshness(
+    result = classify_freshness(
         generated_at=generated_at,
         source_mode=source_mode,
         stale_after_days=PRICE_STALE_DAYS,
         review_reason=review_reason,
     )
+    if source_mode == "manual":
+        result["status"] = "manual_review"
+    return result
+
+
+def _normalize_price_generated_at(value: str) -> str:
+    text = value.strip()
+    match = re.fullmatch(r"(\d{2,3})[/-](\d{1,2})[/-](\d{1,2})", text)
+    if not match:
+        return text
+    year_text, month_text, day_text = match.groups()
+    try:
+        year = int(year_text) + 1911
+        month = int(month_text)
+        day = int(day_text)
+        return datetime(year, month, day, tzinfo=timezone.utc).date().isoformat()
+    except ValueError:
+        return text
 
 
 def _combine_audit_status(components: list[dict[str, Any]]) -> str:

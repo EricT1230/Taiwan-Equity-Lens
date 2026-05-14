@@ -56,6 +56,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(summary["step_statuses"]["dashboard"]["status"], "ok")
         self.assertEqual(summary["step_statuses"]["price"]["status"], "warning")
         self.assertEqual(summary["step_statuses"]["price"]["message"], "manual price warning")
+        audit_by_stock = {item["stock_id"]: item for item in summary["source_audit"]["items"]}
+        self.assertEqual(audit_by_stock["2330"]["price"]["source_mode"], "manual")
+        self.assertEqual(audit_by_stock["2330"]["price"]["status"], "manual_review")
+        self.assertIn("manual price warning", audit_by_stock["2330"]["price"]["review_reason"])
         self.assertEqual(summary["data_reliability"]["overall_status"], "warning")
         self.assertEqual(summary["stock_failures"], [])
         self.assertTrue(summary["run_metadata"]["run_id"].startswith("workflow-"))
@@ -168,6 +172,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(audit["items"][0]["stock_id"], "2330")
         self.assertEqual(audit["items"][0]["financial_statement"]["source_mode"], "fixture")
         self.assertEqual(audit["items"][0]["price"]["source_mode"], "offline")
+
+    def test_run_watchlist_workflow_normalizes_roc_live_price_dates_in_source_audit(self):
+        root = Path(".tmp-workflow-test")
+        fixture_root = root / "roc-fixtures"
+        output_dir = root / "roc-dist"
+        watchlist = root / "roc-watchlist.csv"
+        valuation_csv = root / "roc-valuation-inputs.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        watchlist.write_text("stock_id,company_name\n2330,Alpha\n", encoding="utf-8")
+        valuation_csv.write_text(
+            "stock_id,price,book_value_per_share,cash_dividend_per_share,normalized_eps,target_pe_low,target_pe_base,target_pe_high,price_date,price_source,warning\n"
+            "2330,100,50,2,10,8,12,16,115/05/06,TWSE,\n",
+            encoding="utf-8",
+        )
+
+        summary_path = run_watchlist_workflow(
+            watchlist,
+            output_dir,
+            fixture_root=fixture_root,
+            valuation_csv=valuation_csv,
+        )
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        price_audit = summary["source_audit"]["items"][0]["price"]
+        self.assertEqual(price_audit["source_mode"], "live")
+        self.assertEqual(price_audit["generated_at"], "2026-05-06")
+        self.assertNotEqual(price_audit["status"], "unknown")
+        self.assertNotIn("invalid", price_audit["review_reason"])
 
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
