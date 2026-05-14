@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.12.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.13.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -22,6 +22,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Carries working thesis, key risks, watch triggers, and follow-up questions through research summaries, memos, and packs.
 - Adds lightweight traceability metadata so workflow, summary, memo, and pack outputs can be followed across a run.
+- Tracks source mode, freshness, and source-audit status across workflow, pack, and dashboard outputs.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -142,7 +143,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-d
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.10.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.13.0
 ```
 
 ## Example Files
@@ -162,6 +163,7 @@ Single-stock reports use Traditional Chinese sections for:
 - valuation scenarios
 - data quality
 - data reliability
+- source audit and manual-review status
 - operating observations
 - profitability observations
 - financial health observations
@@ -178,6 +180,7 @@ The workflow dashboard shows:
 
 - workflow summary status
 - data reliability status
+- source audit status and per-stock review reasons
 - successful and failed batch rows
 - valuation CSV link
 - comparison output or skipped reason
@@ -194,7 +197,7 @@ When a `research_summary.json` is present, the dashboard also shows:
 
 ## Data Reliability
 
-Generated workflow outputs include a reliability summary that explains which steps succeeded, which inputs used fallback sources, and which stocks failed or were skipped.
+Generated workflow outputs include a reliability summary that explains which steps succeeded, which inputs used fallback sources, and which stocks failed or were skipped. They also include `source_audit` details that identify source mode, freshness status, and manual-review requirements for financial statements and prices.
 
 Summary files also expose a lightweight traceability layer:
 
@@ -202,6 +205,8 @@ Summary files also expose a lightweight traceability layer:
 - `generated_at`
 - artifact dependencies
 - downstream outputs derived from the same run
+
+The source-audit layer uses source modes such as `live`, `fixture`, `offline`, `manual`, and `unknown`, and freshness statuses such as `fresh`, `stale`, `unknown`, and `manual_review`. Fixture, offline, and manually supplied data remain usable, but are flagged for review before research handoff.
 
 Research summaries include a `universe_review` object for work prioritization. It groups the research universe by category, state, and priority, then builds a deterministic attention queue. This is a research workflow queue, not a portfolio ranking or investment recommendation.
 
@@ -212,7 +217,7 @@ The project uses four status values:
 - `error`: the stage could not produce output
 - `skipped`: the stage did not run because it was disabled or a prerequisite failed
 
-Single-stock reports and dashboards surface the same reliability context, including price source status, workflow failure reasons, retry hints, and valuation assumption labels.
+Single-stock reports and dashboards surface the same reliability context, including price source status, workflow failure reasons, retry hints, source-audit status, and valuation assumption labels.
 
 ## Research Workflow
 
@@ -220,7 +225,7 @@ The research workbench starts from a CSV with `stock_id`, `company_name`, `categ
 
 Use `research init` to create an editable template, `research run` to produce reports and summaries from the CSV, and `research summary` to rebuild the research JSON after reviewing existing workflow outputs. The workflow is for organizing research status and data reliability review; it does not produce buy, sell, hold, or allocation recommendations.
 
-By default, `research run` also writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/`. Pass `--skip-memos` to skip memo files or `--skip-packs` to skip pack files.
+By default, `research run` also writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/`. Packs and dashboards surface the workflow source audit so fixture, offline, stale, unknown, or manually supplied data is visible during handoff. Pass `--skip-memos` to skip memo files or `--skip-packs` to skip pack files.
 
 ## Data Sources
 
@@ -241,6 +246,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.13.0 release notes](docs/releases/v0.13.0.md)
 - [v0.12.0 release notes](docs/releases/v0.12.0.md)
 - [v0.11.0 release notes](docs/releases/v0.11.0.md)
 - [v0.10.0 release notes](docs/releases/v0.10.0.md)

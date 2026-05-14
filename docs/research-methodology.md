@@ -15,6 +15,7 @@ Taiwan Equity Lens is a deterministic research workflow for Taiwan equity fundam
 - It does not produce buy, sell, hold, allocation, or final decision labels.
 - It does not verify live market data beyond the configured source behavior.
 - It does not replace source filings, accounting review, or personal due diligence.
+- It does not treat source-audit status as a recommendation or final assurance.
 
 ## Research CSV Fields
 
@@ -40,9 +41,17 @@ Valuation output is scenario context. EPS scenarios and target PE values are com
 1. Start with the offline demo to understand the output shape.
 2. Create or edit a research CSV.
 3. Run the research workflow.
-4. Review reliability warnings and diagnostics.
+4. Review source-audit status, reliability warnings, and diagnostics.
 5. Review memo and pack outputs.
 6. Compare valuation scenarios with source filings and manually confirmed assumptions.
+
+## Source Audit and Manual Review
+
+The source audit is a workflow control. It records whether financial statements and price inputs came from `live`, `fixture`, `offline`, `manual`, or `unknown` source modes, then classifies each item as `fresh`, `stale`, `unknown`, or `manual_review`.
+
+`manual_review` is expected for fixture demos, offline prices, and user-supplied assumptions. It means the artifact can support local workflow review, but the underlying data should be checked against official filings, market data, or maintained internal assumptions before research handoff.
+
+The source audit does not rank securities, approve data quality, or remove the need for accounting and source-document review. It only makes source freshness and review boundaries visible across workflow summaries, research packs, and dashboards.
 
 ## Disclaimer
 

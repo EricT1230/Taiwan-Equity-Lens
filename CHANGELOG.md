@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.13.0 - 2026-05-14
+
+Data Freshness & Source Audit release.
+
+### Added
+
+- Source-audit and freshness classification helpers.
+- Analysis metadata source mode for live and fixture data.
+- Workflow source audit summary for financial statements and prices.
+- Research summary, pack, and dashboard source-audit visibility.
+- v0.13.0 release notes.
+
+### Changed
+
+- Research workflow handoff artifacts now show source freshness and manual-review status.
+- Package version is now `0.13.0`.
+
+### Quality
+
+- Added tests for freshness classification, source-mode metadata, workflow source audit, pack/dashboard rendering, and release readiness.
+
 ## v0.12.0 - 2026-05-14
 
 Research Quality Upgrade release.
