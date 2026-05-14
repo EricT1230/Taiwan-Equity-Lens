@@ -24,6 +24,17 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("README badge expected v0.10.0", result.failures)
 
+    def test_check_release_readiness_reads_project_version_only(self):
+        root = Path(".tmp-doctor-test/project-version-only")
+        write_release_fixture(root, version="0.9.1")
+        with (root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[tool.fake]\nversion = "0.10.0"\n')
+
+        result = check_release_readiness(root, expected_version="0.10.0")
+
+        self.assertFalse(result.ok)
+        self.assertIn("pyproject version expected 0.10.0", result.failures)
+
     def test_check_release_readiness_reports_missing_release_note(self):
         root = Path(".tmp-doctor-test/missing-note")
         write_release_fixture(root, version="0.10.0")

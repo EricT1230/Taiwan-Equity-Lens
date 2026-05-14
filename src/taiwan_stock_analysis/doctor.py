@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+    tomllib = None  # type: ignore[assignment]
 
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 PROJECT_VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
+TABLE_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
 
 
@@ -23,12 +28,14 @@ def check_release_readiness(root: Path, expected_version: str | None = None) -> 
     root = root.resolve()
     failures: list[str] = []
     messages: list[str] = []
-    version = expected_version or _read_project_version(root / "pyproject.toml", failures)
-    if not version:
+    project_version = _read_project_version(root / "pyproject.toml", failures)
+    version = expected_version or project_version
+    if not version or not project_version:
         return DoctorResult(ok=False, messages=messages, failures=failures)
 
     release_note = Path("docs/releases") / f"v{version}.md"
-    _check_contains(root / "pyproject.toml", f'version = "{version}"', f"pyproject version expected {version}", failures)
+    if project_version != version:
+        failures.append(f"pyproject version expected {version}")
     _check_contains(root / "README.md", f"version-v{version}-blue.svg", f"README badge expected v{version}", failures)
     _check_contains(
         root / "README.md",
@@ -81,11 +88,36 @@ def _read_project_version(path: Path, failures: list[str]) -> str:
     except OSError:
         failures.append("Missing pyproject.toml")
         return ""
+    if tomllib is not None:
+        try:
+            payload = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            failures.append(f"Invalid pyproject.toml: {exc}")
+            return ""
+        version = payload.get("project", {}).get("version")
+        if isinstance(version, str) and version:
+            return version
+        failures.append("pyproject.toml missing project.version")
+        return ""
+    text = _project_section(text)
     match = PROJECT_VERSION_RE.search(text)
     if not match:
         failures.append("pyproject.toml missing project.version")
         return ""
     return match.group(1)
+
+
+def _project_section(text: str) -> str:
+    lines: list[str] = []
+    in_project = False
+    for line in text.splitlines():
+        table = TABLE_RE.match(line)
+        if table:
+            in_project = table.group(1).strip() == "project"
+            continue
+        if in_project:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def _check_contains(path: Path, expected: str, failure: str, failures: list[str]) -> None:
