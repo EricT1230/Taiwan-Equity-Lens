@@ -54,6 +54,35 @@ class ResearchPackTests(unittest.TestCase):
         self.assertIn("TSMC \\| Core Research", markdown)
         self.assertNotIn("TSMC | Core\nResearch", markdown)
 
+    def test_build_pack_context_summarizes_research_quality_coverage(self):
+        research_summary = self._write_research_summary(
+            extra_items=[
+                {
+                    "stock_id": "2303",
+                    "company_name": "UMC",
+                    "priority": "high",
+                    "thesis": "",
+                    "follow_up_questions": "",
+                },
+            ]
+        )
+
+        context = build_pack_context(research_summary, research_csv_path=Path("research.csv"))
+
+        self.assertEqual(context["research_quality"]["with_thesis"], 1)
+        self.assertEqual(context["research_quality"]["with_watch_triggers"], 1)
+        self.assertEqual(context["research_quality"]["with_follow_up_questions"], 1)
+        self.assertEqual(context["research_quality"]["high_priority_missing_follow_up"], ["2303"])
+
+    def test_render_pack_markdown_includes_research_quality_overview(self):
+        context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
+
+        markdown = render_pack_markdown(context)
+
+        self.assertIn("## Research Quality Overview", markdown)
+        self.assertIn("With thesis", markdown)
+        self.assertIn("Follow-up coverage", markdown)
+
     def test_build_pack_context_tolerates_missing_optional_inputs(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
 
@@ -119,8 +148,32 @@ class ResearchPackTests(unittest.TestCase):
             payload["artifact_registry"]["outputs"],
         )
 
-    def _write_research_summary(self, company_name="TSMC"):
+    def _write_research_summary(self, company_name="TSMC", extra_items=None):
         path = self.root / "research_summary.json"
+        items = [
+            {
+                "stock_id": "2330",
+                "company_name": company_name,
+                "research_state": "review",
+                "priority": "high",
+                "workflow_status": "ok",
+                "reliability_status": "warning",
+                "attention_reasons": ["data reliability is warning"],
+                "thesis": "Leading foundry scale",
+                "key_risks": "Cycle downturn",
+                "watch_triggers": "Revenue inflection",
+                "follow_up_questions": "What drives margin expansion?",
+            }
+        ]
+        if extra_items:
+            items.extend(extra_items)
+        research_state_counts = {}
+        priority_counts = {}
+        for item in items:
+            research_state = item.get("research_state", "-")
+            priority = item.get("priority", "-")
+            research_state_counts[research_state] = research_state_counts.get(research_state, 0) + 1
+            priority_counts[priority] = priority_counts.get(priority, 0) + 1
         path.write_text(
             json.dumps(
                 {
@@ -132,29 +185,13 @@ class ResearchPackTests(unittest.TestCase):
                         "inputs": {"workflow_summary": "workflow_summary.json"},
                         "output_root": "research-dist",
                     },
-                    "counts": {"total": 2, "needs_attention": 1},
-                    "research_state_counts": {"review": 1, "monitor": 1},
-                    "priority_counts": {"high": 1, "medium": 1},
-                    "items": [
-                        {
-                            "stock_id": "2330",
-                            "company_name": company_name,
-                            "research_state": "review",
-                            "priority": "high",
-                            "workflow_status": "ok",
-                            "reliability_status": "warning",
-                            "attention_reasons": ["data reliability is warning"],
-                        },
-                        {
-                            "stock_id": "2303",
-                            "company_name": "UMC",
-                            "research_state": "monitor",
-                            "priority": "medium",
-                            "workflow_status": "warning",
-                            "reliability_status": "ok",
-                            "attention_reasons": [],
-                        },
-                    ],
+                    "counts": {
+                        "total": len(items),
+                        "needs_attention": sum(1 for item in items if item.get("attention_reasons")),
+                    },
+                    "research_state_counts": research_state_counts,
+                    "priority_counts": priority_counts,
+                    "items": items,
                 }
             ),
             encoding="utf-8",

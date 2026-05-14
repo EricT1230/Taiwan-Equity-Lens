@@ -37,6 +37,42 @@ def _markdown_cell(value: Any, fallback: str = "-") -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _format_list(value: Any) -> str:
+    if not isinstance(value, list) or not value:
+        return "-"
+    return ", ".join(str(item) for item in value)
+
+
+def _has_research_value(item: dict[str, Any], key: str) -> bool:
+    value = item.get(key)
+    if value is None:
+        return False
+    return str(value).strip() not in {"", "-"}
+
+
+def _research_quality_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    high_priority_missing_follow_up = [
+        str(item.get("stock_id"))
+        for item in items
+        if str(item.get("priority")).lower() == "high" and not _has_research_value(item, "follow_up_questions")
+    ]
+    return {
+        "total": len(items),
+        "with_thesis": sum(1 for item in items if _has_research_value(item, "thesis")),
+        "with_watch_triggers": sum(1 for item in items if _has_research_value(item, "watch_triggers")),
+        "with_follow_up_questions": sum(1 for item in items if _has_research_value(item, "follow_up_questions")),
+        "high_priority_missing_follow_up": sorted(high_priority_missing_follow_up),
+    }
+
+
+def _coverage_text(item: dict[str, Any], key: str) -> str:
+    return "Yes" if _has_research_value(item, key) else "-"
+
+
 def _review_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
     reasons = item.get("attention_reasons", [])
     has_reasons = bool(reasons)
@@ -87,6 +123,9 @@ def build_pack_context(
             item["priority"] = _text(item.get("priority"))
             item["workflow_status"] = _text(item.get("workflow_status"))
             item["reliability_status"] = _text(item.get("reliability_status"))
+            item["thesis"] = _text(item.get("thesis"))
+            item["watch_triggers"] = _text(item.get("watch_triggers"))
+            item["follow_up_questions"] = _text(item.get("follow_up_questions"))
             reasons = item.get("attention_reasons", [])
             item["attention_reasons"] = [str(reason) for reason in reasons] if isinstance(reasons, list) else []
             item.update(
@@ -115,6 +154,7 @@ def build_pack_context(
         "workflow_summary": workflow_summary,
         "items": items,
         "review_queue": sorted(items, key=_review_sort_key),
+        "research_quality": _research_quality_summary(items),
     }
 
 
@@ -132,6 +172,7 @@ def _attention_text(item: dict[str, Any]) -> str:
 
 
 def render_pack_markdown(context: dict[str, Any]) -> str:
+    research_quality = _dict(context.get("research_quality"))
     overview_lines = [
         "# Research Pack",
         "",
@@ -141,6 +182,12 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         f"- Totals: {_format_counts(context.get('counts'))}",
         f"- Research states: {_format_counts(context.get('research_state_counts'))}",
         f"- Priorities: {_format_counts(context.get('priority_counts'))}",
+        "",
+        "## Research Quality Overview",
+        f"- With thesis: {_text(research_quality.get('with_thesis'))}",
+        f"- With watch triggers: {_text(research_quality.get('with_watch_triggers'))}",
+        f"- Follow-up coverage: {_text(research_quality.get('with_follow_up_questions'))}",
+        f"- High-priority missing follow-up: {_format_list(research_quality.get('high_priority_missing_follow_up'))}",
         "",
         "## Reliability Overview",
         f"- Workflow reliability: {_format_counts(context.get('workflow_reliability'))}",
@@ -176,14 +223,16 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         f"- Memo summary: {_text(context.get('memo_summary_path'))}",
         "",
         "## Per-Stock Research Index",
-        "| Stock | Company | Memo Markdown | Memo HTML | Attention |",
-        "| --- | --- | --- | --- | --- |",
+        "| Stock | Company | Thesis | Follow-up | Memo Markdown | Memo HTML | Attention |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     index_rows = [
         " | ".join(
             [
                 _markdown_cell(item.get("stock_id")),
                 _markdown_cell(item.get("company_name")),
+                _markdown_cell(_coverage_text(item, "thesis")),
+                _markdown_cell(_coverage_text(item, "follow_up_questions")),
                 _markdown_cell(item.get("memo_markdown_path")),
                 _markdown_cell(item.get("memo_html_path")),
                 _markdown_cell(_attention_text(item)),
@@ -213,6 +262,7 @@ def _html_list_item(label: str, value: Any) -> str:
 
 
 def render_pack_html(context: dict[str, Any]) -> str:
+    research_quality = _dict(context.get("research_quality"))
     queue_rows = []
     for item in context.get("review_queue", []):
         if not isinstance(item, dict):
@@ -239,13 +289,15 @@ def render_pack_html(context: dict[str, Any]) -> str:
             "<tr>"
             f"<td>{escape(_text(item.get('stock_id')))}</td>"
             f"<td>{escape(_text(item.get('company_name')))}</td>"
+            f"<td>{escape(_coverage_text(item, 'thesis'))}</td>"
+            f"<td>{escape(_coverage_text(item, 'follow_up_questions'))}</td>"
             f"<td>{escape(_text(item.get('memo_markdown_path')))}</td>"
             f"<td>{escape(_text(item.get('memo_html_path')))}</td>"
             f"<td>{escape(_attention_text(item))}</td>"
             "</tr>"
         )
     if not index_rows:
-        index_rows.append('<tr><td colspan="5">-</td></tr>')
+        index_rows.append('<tr><td colspan="7">-</td></tr>')
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -265,6 +317,15 @@ def render_pack_html(context: dict[str, Any]) -> str:
         {_html_list_item("Totals", _format_counts(context.get("counts")))}
         {_html_list_item("Research states", _format_counts(context.get("research_state_counts")))}
         {_html_list_item("Priorities", _format_counts(context.get("priority_counts")))}
+      </ul>
+    </section>
+    <section>
+      <h2>Research Quality Overview</h2>
+      <ul>
+        {_html_list_item("With thesis", research_quality.get("with_thesis"))}
+        {_html_list_item("With watch triggers", research_quality.get("with_watch_triggers"))}
+        {_html_list_item("Follow-up coverage", research_quality.get("with_follow_up_questions"))}
+        {_html_list_item("High-priority missing follow-up", _format_list(research_quality.get("high_priority_missing_follow_up")))}
       </ul>
     </section>
     <section>
@@ -292,7 +353,7 @@ def render_pack_html(context: dict[str, Any]) -> str:
     <section>
       <h2>Per-Stock Research Index</h2>
       <table>
-        <thead><tr><th>Stock</th><th>Company</th><th>Memo Markdown</th><th>Memo HTML</th><th>Attention</th></tr></thead>
+        <thead><tr><th>Stock</th><th>Company</th><th>Thesis</th><th>Follow-up</th><th>Memo Markdown</th><th>Memo HTML</th><th>Attention</th></tr></thead>
         <tbody>{"".join(index_rows)}</tbody>
       </table>
     </section>
