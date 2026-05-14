@@ -37,6 +37,11 @@ def _markdown_cell(value: Any, fallback: str = "-") -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
 
+def _markdown_scalar(value: Any, fallback: str = "-") -> str:
+    text = _markdown_cell(value, fallback)
+    return "".join(" " if ord(char) < 32 or ord(char) == 127 else char for char in text).strip() or fallback
+
+
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -126,8 +131,32 @@ def _source_audit_reasons(source_audit_item: dict[str, Any]) -> list[str]:
         component = source_audit_item.get(component_name)
         if not isinstance(component, dict):
             continue
-        reason = str(component.get("review_reason") or component.get("reason") or "").strip()
+        reason = _source_audit_reason(component)
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    return reasons
+
+
+def _source_audit_reason(component: dict[str, Any]) -> str:
+    for key in ("review_reason", "reason"):
+        raw_reason = component.get(key)
+        if not isinstance(raw_reason, str):
+            continue
+        reason = raw_reason.strip()
         if reason:
+            return reason
+    return ""
+
+
+def _clean_source_audit_reasons(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    reasons: list[str] = []
+    for raw_reason in value:
+        if not isinstance(raw_reason, str):
+            continue
+        reason = raw_reason.strip()
+        if reason and reason not in reasons:
             reasons.append(reason)
     return reasons
 
@@ -185,12 +214,7 @@ def build_pack_context(
             item["follow_up_questions"] = _text(item.get("follow_up_questions"))
             reasons = item.get("attention_reasons", [])
             item["attention_reasons"] = [str(reason) for reason in reasons] if isinstance(reasons, list) else []
-            source_audit_reasons = item.get("source_audit_reasons", [])
-            item["source_audit_reasons"] = (
-                [str(reason) for reason in source_audit_reasons]
-                if isinstance(source_audit_reasons, list)
-                else []
-            )
+            item["source_audit_reasons"] = _clean_source_audit_reasons(item.get("source_audit_reasons", []))
             if not item["source_audit_reasons"]:
                 item["source_audit_reasons"] = _source_audit_reasons(source_audit_item)
             item.update(
@@ -230,6 +254,15 @@ def _format_counts(counts: Any) -> str:
     return ", ".join(f"{key}: {counts[key]}" for key in sorted(counts))
 
 
+def _format_markdown_counts(counts: Any) -> str:
+    if not isinstance(counts, dict) or not counts:
+        return "-"
+    return ", ".join(
+        f"{_markdown_scalar(key)}: {_markdown_scalar(counts[key])}"
+        for key in sorted(counts, key=lambda count_key: str(count_key))
+    )
+
+
 def _attention_text(item: dict[str, Any]) -> str:
     reasons = item.get("attention_reasons", [])
     if isinstance(reasons, list) and reasons:
@@ -258,8 +291,8 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         f"- High-priority missing follow-up: {_format_list(research_quality.get('high_priority_missing_follow_up'))}",
         "",
         "## Source Audit Overview",
-        f"- Overall: {_text(source_audit.get('status'))}",
-        f"- Counts: {_format_counts(source_audit.get('counts'))}",
+        f"- Overall: {_markdown_scalar(source_audit.get('status'))}",
+        f"- Counts: {_format_markdown_counts(source_audit.get('counts'))}",
         "",
         "## Reliability Overview",
         f"- Workflow reliability: {_format_counts(context.get('workflow_reliability'))}",

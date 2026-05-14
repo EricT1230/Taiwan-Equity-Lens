@@ -115,8 +115,8 @@ class ResearchPackTests(unittest.TestCase):
     def test_render_pack_markdown_includes_source_audit_overview(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
         context["source_audit"] = {
-            "status": "manual_review",
-            "counts": {"fresh": 0, "stale": 0, "unknown": 0, "manual_review": 2},
+            "status": "manual|review\nneeds\x01check",
+            "counts": {"fresh": 0, "manual|review": "2\nrows\x02"},
             "items": [
                 {
                     "stock_id": "2330",
@@ -136,8 +136,9 @@ class ResearchPackTests(unittest.TestCase):
         markdown = render_pack_markdown(context)
 
         self.assertIn("## Source Audit Overview", markdown)
-        self.assertIn("Overall: manual_review", markdown)
-        self.assertIn("manual_review: 2", markdown)
+        self.assertIn("Overall: manual\\|review needs check", markdown)
+        self.assertIn("manual\\|review: 2 rows", markdown)
+        self.assertNotIn("Overall: manual|review\nneeds", markdown)
 
     def test_render_pack_html_includes_escaped_source_audit_overview(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
@@ -180,6 +181,34 @@ class ResearchPackTests(unittest.TestCase):
         self.assertEqual(research_source_audit, context["source_audit"])
         self.assertEqual("manual_review", context["items"][0]["source_audit_status"])
         self.assertEqual([], context["items"][0]["source_audit_reasons"])
+
+    def test_build_pack_context_falls_back_when_existing_source_audit_reasons_are_invalid(self):
+        research_summary = self._write_research_summary()
+        payload = json.loads(research_summary.read_text(encoding="utf-8"))
+        payload["items"][0]["source_audit_reasons"] = ["", "  ", {"bad": True}]
+        research_summary.write_text(json.dumps(payload), encoding="utf-8")
+        workflow_summary = self._write_workflow_summary(
+            source_audit={
+                "status": "manual_review",
+                "counts": {"manual_review": 1},
+                "items": [
+                    {
+                        "stock_id": "2330",
+                        "status": "manual_review",
+                        "financial_statement": {"review_reason": " fixture source "},
+                        "price": {"review_reason": {"bad": True}, "reason": "offline price mode"},
+                    }
+                ],
+            }
+        )
+
+        context = build_pack_context(
+            research_summary,
+            research_csv_path=Path("research.csv"),
+            workflow_summary_path=workflow_summary,
+        )
+
+        self.assertEqual(["fixture source", "offline price mode"], context["items"][0]["source_audit_reasons"])
 
     def test_build_pack_context_rejects_invalid_research_summary(self):
         path = self.root / "invalid_research_summary.json"

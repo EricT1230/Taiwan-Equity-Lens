@@ -337,10 +337,21 @@ def _source_audit_reasons(source_audit_item: dict[str, Any]) -> list[str]:
         component = source_audit_item.get(component_name)
         if not isinstance(component, dict):
             continue
-        reason = str(component.get("review_reason") or component.get("reason") or "").strip()
-        if reason:
+        reason = _source_audit_reason(component)
+        if reason and reason not in reasons:
             reasons.append(reason)
     return reasons
+
+
+def _source_audit_reason(component: dict[str, Any]) -> str:
+    for key in ("review_reason", "reason"):
+        raw_reason = component.get(key)
+        if not isinstance(raw_reason, str):
+            continue
+        reason = raw_reason.strip()
+        if reason:
+            return reason
+    return ""
 
 
 def _aggregate_reliability_status(workflow_payload: dict[str, Any]) -> str:

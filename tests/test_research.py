@@ -251,8 +251,11 @@ class ResearchTests(unittest.TestCase):
                 {
                     "stock_id": "2330",
                     "status": "manual_review",
-                    "financial_statement": {"review_reason": "fixture source"},
-                    "price": {"review_reason": "offline price mode"},
+                    "financial_statement": {
+                        "review_reason": " fixture source ",
+                        "reason": {"bad": True},
+                    },
+                    "price": {"review_reason": "fixture source", "reason": ["bad"]},
                 }
             ],
         }
@@ -266,7 +269,7 @@ class ResearchTests(unittest.TestCase):
         item = summary["items"][0]
         self.assertEqual(source_audit, summary["source_audit"])
         self.assertEqual("manual_review", item["source_audit_status"])
-        self.assertEqual(["fixture source", "offline price mode"], item["source_audit_reasons"])
+        self.assertEqual(["fixture source"], item["source_audit_reasons"])
 
     def test_build_research_summary_includes_universe_review_counts_and_buckets(self):
         root = Path(".tmp-research-test")
