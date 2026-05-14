@@ -202,6 +202,30 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("manual_review", html)
         self.assertIn("2330", html)
 
+    def test_render_dashboard_html_source_audit_counts_tolerate_mixed_key_types(self):
+        html = render_dashboard_html(
+            {
+                "workflow_summaries": [
+                    {
+                        "path": "research-dist/workflow_summary.json",
+                        "source_audit": {
+                            "status": "manual_review",
+                            "counts": {"fresh<": "1&", 5: 2},
+                            "items": [],
+                        },
+                    }
+                ],
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "research_summaries": [],
+                "memos": [],
+                "packs": [],
+            }
+        )
+
+        self.assertIn("counts: 5: 2, fresh&lt;: 1&amp;", html)
+
     def test_render_dashboard_html_shows_clear_empty_states(self):
         html = render_dashboard_html(
             {

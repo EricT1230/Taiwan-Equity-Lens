@@ -510,7 +510,8 @@ def _dict_value(value: object) -> dict[str, Any]:
 def _count_pairs(counts: dict[str, Any]) -> str:
     if not counts:
         return "-"
-    return escape(", ".join(f"{key}: {value}" for key, value in sorted(counts.items())))
+    pairs = sorted(((str(key), str(value)) for key, value in counts.items()), key=lambda item: item[0])
+    return ", ".join(f"{escape(key)}: {escape(value)}" for key, value in pairs)
 
 
 def _report_rows(reports: list[dict[str, Any]]) -> str:
