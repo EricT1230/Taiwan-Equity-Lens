@@ -234,6 +234,40 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("workflow failed at batch: fixture missing", items["9999"]["attention_reasons"])
         self.assertEqual(summary["workflow_paths"], {"dashboard": "workflow/dashboard.html"})
 
+    def test_build_research_summary_includes_source_audit_from_workflow(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-source-audit.csv"
+        workflow_dir = root / "source-audit-workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,medium,watching,\n",
+            encoding="utf-8",
+        )
+        source_audit = {
+            "status": "manual_review",
+            "counts": {"fresh": 0, "stale": 0, "unknown": 0, "manual_review": 1},
+            "items": [
+                {
+                    "stock_id": "2330",
+                    "status": "manual_review",
+                    "financial_statement": {"review_reason": "fixture source"},
+                    "price": {"review_reason": "offline price mode"},
+                }
+            ],
+        }
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps({"successful_stock_ids": ["2330"], "source_audit": source_audit}),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        item = summary["items"][0]
+        self.assertEqual(source_audit, summary["source_audit"])
+        self.assertEqual("manual_review", item["source_audit_status"])
+        self.assertEqual(["fixture source", "offline price mode"], item["source_audit_reasons"])
+
     def test_build_research_summary_includes_universe_review_counts_and_buckets(self):
         root = Path(".tmp-research-test")
         research = root / "summary-universe-review.csv"

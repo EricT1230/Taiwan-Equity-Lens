@@ -96,6 +96,42 @@ def _summary_counts(research_summary: dict[str, Any], top_level_key: str, nested
     return _dict(_dict(research_summary.get("counts")).get(nested_key))
 
 
+def _source_audit_from(
+    research_summary: dict[str, Any],
+    workflow_summary: dict[str, Any],
+) -> dict[str, Any]:
+    research_source_audit = _dict(research_summary.get("source_audit"))
+    if research_source_audit:
+        return research_source_audit
+    return _dict(workflow_summary.get("source_audit"))
+
+
+def _source_audit_by_stock(source_audit: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    items_by_stock: dict[str, dict[str, Any]] = {}
+    raw_items = source_audit.get("items", [])
+    if not isinstance(raw_items, list):
+        return items_by_stock
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "").strip()
+        if stock_id:
+            items_by_stock[stock_id] = item
+    return items_by_stock
+
+
+def _source_audit_reasons(source_audit_item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for component_name in ("financial_statement", "price"):
+        component = source_audit_item.get(component_name)
+        if not isinstance(component, dict):
+            continue
+        reason = str(component.get("review_reason") or component.get("reason") or "").strip()
+        if reason:
+            reasons.append(reason)
+    return reasons
+
+
 def build_pack_context(
     research_summary_path: Path,
     *,
@@ -109,6 +145,8 @@ def build_pack_context(
         _load_json(Path(workflow_summary_path), "workflow summary") if workflow_summary_path is not None else {}
     )
     memo_summary = _load_json(Path(memo_summary_path), "memo summary") if memo_summary_path is not None else {}
+    source_audit = _source_audit_from(research_summary, workflow_summary)
+    source_audit_items = _source_audit_by_stock(source_audit)
 
     memo_outputs: dict[str, dict[str, str]] = {}
     generated = memo_summary.get("generated", [])
@@ -138,11 +176,23 @@ def build_pack_context(
             item["priority"] = _text(item.get("priority"))
             item["workflow_status"] = _text(item.get("workflow_status"))
             item["reliability_status"] = _text(item.get("reliability_status"))
+            source_audit_item = source_audit_items.get(stock_id, {})
+            item["source_audit_status"] = _text(
+                item.get("source_audit_status") or source_audit_item.get("status")
+            )
             item["thesis"] = _text(item.get("thesis"))
             item["watch_triggers"] = _text(item.get("watch_triggers"))
             item["follow_up_questions"] = _text(item.get("follow_up_questions"))
             reasons = item.get("attention_reasons", [])
             item["attention_reasons"] = [str(reason) for reason in reasons] if isinstance(reasons, list) else []
+            source_audit_reasons = item.get("source_audit_reasons", [])
+            item["source_audit_reasons"] = (
+                [str(reason) for reason in source_audit_reasons]
+                if isinstance(source_audit_reasons, list)
+                else []
+            )
+            if not item["source_audit_reasons"]:
+                item["source_audit_reasons"] = _source_audit_reasons(source_audit_item)
             item.update(
                 memo_outputs.get(
                     stock_id,
@@ -166,6 +216,7 @@ def build_pack_context(
         "priority_counts": _summary_counts(research_summary, "priority_counts", "by_priority"),
         "run_metadata": read_run_metadata(research_summary),
         "workflow_reliability": workflow_reliability,
+        "source_audit": source_audit,
         "workflow_summary": workflow_summary,
         "items": items,
         "review_queue": sorted(items, key=_review_sort_key),
@@ -188,6 +239,7 @@ def _attention_text(item: dict[str, Any]) -> str:
 
 def render_pack_markdown(context: dict[str, Any]) -> str:
     research_quality = _dict(context.get("research_quality"))
+    source_audit = _dict(context.get("source_audit"))
     overview_lines = [
         "# Research Pack",
         "",
@@ -204,6 +256,10 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         f"- Follow-up coverage: {_text(research_quality.get('with_follow_up_questions'))}",
         f"- High-priority missing thesis: {_format_list(research_quality.get('high_priority_missing_thesis'))}",
         f"- High-priority missing follow-up: {_format_list(research_quality.get('high_priority_missing_follow_up'))}",
+        "",
+        "## Source Audit Overview",
+        f"- Overall: {_text(source_audit.get('status'))}",
+        f"- Counts: {_format_counts(source_audit.get('counts'))}",
         "",
         "## Reliability Overview",
         f"- Workflow reliability: {_format_counts(context.get('workflow_reliability'))}",
@@ -279,6 +335,7 @@ def _html_list_item(label: str, value: Any) -> str:
 
 def render_pack_html(context: dict[str, Any]) -> str:
     research_quality = _dict(context.get("research_quality"))
+    source_audit = _dict(context.get("source_audit"))
     queue_rows = []
     for item in context.get("review_queue", []):
         if not isinstance(item, dict):
@@ -343,6 +400,13 @@ def render_pack_html(context: dict[str, Any]) -> str:
         {_html_list_item("Follow-up coverage", research_quality.get("with_follow_up_questions"))}
         {_html_list_item("High-priority missing thesis", _format_list(research_quality.get("high_priority_missing_thesis")))}
         {_html_list_item("High-priority missing follow-up", _format_list(research_quality.get("high_priority_missing_follow_up")))}
+      </ul>
+    </section>
+    <section>
+      <h2>Source Audit Overview</h2>
+      <ul>
+        {_html_list_item("Overall", source_audit.get("status"))}
+        {_html_list_item("Counts", _format_counts(source_audit.get("counts")))}
       </ul>
     </section>
     <section>

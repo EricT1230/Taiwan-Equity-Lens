@@ -128,10 +128,13 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
     } if workflow_payload else set()
     failures = _workflow_failures_by_stock(workflow_payload)
     reliability_status = _aggregate_reliability_status(workflow_payload)
+    source_audit = _workflow_source_audit(workflow_payload)
+    source_audit_by_stock = _source_audit_by_stock(source_audit)
 
     items: list[dict[str, Any]] = []
     for row in rows:
         stock_id = row["stock_id"]
+        stock_source_audit = source_audit_by_stock.get(stock_id, {})
         workflow_status = _stock_workflow_status(
             stock_id=stock_id,
             successful_stock_ids=successful_stock_ids,
@@ -151,6 +154,11 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
                 "workflow_status": workflow_status,
                 "reliability_status": reliability_status,
                 "attention_reasons": attention_reasons,
+                "source_audit_status": _source_audit_status(
+                    stock_source_audit,
+                    has_source_audit=bool(source_audit),
+                ),
+                "source_audit_reasons": _source_audit_reasons(stock_source_audit),
             }
         )
 
@@ -166,6 +174,7 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
         "items": items,
         "universe_review": build_universe_review(items),
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
+        "source_audit": source_audit,
     }
     run_metadata = read_run_metadata(workflow_payload)
     if run_metadata:
@@ -293,6 +302,45 @@ def _workflow_failures_by_stock(workflow_payload: dict[str, Any]) -> dict[str, l
             continue
         failures.setdefault(stock_id, []).append(failure)
     return failures
+
+
+def _workflow_source_audit(workflow_payload: dict[str, Any]) -> dict[str, Any]:
+    source_audit = workflow_payload.get("source_audit", {}) if workflow_payload else {}
+    return source_audit if isinstance(source_audit, dict) else {}
+
+
+def _source_audit_by_stock(source_audit: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    items_by_stock: dict[str, dict[str, Any]] = {}
+    raw_items = source_audit.get("items", [])
+    if not isinstance(raw_items, list):
+        return items_by_stock
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "").strip()
+        if not stock_id:
+            continue
+        items_by_stock[stock_id] = item
+    return items_by_stock
+
+
+def _source_audit_status(source_audit_item: dict[str, Any], *, has_source_audit: bool) -> str:
+    status = str(source_audit_item.get("status") or "").strip()
+    if status:
+        return status
+    return "unknown" if has_source_audit else "skipped"
+
+
+def _source_audit_reasons(source_audit_item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for component_name in ("financial_statement", "price"):
+        component = source_audit_item.get(component_name)
+        if not isinstance(component, dict):
+            continue
+        reason = str(component.get("review_reason") or component.get("reason") or "").strip()
+        if reason:
+            reasons.append(reason)
+    return reasons
 
 
 def _aggregate_reliability_status(workflow_payload: dict[str, Any]) -> str:

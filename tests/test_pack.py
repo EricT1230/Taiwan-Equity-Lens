@@ -112,12 +112,74 @@ class ResearchPackTests(unittest.TestCase):
         self.assertIn("With thesis", markdown)
         self.assertIn("Follow-up coverage", markdown)
 
+    def test_render_pack_markdown_includes_source_audit_overview(self):
+        context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
+        context["source_audit"] = {
+            "status": "manual_review",
+            "counts": {"fresh": 0, "stale": 0, "unknown": 0, "manual_review": 2},
+            "items": [
+                {
+                    "stock_id": "2330",
+                    "status": "manual_review",
+                    "financial_statement": {"review_reason": "fixture source"},
+                    "price": {"review_reason": "offline price mode"},
+                },
+                {
+                    "stock_id": "2303",
+                    "status": "manual_review",
+                    "financial_statement": {"review_reason": "fixture source"},
+                    "price": {},
+                },
+            ],
+        }
+
+        markdown = render_pack_markdown(context)
+
+        self.assertIn("## Source Audit Overview", markdown)
+        self.assertIn("Overall: manual_review", markdown)
+        self.assertIn("manual_review: 2", markdown)
+
+    def test_render_pack_html_includes_escaped_source_audit_overview(self):
+        context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
+        context["source_audit"] = {
+            "status": "<manual_review>",
+            "counts": {"manual_review": 2},
+            "items": [],
+        }
+
+        html = render_pack_html(context)
+
+        self.assertIn("<h2>Source Audit Overview</h2>", html)
+        self.assertIn("&lt;manual_review&gt;", html)
+        self.assertNotIn("<manual_review>", html)
+
     def test_build_pack_context_tolerates_missing_optional_inputs(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
 
         self.assertEqual("", context["workflow_summary_path"])
         self.assertEqual("", context["memo_summary_path"])
         self.assertEqual("-", context["items"][0]["memo_markdown_path"])
+
+    def test_build_pack_context_uses_research_source_audit_before_workflow(self):
+        research_source_audit = {
+            "status": "manual_review",
+            "counts": {"manual_review": 1},
+            "items": [{"stock_id": "2330", "status": "manual_review"}],
+        }
+        research_summary = self._write_research_summary(source_audit=research_source_audit)
+        workflow_summary = self._write_workflow_summary(
+            source_audit={"status": "fresh", "counts": {"fresh": 1}, "items": []}
+        )
+
+        context = build_pack_context(
+            research_summary,
+            research_csv_path=Path("research.csv"),
+            workflow_summary_path=workflow_summary,
+        )
+
+        self.assertEqual(research_source_audit, context["source_audit"])
+        self.assertEqual("manual_review", context["items"][0]["source_audit_status"])
+        self.assertEqual([], context["items"][0]["source_audit_reasons"])
 
     def test_build_pack_context_rejects_invalid_research_summary(self):
         path = self.root / "invalid_research_summary.json"
@@ -177,7 +239,7 @@ class ResearchPackTests(unittest.TestCase):
             payload["artifact_registry"]["outputs"],
         )
 
-    def _write_research_summary(self, company_name="TSMC", extra_items=None, nested_counts=False):
+    def _write_research_summary(self, company_name="TSMC", extra_items=None, nested_counts=False, source_audit=None):
         path = self.root / "research_summary.json"
         items = [
             {
@@ -227,16 +289,22 @@ class ResearchPackTests(unittest.TestCase):
                     "research_state_counts": research_state_counts,
                     "priority_counts": priority_counts,
                     "items": items,
+                    "source_audit": source_audit or {},
                 }
             ),
             encoding="utf-8",
         )
         return path
 
-    def _write_workflow_summary(self):
+    def _write_workflow_summary(self, source_audit=None):
         path = self.root / "workflow_summary.json"
         path.write_text(
-            json.dumps({"data_reliability": {"ok": 1, "warning": 1, "error": 0, "skipped": 0}}),
+            json.dumps(
+                {
+                    "data_reliability": {"ok": 1, "warning": 1, "error": 0, "skipped": 0},
+                    "source_audit": source_audit or {},
+                }
+            ),
             encoding="utf-8",
         )
         return path
