@@ -26,13 +26,19 @@ def classify_freshness(
     reason = review_reason
 
     if timestamp is not None and current is not None:
-        age_days = max((current - timestamp).days, 0)
-        status = "stale" if age_days > stale_after_days else "fresh"
+        elapsed = current - timestamp
+        if elapsed.total_seconds() < 0:
+            status = "unknown"
+            reason = reason or "generated timestamp is in the future"
+        else:
+            age_days = elapsed.days
+            stale_after_seconds = stale_after_days * 24 * 60 * 60
+            status = "stale" if elapsed.total_seconds() > stale_after_seconds else "fresh"
     else:
         reason = reason or "generated timestamp is missing or invalid"
 
     mode = (source_mode or "unknown").strip().lower()
-    if mode in {"fixture", "offline"} and status != "stale":
+    if mode in {"fixture", "offline"} and status == "fresh":
         status = "manual_review"
         reason = reason or f"{mode} source requires manual review"
 
@@ -54,7 +60,7 @@ def summarize_source_audit(items: list[dict[str, Any]]) -> dict[str, Any]:
             status = "unknown"
         counts[status] += 1
 
-    overall = "fresh"
+    overall = "unknown"
     for status in ("stale", "unknown", "manual_review", "fresh"):
         if counts[status]:
             overall = status
