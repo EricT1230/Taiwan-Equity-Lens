@@ -74,7 +74,7 @@ def _source_review(source_mode: str) -> dict[str, str]:
         }
     if source_mode == "live":
         return {
-            "status": "fresh",
+            "status": "ok",
             "reason": "financial statements loaded from live source",
         }
     return {

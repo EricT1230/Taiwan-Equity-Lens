@@ -33,6 +33,8 @@ class FetcherTests(unittest.TestCase):
         metadata = build_metadata("2317", ["2024", "2023"])
 
         self.assertEqual(metadata["source"], "Goodinfo.tw")
+        self.assertEqual(metadata["source_mode"], "live")
+        self.assertEqual(metadata["source_review"]["status"], "ok")
         self.assertEqual(metadata["years_covered"], ["2024", "2023"])
         self.assertIn("STOCK_ID=2317", metadata["source_urls"]["income_statement"])
         self.assertIn("co_id=2317", metadata["mops_url"])
