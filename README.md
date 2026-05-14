@@ -20,6 +20,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Builds a universe-level review queue for deciding which research items need attention first.
 - Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
+- Carries working thesis, key risks, watch triggers, and follow-up questions through research summaries, memos, and packs.
 - Adds lightweight traceability metadata so workflow, summary, memo, and pack outputs can be followed across a run.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
@@ -235,6 +236,7 @@ Current sources and inputs:
 
 ## Documentation
 
+- [Research methodology](docs/research-methodology.md)
 - [Usage workflow](docs/usage-workflow.md)
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)

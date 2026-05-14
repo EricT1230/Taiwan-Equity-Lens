@@ -203,6 +203,15 @@ Required columns:
 - `research_state`
 - `notes`
 
+Optional research-quality columns:
+
+- `thesis`
+- `key_risks`
+- `watch_triggers`
+- `follow_up_questions`
+
+These fields carry the working thesis, main risks, review triggers, and unanswered questions into research summaries, memo drafts, and consolidated packs. See [Research Methodology](research-methodology.md) for field definitions and workflow boundaries.
+
 Run the research workflow from that CSV:
 
 ```powershell

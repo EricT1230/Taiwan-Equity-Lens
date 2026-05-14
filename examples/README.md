@@ -34,6 +34,8 @@ research-dist/dashboard.html
 
 `research run` writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/` unless `--skip-memos` or `--skip-packs` is passed. The generated summary JSON files also carry traceability metadata and a universe review queue so the run inputs, derived outputs, and next research items can be inspected later. Use `research memo` or `research pack` to regenerate those outputs from existing workflow data.
 
+`examples/research.csv` includes thesis, key risks, watch triggers, and follow-up questions so the offline demo shows how research-quality fields flow into summaries, memos, and packs.
+
 ## Single Research Memo
 
 ```powershell
