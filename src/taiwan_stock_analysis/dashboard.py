@@ -205,6 +205,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <h2>資料可信度</h2>
       {_workflow_reliability_summary(items.get("workflow_summaries", []))}
     </section>
+    {_workflow_source_audit_section(items.get("workflow_summaries", []))}
     <section>
       <h2>Workflow 狀態</h2>
       {_workflow_status_line(items.get("workflow_summaries", []))}
@@ -652,6 +653,61 @@ def _workflow_reliability_summary(workflow_summaries: list[dict[str, Any]]) -> s
             "</div>"
         )
     return "".join(sections)
+
+
+def _workflow_source_audit_section(workflow_summaries: list[dict[str, Any]]) -> str:
+    sections: list[str] = []
+    for summary in workflow_summaries:
+        audit = summary.get("source_audit")
+        if not isinstance(audit, dict):
+            continue
+        counts = _dict_value(audit.get("counts"))
+        items = audit.get("items", [])
+        item_rows = _source_audit_item_rows(items if isinstance(items, list) else [])
+        sections.append(
+            "<div>"
+            f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            '<p class="status-line">'
+            f'<span class="badge">overall: {escape(str(audit.get("status", "unknown") or "unknown"))}</span>'
+            f'<span class="badge">counts: {_count_pairs(counts)}</span>'
+            "</p>"
+            "<table><thead><tr><th>stock_id</th><th>status</th><th>components</th></tr></thead>"
+            f"<tbody>{item_rows}</tbody></table>"
+            "</div>"
+        )
+    if not sections:
+        return ""
+    return f"<section><h2>Source Audit</h2>{''.join(sections)}</section>"
+
+
+def _source_audit_item_rows(items: list[Any]) -> str:
+    rows: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('stock_id', '-')))}</td>"
+            f"<td>{_status_badge(str(item.get('status', 'unknown') or 'unknown'))}</td>"
+            f"<td>{_source_audit_components(item)}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or _empty_row(3, "No source audit items")
+
+
+def _source_audit_components(item: dict[str, Any]) -> str:
+    components: list[str] = []
+    for name, value in item.items():
+        if name in {"stock_id", "status"} or not isinstance(value, dict):
+            continue
+        status = str(value.get("status") or "")
+        source_mode = str(value.get("source_mode") or "")
+        reason = str(value.get("review_reason") or value.get("reason") or "")
+        details = [part for part in [status, source_mode, reason] if part]
+        label = escape(str(name).replace("_", " "))
+        text = escape(" | ".join(details) or "-")
+        components.append(f"<div><strong>{label}</strong>: {text}</div>")
+    return "".join(components) or "-"
 
 
 def _batch_status_line(batch_results: list[dict[str, Any]]) -> str:

@@ -176,6 +176,32 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Source fetch failed", html)
         self.assertIn("Run the workflow again later", html)
 
+    def test_render_dashboard_html_contains_source_audit(self):
+        html = render_dashboard_html(
+            {
+                "workflow_summaries": [
+                    {
+                        "path": "research-dist/workflow_summary.json",
+                        "source_audit": {
+                            "status": "manual_review",
+                            "counts": {"fresh": 0, "stale": 0, "unknown": 0, "manual_review": 2},
+                            "items": [{"stock_id": "2330", "status": "manual_review"}],
+                        },
+                    }
+                ],
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "research_summaries": [],
+                "memos": [],
+                "packs": [],
+            }
+        )
+
+        self.assertIn("Source Audit", html)
+        self.assertIn("manual_review", html)
+        self.assertIn("2330", html)
+
     def test_render_dashboard_html_shows_clear_empty_states(self):
         html = render_dashboard_html(
             {
