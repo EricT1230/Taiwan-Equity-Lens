@@ -23,10 +23,10 @@ Live Goodinfo run:
 python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --output-dir live-dist
 ```
 
-Optional local fixture run, if you maintain your own `fixtures/` directory:
+Optional local fixture run. The repository ships `examples/fixtures/` for synthetic offline demos; for real research, point `--fixture` at your own maintained fixture directory:
 
 ```powershell
-python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --fixture fixtures --output-dir dist
+python -m taiwan_stock_analysis.cli 2330 --company-name TSMC --fixture examples/fixtures/2330 --output-dir dist
 ```
 
 Outputs:
@@ -128,10 +128,10 @@ The workflow command runs the normal watchlist path end to end:
 python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow-dist
 ```
 
-For fixture or CI-style runs, keep price lookup offline. The `fixtures/` directory is intentionally not shipped; use this only after adding your own fixture files:
+For fixture or CI-style runs, keep price lookup offline. The committed `examples/fixtures/` directory is synthetic and suitable for demos; use your own fixture root for real company source snapshots:
 
 ```powershell
-python -m taiwan_stock_analysis.cli workflow watchlist.csv --fixture-root fixtures --output-dir workflow-dist --offline-prices
+python -m taiwan_stock_analysis.cli workflow examples/watchlist.csv --fixture-root examples/fixtures --output-dir workflow-dist --offline-prices
 ```
 
 Outputs:

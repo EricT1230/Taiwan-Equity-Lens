@@ -45,26 +45,29 @@ Outputs:
 
 ## One-Command Demo
 
-Use the example watchlist and keep price lookup offline for a local demo:
+Use the synthetic example fixtures for a fully offline local demo:
 
 ```powershell
-python -m taiwan_stock_analysis.cli workflow examples/watchlist.csv --output-dir workflow-dist --offline-prices
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
 ```
 
 Open:
 
 ```text
-workflow-dist/dashboard.html
+demo-dist/dashboard.html
 ```
 
-Workflow outputs:
+Demo outputs:
 
-- `workflow-dist/reports/`
-- `workflow-dist/valuation.csv`
-- `workflow-dist/valuation-reports/`
-- `workflow-dist/comparison/`
-- `workflow-dist/dashboard.html`
-- `workflow-dist/workflow_summary.json`
+- `demo-dist/reports/`
+- `demo-dist/valuation.csv`
+- `demo-dist/valuation-reports/`
+- `demo-dist/comparison/`
+- `demo-dist/memos/`
+- `demo-dist/packs/`
+- `demo-dist/dashboard.html`
+- `demo-dist/workflow_summary.json`
+- `demo-dist/research_summary.json`
 
 ## Common Commands
 
@@ -146,6 +149,7 @@ python -m taiwan_stock_analysis.cli doctor release --version 0.10.0
 - [examples/watchlist.csv](examples/watchlist.csv): sample watchlist for batch/workflow runs.
 - [examples/valuation.csv](examples/valuation.csv): sample valuation assumptions.
 - [examples/research.csv](examples/research.csv): sample research workbench universe.
+- [examples/fixtures/](examples/fixtures): synthetic financial-statement HTML for offline demos.
 - [examples/README.md](examples/README.md): example command guide.
 
 ## Output Surfaces

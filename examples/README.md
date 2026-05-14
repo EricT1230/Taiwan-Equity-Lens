@@ -1,24 +1,26 @@
 # Examples
 
-This folder contains small CSV files that make the CLI easy to try.
+This folder contains small CSV files and synthetic fixtures that make the CLI easy to try.
 
-## Watchlist Workflow Demo
+## Offline Research Workflow Demo
 
 ```powershell
-python -m taiwan_stock_analysis.cli workflow examples/watchlist.csv --output-dir workflow-dist --offline-prices
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
 ```
 
 Open:
 
 ```text
-workflow-dist/dashboard.html
+demo-dist/dashboard.html
 ```
+
+`examples/fixtures/` contains synthetic financial-statement HTML for offline demos. It is not source data and should not be used as real company data.
 
 ## Research Workbench
 
 ```powershell
 python -m taiwan_stock_analysis.cli research init --output research.csv
-python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --offline-prices
+python -m taiwan_stock_analysis.cli research run research.csv --fixture-root examples/fixtures --output-dir research-dist --offline-prices
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
 python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
