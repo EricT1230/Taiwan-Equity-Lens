@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.12.0 - 2026-05-14
+
+Research Quality Upgrade release.
+
+### Added
+
+- Optional research CSV fields for thesis, key risks, watch triggers, and follow-up questions.
+- Valuation scenario summary with fair-value range, margin-of-safety context, and assumption-completeness confidence.
+- Thesis Snapshot in research memos.
+- Research Quality Overview in research packs.
+- Research methodology documentation.
+
+### Changed
+
+- Example research CSV now demonstrates the richer research workflow.
+- Package version is now `0.12.0`.
+
+### Quality
+
+- Added tests for research-quality fields, valuation confidence, memo rendering, pack rendering, and release readiness.
+
 ## v0.11.0 - 2026-05-14
 
 Offline Demo Kit release.
