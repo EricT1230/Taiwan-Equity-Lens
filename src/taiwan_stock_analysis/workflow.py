@@ -3,10 +3,17 @@ from __future__ import annotations
 import json
 import shutil
 import csv
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from taiwan_stock_analysis.dashboard import write_dashboard_index
+from taiwan_stock_analysis.freshness import (
+    FINANCIAL_STATEMENT_STALE_DAYS,
+    PRICE_STALE_DAYS,
+    classify_freshness,
+    summarize_source_audit,
+)
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
 from taiwan_stock_analysis.reliability import ReliabilityStatus, build_retry_hint, summarize_reliability
 from taiwan_stock_analysis.traceability import (
@@ -151,11 +158,17 @@ def run_watchlist_workflow(
         )
     )
 
+    source_audit = _build_source_audit(
+        stock_ids,
+        reports_dir=reports_dir,
+        valuation_path=valuation_path,
+    )
     summary: dict[str, Any] = {
         "watchlist_path": str(watchlist_path),
         "output_dir": str(output_dir),
         "stock_ids": stock_ids,
         "successful_stock_ids": successful_stock_ids,
+        "source_audit": source_audit,
         "paths": {
             "batch_summary": str(batch_summary_path),
             "valuation_csv": str(valuation_path) if valuation_path is not None else "",
@@ -190,6 +203,127 @@ def run_watchlist_workflow(
         scan_dirs.insert(2, valuation_reports_dir)
     write_dashboard_index(scan_dirs, dashboard_path)
     return summary_path
+
+
+def _build_source_audit(
+    stock_ids: list[str],
+    *,
+    reports_dir: Path,
+    valuation_path: Path | None,
+) -> dict[str, Any]:
+    price_rows = _price_rows_by_stock(valuation_path)
+    items: list[dict[str, Any]] = []
+    status_items: list[dict[str, str]] = []
+
+    for stock_id in stock_ids:
+        financial = _financial_statement_audit(stock_id, reports_dir)
+        price = _price_audit(stock_id, price_rows.get(stock_id))
+        combined_status = _combine_audit_status([financial, price])
+        items.append(
+            {
+                "stock_id": stock_id,
+                "status": combined_status,
+                "financial_statement": financial,
+                "price": price,
+            }
+        )
+        status_items.append({"status": combined_status})
+
+    summary = summarize_source_audit(status_items)
+    return {**summary, "items": items}
+
+
+def _financial_statement_audit(stock_id: str, reports_dir: Path) -> dict[str, Any]:
+    path = reports_dir / f"{stock_id}_raw_data.json"
+    if not path.exists():
+        return classify_freshness(
+            generated_at="",
+            source_mode="unknown",
+            stale_after_days=FINANCIAL_STATEMENT_STALE_DAYS,
+            review_reason=f"analysis report missing: {path}",
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return classify_freshness(
+            generated_at="",
+            source_mode="unknown",
+            stale_after_days=FINANCIAL_STATEMENT_STALE_DAYS,
+            review_reason=f"analysis report invalid: {exc}",
+        )
+    if not isinstance(payload, dict):
+        return classify_freshness(
+            generated_at="",
+            source_mode="unknown",
+            stale_after_days=FINANCIAL_STATEMENT_STALE_DAYS,
+            review_reason="analysis report invalid: expected object",
+        )
+
+    metadata = payload.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    fetched_at = str(metadata.get("fetched_at") or "")
+    source_mode = str(metadata.get("source_mode") or "unknown")
+    return classify_freshness(
+        generated_at=fetched_at,
+        source_mode=source_mode,
+        stale_after_days=FINANCIAL_STATEMENT_STALE_DAYS,
+    )
+
+
+def _price_rows_by_stock(valuation_path: Path | None) -> dict[str, dict[str, str]]:
+    if valuation_path is None or not valuation_path.exists():
+        return {}
+    try:
+        with valuation_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            return {
+                stock_id: dict(row)
+                for row in reader
+                if (stock_id := str(row.get("stock_id") or "").strip())
+            }
+    except OSError:
+        return {}
+
+
+def _price_audit(stock_id: str, row: dict[str, str] | None) -> dict[str, Any]:
+    if not row:
+        return classify_freshness(
+            generated_at="",
+            source_mode="unknown",
+            stale_after_days=PRICE_STALE_DAYS,
+            review_reason=f"valuation price row missing for {stock_id}",
+        )
+
+    price_date = str(row.get("price_date") or "").strip()
+    price_source = str(row.get("price_source") or "").strip()
+    price_status = str(row.get("price_status") or "").strip().lower()
+    warning = str(row.get("warning") or "").strip()
+    message = str(row.get("price_status_message") or "").strip()
+    warning_text = f"{warning} {message}".lower()
+
+    source_mode = "unknown"
+    review_reason = ""
+    generated_at = price_date
+    if "offline mode" in warning_text or (price_status == "warning" and not price_date):
+        source_mode = "offline"
+        review_reason = warning or message or "offline price source requires manual review"
+        generated_at = price_date or datetime.now(timezone.utc).isoformat()
+    elif price_source or price_date:
+        source_mode = "live"
+    else:
+        review_reason = "price source and date are missing"
+
+    return classify_freshness(
+        generated_at=generated_at,
+        source_mode=source_mode,
+        stale_after_days=PRICE_STALE_DAYS,
+        review_reason=review_reason,
+    )
+
+
+def _combine_audit_status(components: list[dict[str, Any]]) -> str:
+    return summarize_source_audit(components)["status"]
 
 
 def _successful_stock_ids(batch_summary: dict[str, Any]) -> list[str]:

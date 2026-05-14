@@ -146,6 +146,29 @@ class WorkflowTests(unittest.TestCase):
         summary = json.loads((output_dir / "workflow_summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["step_statuses"]["valuation"]["status"], "skipped")
 
+    def test_run_watchlist_workflow_writes_source_audit_for_offline_demo(self):
+        root = Path(".tmp-workflow-test")
+        watchlist = root / "audit-watchlist.csv"
+        fixture_root = root / "audit-fixtures"
+        output_dir = root / "audit-dist"
+        watchlist.write_text("stock_id,company_name\n2330,TSMC\n", encoding="utf-8")
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+
+        summary_path = run_watchlist_workflow(
+            watchlist,
+            output_dir,
+            fixture_root=fixture_root,
+            offline_prices=True,
+        )
+
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        audit = payload["source_audit"]
+        self.assertEqual(audit["status"], "manual_review")
+        self.assertEqual(audit["counts"]["manual_review"], 1)
+        self.assertEqual(audit["items"][0]["stock_id"], "2330")
+        self.assertEqual(audit["items"][0]["financial_statement"]["source_mode"], "fixture")
+        self.assertEqual(audit["items"][0]["price"]["source_mode"], "offline")
+
     def _write_fixture(self, fixture_dir: Path, revenue: float, gross_profit: float, net_income: float) -> None:
         fixture_dir.mkdir(parents=True, exist_ok=True)
         (fixture_dir / "IS_YEAR.html").write_text(
