@@ -306,9 +306,9 @@ def _thesis_snapshot_markdown(ctx: dict[str, Any]) -> str:
     item = ctx["research_item"]
     rows = [
         ("Thesis", item.get("thesis")),
-        ("Key risks", item.get("key_risks")),
+        ("Key risks", _join_values(item.get("key_risks"))),
         ("Watch triggers", item.get("watch_triggers")),
-        ("Follow-up questions", item.get("follow_up_questions")),
+        ("Follow-up questions", _join_values(item.get("follow_up_questions"))),
     ]
     return "## Thesis Snapshot\n\n" + _markdown_table(("Field", "Value"), rows)
 
@@ -526,9 +526,9 @@ def _thesis_snapshot_html(ctx: dict[str, Any]) -> str:
     item = ctx["research_item"]
     rows = [
         ("Thesis", item.get("thesis")),
-        ("Key risks", item.get("key_risks")),
+        ("Key risks", _join_values(item.get("key_risks"))),
         ("Watch triggers", item.get("watch_triggers")),
-        ("Follow-up questions", item.get("follow_up_questions")),
+        ("Follow-up questions", _join_values(item.get("follow_up_questions"))),
     ]
     return _html_section("thesis-snapshot", "Thesis Snapshot", _html_table(("Field", "Value"), rows))
 
@@ -750,7 +750,7 @@ def _risk_lines(ctx: dict[str, Any]) -> list[str]:
     valuation = _dict(ctx["analysis"].get("valuation"))
     assumptions = _dict(valuation.get("assumptions"))
     reliability_status = _text(ctx["research_item"].get("reliability_status"))
-    lines: list[str] = []
+    lines: list[str] = _value_lines(ctx["research_item"].get("key_risks"))
     if diagnostics != [("-", "-", "-", "-")]:
         lines.append(f"Diagnostics reported {len(diagnostics)} item(s) that need review.")
     if reliability_status in {"warning", "error"}:
@@ -764,7 +764,7 @@ def _open_question_lines(ctx: dict[str, Any]) -> list[str]:
     valuation = _dict(ctx["analysis"].get("valuation"))
     assumptions = _dict(valuation.get("assumptions"))
     reliability_status = _text(ctx["research_item"].get("reliability_status"))
-    lines: list[str] = []
+    lines: list[str] = _value_lines(ctx["research_item"].get("follow_up_questions"))
     if reliability_status in {"warning", "error"}:
         lines.append("What data issue caused the current warning state?")
     if not assumptions:
@@ -894,6 +894,13 @@ def _join_values(value: Any) -> str:
     if isinstance(value, list):
         return "; ".join(_text(item) for item in value if _text(item) != "-") or "-"
     return _text(value)
+
+
+def _value_lines(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [_text(item) for item in value if _text(item) != "-"]
+    text = _text(value)
+    return [] if text == "-" else [text]
 
 
 def _join_key_values(value: dict[str, Any]) -> str:

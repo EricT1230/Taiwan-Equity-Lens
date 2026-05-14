@@ -74,6 +74,35 @@ class ResearchPackTests(unittest.TestCase):
         self.assertEqual(context["research_quality"]["with_follow_up_questions"], 1)
         self.assertEqual(context["research_quality"]["high_priority_missing_follow_up"], ["2303"])
 
+    def test_build_pack_context_reads_nested_research_counts(self):
+        research_summary = self._write_research_summary(nested_counts=True)
+
+        context = build_pack_context(research_summary, research_csv_path=Path("research.csv"))
+
+        self.assertEqual({"review": 1}, context["research_state_counts"])
+        self.assertEqual({"high": 1}, context["priority_counts"])
+
+    def test_render_pack_markdown_flags_high_priority_missing_thesis(self):
+        research_summary = self._write_research_summary(
+            extra_items=[
+                {
+                    "stock_id": "2303",
+                    "company_name": "UMC",
+                    "priority": "high",
+                    "thesis": "",
+                    "watch_triggers": "Capacity expansion",
+                    "follow_up_questions": "What utilization level is assumed?",
+                },
+            ]
+        )
+        context = build_pack_context(research_summary, research_csv_path=Path("research.csv"))
+
+        markdown = render_pack_markdown(context)
+
+        self.assertEqual(["2303"], context["research_quality"]["high_priority_missing_thesis"])
+        self.assertIn("- High-priority missing thesis: 2303", markdown)
+        self.assertIn("- High-priority missing follow-up: -", markdown)
+
     def test_render_pack_markdown_includes_research_quality_overview(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
 
@@ -148,7 +177,7 @@ class ResearchPackTests(unittest.TestCase):
             payload["artifact_registry"]["outputs"],
         )
 
-    def _write_research_summary(self, company_name="TSMC", extra_items=None):
+    def _write_research_summary(self, company_name="TSMC", extra_items=None, nested_counts=False):
         path = self.root / "research_summary.json"
         items = [
             {
@@ -174,6 +203,15 @@ class ResearchPackTests(unittest.TestCase):
             priority = item.get("priority", "-")
             research_state_counts[research_state] = research_state_counts.get(research_state, 0) + 1
             priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        counts = {
+            "total": len(items),
+            "needs_attention": sum(1 for item in items if item.get("attention_reasons")),
+        }
+        if nested_counts:
+            counts["by_state"] = research_state_counts
+            counts["by_priority"] = priority_counts
+            research_state_counts = {}
+            priority_counts = {}
         path.write_text(
             json.dumps(
                 {
@@ -185,10 +223,7 @@ class ResearchPackTests(unittest.TestCase):
                         "inputs": {"workflow_summary": "workflow_summary.json"},
                         "output_root": "research-dist",
                     },
-                    "counts": {
-                        "total": len(items),
-                        "needs_attention": sum(1 for item in items if item.get("attention_reasons")),
-                    },
+                    "counts": counts,
                     "research_state_counts": research_state_counts,
                     "priority_counts": priority_counts,
                     "items": items,

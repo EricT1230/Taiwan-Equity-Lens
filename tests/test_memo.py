@@ -133,6 +133,29 @@ class MemoTests(unittest.TestCase):
         self.assertIn("0.92", markdown)
         self.assertIn("all scenarios populated", markdown)
 
+    def test_render_memo_markdown_surfaces_research_item_risks_and_questions(self):
+        payload = _analysis_payload()
+        context = build_memo_context_from_payload(
+            payload,
+            self.tmp_dir,
+            research_item={
+                "stock_id": "2330",
+                "company_name": "TSMC",
+                "thesis": "Leading foundry scale",
+                "key_risks": ["Cycle downturn", "Export control exposure"],
+                "follow_up_questions": ["What drives margin expansion?", "How resilient is CoWoS demand?"],
+            },
+        )
+
+        markdown = render_memo_markdown(context)
+
+        self.assertIn("## Thesis Snapshot", markdown)
+        self.assertIn("Leading foundry scale", markdown)
+        self.assertIn("- Cycle downturn", markdown)
+        self.assertIn("- Export control exposure", markdown)
+        self.assertIn("- What drives margin expansion?", markdown)
+        self.assertIn("- How resilient is CoWoS demand?", markdown)
+
     def test_render_memo_html_includes_thesis_snapshot(self):
         context = build_memo_context_from_payload(
             {"stock_id": "2330", "company_name": "TSMC"},

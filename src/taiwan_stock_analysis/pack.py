@@ -51,10 +51,17 @@ def _has_research_value(item: dict[str, Any], key: str) -> bool:
     value = item.get(key)
     if value is None:
         return False
+    if isinstance(value, list):
+        return any(str(entry).strip() not in {"", "-"} for entry in value)
     return str(value).strip() not in {"", "-"}
 
 
 def _research_quality_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    high_priority_missing_thesis = [
+        str(item.get("stock_id"))
+        for item in items
+        if str(item.get("priority")).lower() == "high" and not _has_research_value(item, "thesis")
+    ]
     high_priority_missing_follow_up = [
         str(item.get("stock_id"))
         for item in items
@@ -65,6 +72,7 @@ def _research_quality_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
         "with_thesis": sum(1 for item in items if _has_research_value(item, "thesis")),
         "with_watch_triggers": sum(1 for item in items if _has_research_value(item, "watch_triggers")),
         "with_follow_up_questions": sum(1 for item in items if _has_research_value(item, "follow_up_questions")),
+        "high_priority_missing_thesis": sorted(high_priority_missing_thesis),
         "high_priority_missing_follow_up": sorted(high_priority_missing_follow_up),
     }
 
@@ -79,6 +87,13 @@ def _review_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
     priority = str(item.get("priority", "")).lower()
     stock_id = str(item.get("stock_id", ""))
     return (0 if has_reasons else 1, _PRIORITY_RANK.get(priority, len(_PRIORITY_RANK)), stock_id)
+
+
+def _summary_counts(research_summary: dict[str, Any], top_level_key: str, nested_key: str) -> dict[str, Any]:
+    top_level = _dict(research_summary.get(top_level_key))
+    if top_level:
+        return top_level
+    return _dict(_dict(research_summary.get("counts")).get(nested_key))
 
 
 def build_pack_context(
@@ -147,8 +162,8 @@ def build_pack_context(
         "memo_summary_path": _display_path(memo_summary_path),
         "dashboard_path": _display_path(dashboard_path),
         "counts": research_summary.get("counts", {}),
-        "research_state_counts": research_summary.get("research_state_counts", {}),
-        "priority_counts": research_summary.get("priority_counts", {}),
+        "research_state_counts": _summary_counts(research_summary, "research_state_counts", "by_state"),
+        "priority_counts": _summary_counts(research_summary, "priority_counts", "by_priority"),
         "run_metadata": read_run_metadata(research_summary),
         "workflow_reliability": workflow_reliability,
         "workflow_summary": workflow_summary,
@@ -187,6 +202,7 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         f"- With thesis: {_text(research_quality.get('with_thesis'))}",
         f"- With watch triggers: {_text(research_quality.get('with_watch_triggers'))}",
         f"- Follow-up coverage: {_text(research_quality.get('with_follow_up_questions'))}",
+        f"- High-priority missing thesis: {_format_list(research_quality.get('high_priority_missing_thesis'))}",
         f"- High-priority missing follow-up: {_format_list(research_quality.get('high_priority_missing_follow_up'))}",
         "",
         "## Reliability Overview",
@@ -325,6 +341,7 @@ def render_pack_html(context: dict[str, Any]) -> str:
         {_html_list_item("With thesis", research_quality.get("with_thesis"))}
         {_html_list_item("With watch triggers", research_quality.get("with_watch_triggers"))}
         {_html_list_item("Follow-up coverage", research_quality.get("with_follow_up_questions"))}
+        {_html_list_item("High-priority missing thesis", _format_list(research_quality.get("high_priority_missing_thesis")))}
         {_html_list_item("High-priority missing follow-up", _format_list(research_quality.get("high_priority_missing_follow_up")))}
       </ul>
     </section>
