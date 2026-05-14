@@ -179,6 +179,34 @@ class ValuationTests(unittest.TestCase):
         self.assertEqual(confidence["label"], "low")
         self.assertEqual(confidence["reasons"], ["price_available"])
 
+    def test_build_valuation_caps_confidence_label_when_fair_value_range_incomplete(self):
+        valuation = build_valuation(
+            stock_id="2330",
+            metrics_by_year={
+                "2025": {"eps": 0.0},
+                "2024": {"eps": -1.0},
+            },
+            years=["2025", "2024"],
+            price_inputs={
+                "price": 100.0,
+                "normalized_eps": 10.0,
+                "target_pe_low": 12.0,
+                "target_pe_base": 15.0,
+                "target_pe_high": 18.0,
+            },
+        )
+
+        summary = valuation["scenario_summary"]
+        confidence = summary["valuation_confidence"]
+
+        self.assertEqual(
+            summary["fair_value_range"],
+            {"low": None, "base": 150.0, "high": None},
+        )
+        self.assertEqual(confidence["score"], 75)
+        self.assertEqual(confidence["label"], "medium")
+        self.assertNotIn("target_price_range_complete", confidence["reasons"])
+
     def test_build_valuation_labels_derived_eps_assumptions_without_growth_rate(self):
         valuation = build_valuation(
             stock_id="2330",

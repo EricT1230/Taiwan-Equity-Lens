@@ -199,12 +199,15 @@ def _valuation_confidence(
     if all(value is not None for value in [target_pe_low, target_pe_base, target_pe_high]):
         score += 25
         reasons.append("target_pe_range_complete")
-    if all(fair_value_range.get(key) is not None for key in ["low", "base", "high"]):
+    target_price_range_complete = all(
+        fair_value_range.get(key) is not None for key in ["low", "base", "high"]
+    )
+    if target_price_range_complete:
         score += 25
         reasons.append("target_price_range_complete")
 
     label = "low"
-    if score >= 75:
+    if score >= 75 and target_price_range_complete:
         label = "high"
     elif score >= 50:
         label = "medium"
