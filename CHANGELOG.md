@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.11.0 - 2026-05-14
+
+Offline Demo Kit release.
+
+### Added
+
+- Synthetic example financial-statement fixtures for fully offline demos.
+- Offline research workflow demo smoke test.
+- v0.11.0 release notes.
+
+### Changed
+
+- README and examples now use the offline research workflow as the primary demo path.
+- Package version is now `0.11.0`.
+
+### Quality
+
+- The public offline demo command is covered by the test suite.
+
 ## v0.10.0 - 2026-05-14
 
 Release Quality Gate release.
