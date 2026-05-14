@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.9.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.10.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -135,6 +135,12 @@ Generate a dashboard from existing outputs:
 python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-dist --scan-dir compare-dist --scan-dir workflow-dist --output dashboard-index.html
 ```
 
+Check release readiness before tagging:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor release --version 0.10.0
+```
+
 ## Example Files
 
 - [examples/watchlist.csv](examples/watchlist.csv): sample watchlist for batch/workflow runs.
@@ -229,6 +235,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.10.0 release notes](docs/releases/v0.10.0.md)
 - [v0.9.1 release notes](docs/releases/v0.9.1.md)
 - [v0.9.0 release notes](docs/releases/v0.9.0.md)
 - [v0.8.0 release notes](docs/releases/v0.8.0.md)

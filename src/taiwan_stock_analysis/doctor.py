@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+PROJECT_VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
 EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
 
 
@@ -77,18 +77,15 @@ def format_doctor_result(result: DoctorResult) -> str:
 
 def _read_project_version(path: Path, failures: list[str]) -> str:
     try:
-        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except OSError:
         failures.append("Missing pyproject.toml")
         return ""
-    except tomllib.TOMLDecodeError as exc:
-        failures.append(f"Invalid pyproject.toml: {exc}")
-        return ""
-    version = payload.get("project", {}).get("version")
-    if not isinstance(version, str) or not version:
+    match = PROJECT_VERSION_RE.search(text)
+    if not match:
         failures.append("pyproject.toml missing project.version")
         return ""
-    return version
+    return match.group(1)
 
 
 def _check_contains(path: Path, expected: str, failure: str, failures: list[str]) -> None:

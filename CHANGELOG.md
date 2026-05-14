@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.10.0 - 2026-05-14
+
+Release Quality Gate release.
+
+### Added
+
+- `doctor release` CLI command for local release readiness checks.
+- Version metadata, release note, README badge, CHANGELOG, and local Markdown link validation.
+
+### Changed
+
+- GitHub Actions Python matrix now uses `fail-fast: false` so all Python version results stay visible.
+- Package version is now `0.10.0`.
+
+### Quality
+
+- Release readiness checks are covered by unit tests and can be run before pushing tags.
+
 ## v0.9.1 - 2026-05-14
 
 Python 3.10 compatibility patch.

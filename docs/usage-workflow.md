@@ -286,10 +286,13 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
+python -m taiwan_stock_analysis.cli doctor release --version 0.10.0
 python -m unittest discover -s tests -v
 ```
 
-Expected: all tests pass.
+The release doctor checks version metadata, release notes, README badge, CHANGELOG entry, and local documentation links before tagging.
+
+Expected: the release doctor reports `Release readiness OK` and all tests pass.
 
 ## Guardrails
 
