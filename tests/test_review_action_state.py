@@ -7,6 +7,7 @@ from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
     current_review_action_keys,
     load_review_action_state,
+    prune_stale_review_action_state,
     review_action_key,
     review_action_rows,
     set_review_action_state,
@@ -392,6 +393,134 @@ class ReviewActionStateTests(unittest.TestCase):
         self.assertEqual(report["by_status"], {"open": 1, "done": 0, "deferred": 0, "ignored": 0})
         self.assertEqual(report["stale_state"], [])
         self.assertEqual(report["last_updated"], "-")
+
+    def test_prune_stale_review_action_state_removes_only_stale_entries(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                    }
+                ],
+            }
+        ]
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:workflow-error": {
+                    "stock_id": "2330",
+                    "action_id": "workflow-error",
+                    "status": "done",
+                    "note": "checked",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                },
+                "9999:old-action": {
+                    "stock_id": "9999",
+                    "action_id": "old-action",
+                    "status": "ignored",
+                    "note": "obsolete",
+                    "updated_at": "2026-05-15T10:00:00Z",
+                },
+            },
+        }
+
+        pruned, stale_rows = prune_stale_review_action_state(queue, state)
+
+        self.assertEqual(
+            pruned,
+            {
+                "version": 1,
+                "actions": {
+                    "2330:workflow-error": {
+                        "stock_id": "2330",
+                        "action_id": "workflow-error",
+                        "status": "done",
+                        "note": "checked",
+                        "updated_at": "2026-05-15T09:00:00Z",
+                    }
+                },
+            },
+        )
+        self.assertEqual(
+            stale_rows,
+            [
+                {
+                    "stock_id": "9999",
+                    "action_id": "old-action",
+                    "status": "ignored",
+                    "note": "obsolete",
+                    "updated_at": "2026-05-15T10:00:00Z",
+                }
+            ],
+        )
+
+    def test_prune_stale_review_action_state_preserves_state_when_no_stale_entries(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "actions": [{"id": "workflow-error"}],
+            }
+        ]
+        state = {
+            "actions": {
+                "2330:workflow-error": {
+                    "status": "deferred",
+                    "note": "later",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                }
+            }
+        }
+
+        pruned, stale_rows = prune_stale_review_action_state(queue, state)
+
+        self.assertEqual(
+            pruned["actions"]["2330:workflow-error"],
+            {
+                "stock_id": "2330",
+                "action_id": "workflow-error",
+                "status": "deferred",
+                "note": "later",
+                "updated_at": "2026-05-15T09:00:00Z",
+            },
+        )
+        self.assertEqual(stale_rows, [])
+
+    def test_prune_stale_review_action_state_handles_missing_and_malformed_state(self):
+        queue = [{"stock_id": "2330", "actions": [{"id": "workflow-error"}]}]
+        state = {
+            "actions": {
+                "2330:workflow-error": {"status": "bad", "updated_at": "2026-05-15T09:00:00Z"},
+                "9999:old-action": "not-an-object",
+                "2303:missing-status": {"stock_id": "2303", "action_id": "missing-status"},
+            }
+        }
+
+        self.assertEqual(prune_stale_review_action_state(queue, None), ({"version": 1, "actions": {}}, []))
+        self.assertEqual(prune_stale_review_action_state(queue, state), ({"version": 1, "actions": {}}, []))
+
+    def test_prune_stale_review_action_state_does_not_mutate_input(self):
+        queue = [{"stock_id": "2330", "actions": [{"id": "workflow-error"}]}]
+        state = {
+            "actions": {
+                "2330:workflow-error": {
+                    "stock_id": "2330",
+                    "action_id": "workflow-error",
+                    "status": "done",
+                    "note": "checked",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                }
+            }
+        }
+
+        pruned, _stale_rows = prune_stale_review_action_state(queue, state)
+        pruned["actions"]["2330:workflow-error"]["note"] = "changed"
+
+        self.assertEqual(state["actions"]["2330:workflow-error"]["note"], "checked")
 
 
 if __name__ == "__main__":

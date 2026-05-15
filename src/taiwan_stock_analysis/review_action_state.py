@@ -166,6 +166,19 @@ def stale_review_action_state_rows(action_queue: list[Any], state: dict[str, Any
     return rows
 
 
+def prune_stale_review_action_state(
+    action_queue: list[Any],
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    normalized_state = _normalize_state(state) if isinstance(state, dict) else {"version": STATE_VERSION, "actions": {}}
+    current_keys = current_review_action_keys(action_queue)
+    pruned_state: dict[str, Any] = {"version": STATE_VERSION, "actions": {}}
+    for key, entry in sorted(_actions_by_key(normalized_state).items()):
+        if key in current_keys:
+            pruned_state["actions"][key] = deepcopy(entry)
+    return pruned_state, stale_review_action_state_rows(action_queue, normalized_state)
+
+
 def build_review_action_state_report(
     action_queue: list[Any],
     state: dict[str, Any] | None,
