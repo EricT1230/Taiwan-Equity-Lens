@@ -165,8 +165,12 @@ def _action(action_id: str, category: str, severity: str, message: str) -> dict[
     }
 
 
-def _action_sort_key(action: dict[str, str]) -> tuple[int]:
-    return (SEVERITY_RANK.get(action.get("severity", ""), len(SEVERITY_RANK)),)
+def _action_sort_key(action: dict[str, str]) -> tuple[int, str, str]:
+    return (
+        SEVERITY_RANK.get(action.get("severity", ""), len(SEVERITY_RANK)),
+        _clean_string(action.get("category")),
+        _clean_string(action.get("id")),
+    )
 
 
 def _queue_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
@@ -202,13 +206,15 @@ def _valid_actions(value: Any) -> list[dict[str, str]]:
             continue
         category = _clean_string(raw_action.get("category"))
         severity = _clean_string(raw_action.get("severity"))
+        if category not in ACTION_CATEGORIES or severity not in ACTION_SEVERITIES:
+            continue
         message = _clean_string(raw_action.get("message"))
         status = _clean_string(raw_action.get("status")) or "open"
         actions.append(
             {
                 "id": action_id,
-                "category": category if category in ACTION_CATEGORIES else "workflow",
-                "severity": severity if severity in ACTION_SEVERITIES else "info",
+                "category": category,
+                "severity": severity,
                 "message": message or "Review this item before handoff.",
                 "status": status,
             }
