@@ -87,6 +87,9 @@ def apply_review_action_state(
                 note = _clean_string(state_entry.get("note"))
                 if note:
                     action["note"] = note
+                updated_at = _clean_string(state_entry.get("updated_at"))
+                if updated_at:
+                    action["updated_at"] = updated_at
                 item_actions.append(action)
         item["actions"] = item_actions
         if item_actions:

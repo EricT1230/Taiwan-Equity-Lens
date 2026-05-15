@@ -156,6 +156,7 @@ class ReviewActionStateTests(unittest.TestCase):
 
         self.assertEqual(overlaid[0]["actions"][0]["status"], "done")
         self.assertEqual(overlaid[0]["actions"][0]["note"], "checked")
+        self.assertEqual(overlaid[0]["actions"][0]["updated_at"], "2026-05-15T09:00:00Z")
         self.assertEqual(overlaid[0]["actions"][1]["status"], "open")
         self.assertNotIn("note", queue[0]["actions"][0])
 

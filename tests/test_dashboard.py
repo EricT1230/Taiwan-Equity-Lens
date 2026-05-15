@@ -538,6 +538,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-severity="manual_review"', html)
         self.assertIn('data-category="source_audit"', html)
         self.assertIn('data-search-text="2330 high open manual_review source_audit review source audit fixture source"', html)
+        self.assertIn("<th>commands</th>", html)
+        self.assertIn('data-review-action-command="done"', html)
+        self.assertIn('data-review-action-command="deferred"', html)
+        self.assertIn('data-review-action-command="ignored"', html)
+        self.assertIn('data-review-action-command="reopen"', html)
+        self.assertIn("research action set research-dist\\review_action_state.json 2330 source-audit-manual-review --status done", html)
+        self.assertIn("research action set research-dist\\review_action_state.json 2330 source-audit-manual-review --status open", html)
 
     def test_render_dashboard_html_escapes_review_actions(self):
         html = render_dashboard_html(
@@ -686,9 +693,52 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("<th>status</th>", html)
+        self.assertIn("<th>commands</th>", html)
         self.assertIn('data-status="done"', html)
         self.assertIn("state: done: 1", html)
         self.assertIn('data-review-filter="status"', html)
+        self.assertIn("note: checked", html)
+        self.assertIn("updated: 2026-05-15T09:00:00Z", html)
+
+    def test_render_dashboard_html_quotes_review_action_commands(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research dist/research_summary.json",
+                        "review_action_summary": {"total_open": 1},
+                        "review_action_queue": [
+                            {
+                                "stock_id": "23 30's",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "source action's",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review <source>",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "counts": {"total": 1, "needs_attention": 1},
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn("research action set &#x27;research dist\\review_action_state.json&#x27;", html)
+        self.assertIn("&#x27;23 30&#x27;&#x27;s&#x27;", html)
+        self.assertIn("&#x27;source action&#x27;&#x27;s&#x27;", html)
+        self.assertNotIn("Review <source>", html)
 
     def test_render_dashboard_html_warns_for_invalid_review_action_state(self):
         html = render_dashboard_html(

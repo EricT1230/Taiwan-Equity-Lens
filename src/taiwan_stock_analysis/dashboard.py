@@ -186,6 +186,11 @@ def render_dashboard_html(items: DashboardItems) -> str:
     .filter-count {{ color: #4b5563; font-size: 13px; padding: 8px 0; }}
     button[data-review-filter-reset] {{ padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     button[data-review-filter-reset]:hover {{ background: #eef4fb; }}
+    .review-action-commands {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }}
+    .review-action-command {{ padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; font-size: 12px; }}
+    .review-action-command:hover {{ background: #eef4fb; }}
+    .review-action-command-fallback {{ margin-top: 6px; padding: 8px; font-size: 12px; white-space: pre-wrap; }}
+    .review-action-state-meta {{ color: #64748b; font-size: 12px; margin-top: 6px; }}
     .badge {{ display: inline-block; border-radius: 999px; padding: 4px 10px; background: #eef4fb; color: #12355b; font-size: 13px; }}
     .badge.error {{ background: #fee2e2; color: #991b1b; }}
     .badge.ok {{ background: #dcfce7; color: #166534; }}
@@ -298,7 +303,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
         const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
         const emptyRow = document.createElement('tr');
         emptyRow.setAttribute('data-review-action-empty', 'true');
-        emptyRow.innerHTML = '<td colspan="6" class="empty">No review actions match the current filters.</td>';
+        emptyRow.innerHTML = '<td colspan="7" class="empty">No review actions match the current filters.</td>';
         function selectedValue(control) {{
           return control.value || 'all';
         }}
@@ -500,7 +505,8 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             continue
         source_queue = action_queue if isinstance(action_queue, list) else []
         overlaid_queue = apply_review_action_state(source_queue, _dict_value(summary.get("review_action_state")))
-        rows = _review_action_rows(overlaid_queue)
+        state_path = _review_action_state_path(summary)
+        rows = _review_action_rows(overlaid_queue, state_path)
         total_rows = _review_action_row_count(overlaid_queue)
         state_warning = str(summary.get("review_action_state_warning") or "")
         sections.append(
@@ -514,7 +520,7 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
-            "<table><thead><tr><th>stock_id</th><th>priority</th><th>status</th><th>severity</th><th>category</th><th>action</th></tr></thead>"
+            "<table><thead><tr><th>stock_id</th><th>priority</th><th>status</th><th>severity</th><th>category</th><th>action</th><th>commands</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"
         )
@@ -534,7 +540,7 @@ def _review_action_row_count(action_queue: list[Any]) -> int:
     return count
 
 
-def _review_action_rows(action_queue: list[Any]) -> str:
+def _review_action_rows(action_queue: list[Any], state_path: str = "review_action_state.json") -> str:
     rows: list[str] = []
     for item in action_queue:
         if not isinstance(item, dict):
@@ -550,6 +556,7 @@ def _review_action_rows(action_queue: list[Any]) -> str:
             severity = str(action.get("severity") or "-")
             category = str(action.get("category") or "-")
             status = str(action.get("status") or "open")
+            action_id = str(action.get("id") or "")
             message = str(action.get("message") or "-")
             search_text = _review_metadata_text(stock_id, priority, status, severity, category, message)
             rows.append(
@@ -565,10 +572,11 @@ def _review_action_rows(action_queue: list[Any]) -> str:
                 f"<td>{escape(status)}</td>"
                 f"<td>{escape(severity)}</td>"
                 f"<td>{escape(category)}</td>"
-                f"<td>{escape(message)}</td>"
+                f"<td>{escape(message)}{_review_action_state_metadata(action)}</td>"
+                f"<td>{_review_action_command_cell(state_path, stock_id, action_id)}</td>"
                 "</tr>"
             )
-    return "".join(rows) or _empty_row(6, "No review actions")
+    return "".join(rows) or _empty_row(7, "No review actions")
 
 
 def _universe_count_badges(counts: dict[str, Any]) -> str:
@@ -731,6 +739,81 @@ def _review_action_state_warning(warning: str) -> str:
     if not warning:
         return ""
     return f'<p class="status-line"><span class="badge error">{escape(warning)}</span></p>'
+
+
+def _review_action_state_path(summary: dict[str, Any]) -> str:
+    state_path = str(summary.get("review_action_state_path") or "")
+    if state_path:
+        return state_path
+    summary_path = str(summary.get("path") or "")
+    if not summary_path:
+        return "review_action_state.json"
+    return str(Path(summary_path).with_name("review_action_state.json"))
+
+
+def _review_action_state_metadata(action: dict[str, Any]) -> str:
+    details = []
+    note = str(action.get("note") or "").strip()
+    updated_at = str(action.get("updated_at") or "").strip()
+    if note:
+        details.append(f"note: {escape(note)}")
+    if updated_at:
+        details.append(f"updated: {escape(updated_at)}")
+    if not details:
+        return ""
+    return f'<div class="review-action-state-meta">{" | ".join(details)}</div>'
+
+
+def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) -> str:
+    if not action_id:
+        return "-"
+    commands = [
+        ("done", "done"),
+        ("deferred", "deferred"),
+        ("ignored", "ignored"),
+        ("reopen", "open"),
+    ]
+    buttons = []
+    fallback_lines = []
+    for label, status in commands:
+        command = _review_action_state_command(state_path, stock_id, action_id, status)
+        fallback_lines.append(command)
+        buttons.append(
+            '<button type="button" class="review-action-command"'
+            f' data-review-action-command="{escape(label)}"'
+            f' data-command="{escape(command)}">'
+            f"{escape(label)}"
+            "</button>"
+        )
+    return (
+        f'<div class="review-action-commands">{"".join(buttons)}</div>'
+        f'<code class="review-action-command-fallback">{escape(os.linesep.join(fallback_lines))}</code>'
+    )
+
+
+def _review_action_state_command(state_path: str, stock_id: str, action_id: str, status: str) -> str:
+    args = [
+        "python",
+        "-m",
+        "taiwan_stock_analysis.cli",
+        "research",
+        "action",
+        "set",
+        state_path,
+        stock_id,
+        action_id,
+        "--status",
+        status,
+    ]
+    return " ".join(_powershell_arg(arg) for arg in args)
+
+
+def _powershell_arg(value: object) -> str:
+    text = str(value)
+    safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:/\\")
+    if text and all(char in safe_chars for char in text):
+        return text
+    return "'" + text.replace("'", "''") + "'"
 
 
 def _report_rows(reports: list[dict[str, Any]]) -> str:
