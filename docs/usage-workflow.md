@@ -303,7 +303,16 @@ From v0.14.0 onward, `research_summary.json` also includes review-action fields:
 
 Review actions are workflow tasks, not investment recommendations. They identify source checks, workflow failures, reliability warnings, valuation gaps, and missing research-quality fields.
 
-The dashboard `Review Actions` section can filter open actions by severity, category, priority, and search text. Filtering is local to the static dashboard page and does not modify `research_summary.json`.
+The dashboard `Review Actions` section can filter actions by severity, category, priority, persisted status, and search text. Filtering is local to the static dashboard page and does not modify `research_summary.json`.
+
+From v0.16.0 onward, manual review-action decisions can be persisted in a sibling `review_action_state.json` sidecar file. This keeps generated summaries rebuildable while preserving queue decisions across reruns.
+
+```powershell
+python -m taiwan_stock_analysis.cli research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action list research-dist/research_summary.json --state research-dist/review_action_state.json
+```
+
+Allowed statuses are `open`, `done`, `deferred`, and `ignored`. When `dashboard.html` is regenerated, it automatically reads `review_action_state.json` from the same directory as `research_summary.json` and overlays those statuses into the Review Actions table.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
@@ -325,7 +334,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.15.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.16.0
 python -m unittest discover -s tests -v
 ```
 

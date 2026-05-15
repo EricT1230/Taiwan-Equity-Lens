@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.16.0 - 2026-05-15
+
+Review Action Completion Persistence release.
+
+### Added
+
+- Local `review_action_state.json` sidecar files for persisted review-action state.
+- CLI commands to set and list review-action status.
+- Dashboard status overlay, status filter, state counts, and invalid-state warnings.
+- v0.16.0 release notes.
+
+### Changed
+
+- Package version is now `0.16.0`.
+
+### Quality
+
+- Added state-module, CLI, and dashboard tests for persisted review-action completion behavior.
+
 ## v0.15.0 - 2026-05-15
 
 Review Action Dashboard Filtering release.
