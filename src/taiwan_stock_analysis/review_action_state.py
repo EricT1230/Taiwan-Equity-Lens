@@ -46,6 +46,25 @@ def backup_review_action_state(path: Path, timestamp: datetime | None = None) ->
     return backup_path
 
 
+def restore_review_action_state(path: Path, backup_path: Path) -> tuple[Path, Path | None]:
+    if not backup_path.exists():
+        raise ValueError(f"backup review action state does not exist: {backup_path}")
+
+    _backup_state, backup_warning = load_review_action_state(backup_path)
+    if backup_warning:
+        raise ValueError(f"Could not read backup review action state: {backup_warning}")
+
+    if path.exists():
+        _current_state, current_warning = load_review_action_state(path)
+        if current_warning:
+            raise ValueError(f"Could not read current review action state: {current_warning}")
+
+    current_backup_path = backup_review_action_state(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(backup_path.read_bytes())
+    return path, current_backup_path
+
+
 def set_review_action_state(
     path: Path,
     stock_id: str,

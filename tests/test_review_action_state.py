@@ -12,6 +12,7 @@ from taiwan_stock_analysis.review_action_state import (
     prune_stale_review_action_state,
     review_action_key,
     review_action_rows,
+    restore_review_action_state,
     set_review_action_state,
     stale_review_action_state_rows,
     summarize_review_action_state,
@@ -158,6 +159,147 @@ class ReviewActionStateTests(unittest.TestCase):
         self.assertEqual(backup_path, Path(".tmp-cli-test/review-action-state-backup-collision.json.bak-20260516T173000Z.1"))
         self.assertEqual(existing.read_text(encoding="utf-8"), "existing")
         self.assertEqual(backup_path.read_text(encoding="utf-8"), "current")
+
+    def test_restore_review_action_state_preserves_backup_bytes(self):
+        path = Path(".tmp-cli-test/review-action-state-restore.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for backup in path.parent.glob(f"{path.name}.bak-*"):
+            backup.unlink()
+        path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "done",
+                            "note": "current",
+                            "updated_at": "2026-05-15T09:00:00Z",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        original_backup = (
+            b'{\r\n'
+            b'  "actions": {\r\n'
+            b'    "2330:workflow-error": {\r\n'
+            b'      "stock_id": "2330",\r\n'
+            b'      "action_id": "workflow-error",\r\n'
+            b'      "status": "open",\r\n'
+            b'      "note": "backup",\r\n'
+            b'      "updated_at": "2026-05-15T08:00:00Z"\r\n'
+            b'    }\r\n'
+            b'  }\r\n'
+            b'}\r\n'
+        )
+        backup_path.write_bytes(original_backup)
+
+        restored_path, current_backup_path = restore_review_action_state(path, backup_path)
+
+        self.assertEqual(restored_path, path)
+        self.assertIsNotNone(current_backup_path)
+        self.assertEqual(path.read_bytes(), original_backup)
+
+    def test_restore_review_action_state_missing_target_creates_no_current_backup(self):
+        path = Path(".tmp-cli-test/review-action-state-restore-missing-target.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore-missing-target.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            path.unlink()
+        for backup in path.parent.glob(f"{path.name}.bak-*"):
+            backup.unlink()
+        backup_path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "open",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        restored_path, current_backup_path = restore_review_action_state(path, backup_path)
+
+        self.assertEqual(restored_path, path)
+        self.assertIsNone(current_backup_path)
+        self.assertEqual(path.read_bytes(), backup_path.read_bytes())
+        self.assertEqual([backup for backup in path.parent.glob(f"{path.name}.bak-*") if backup != backup_path], [])
+
+    def test_restore_review_action_state_backs_up_current_before_restore(self):
+        path = Path(".tmp-cli-test/review-action-state-restore-current-backup.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore-current-backup.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for backup in path.parent.glob(f"{path.name}.bak-*"):
+            backup.unlink()
+        current_bytes = b'{"actions":{"2330:workflow-error":{"stock_id":"2330","action_id":"workflow-error","status":"done"}}}\n'
+        restore_bytes = b'{"actions":{"2330:workflow-error":{"stock_id":"2330","action_id":"workflow-error","status":"open"}}}\n'
+        path.write_bytes(current_bytes)
+        backup_path.write_bytes(restore_bytes)
+
+        _restored_path, current_backup_path = restore_review_action_state(path, backup_path)
+
+        self.assertIsNotNone(current_backup_path)
+        self.assertEqual(current_backup_path.read_bytes(), current_bytes)
+        self.assertEqual(path.read_bytes(), restore_bytes)
+
+    def test_restore_review_action_state_rejects_missing_backup(self):
+        path = Path(".tmp-cli-test/review-action-state-restore-missing-backup.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore-missing-backup.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("current", encoding="utf-8")
+        if backup_path.exists():
+            backup_path.unlink()
+
+        with self.assertRaisesRegex(ValueError, "backup review action state does not exist"):
+            restore_review_action_state(path, backup_path)
+
+        self.assertEqual(path.read_text(encoding="utf-8"), "current")
+
+    def test_restore_review_action_state_rejects_invalid_backup(self):
+        path = Path(".tmp-cli-test/review-action-state-restore-invalid-backup.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore-invalid-backup.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        current_bytes = b'{"actions":{"2330:workflow-error":{"stock_id":"2330","action_id":"workflow-error","status":"done"}}}\n'
+        path.write_bytes(current_bytes)
+        backup_path.write_text("{", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "Could not read backup review action state"):
+            restore_review_action_state(path, backup_path)
+
+        self.assertEqual(path.read_bytes(), current_bytes)
+
+    def test_restore_review_action_state_rejects_invalid_current_state(self):
+        path = Path(".tmp-cli-test/review-action-state-restore-invalid-current.json")
+        backup_path = Path(".tmp-cli-test/review-action-state-restore-invalid-current.json.bak-source")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{", encoding="utf-8")
+        backup_path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "open",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Could not read current review action state"):
+            restore_review_action_state(path, backup_path)
+
+        self.assertEqual(path.read_text(encoding="utf-8"), "{")
 
     def test_set_state_rejects_invalid_status(self):
         with self.assertRaisesRegex(ValueError, "invalid review action status"):
