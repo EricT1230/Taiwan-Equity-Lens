@@ -8,6 +8,9 @@ from typing import Any
 
 
 DashboardItems = dict[str, list[dict[str, Any]]]
+REVIEW_ACTION_SEVERITIES = ("error", "stale", "unknown", "manual_review", "warning", "info")
+REVIEW_ACTION_CATEGORIES = ("source_audit", "workflow", "reliability", "valuation", "research_quality")
+REVIEW_ACTION_PRIORITIES = ("high", "medium", "low")
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
@@ -162,6 +165,12 @@ def render_dashboard_html(items: DashboardItems) -> str:
     .summary strong {{ display: block; font-size: 28px; color: #12355b; }}
     .summary span {{ color: #4b5563; }}
     .status-line {{ display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; }}
+    .review-action-filters {{ display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
+    .filter-field {{ display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4b5563; }}
+    .filter-field select, .filter-field input {{ margin: 0; min-width: 150px; }}
+    .filter-count {{ color: #4b5563; font-size: 13px; padding: 8px 0; }}
+    button[data-review-filter-reset] {{ padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
+    button[data-review-filter-reset]:hover {{ background: #eef4fb; }}
     .badge {{ display: inline-block; border-radius: 999px; padding: 4px 10px; background: #eef4fb; color: #12355b; font-size: 13px; }}
     .badge.error {{ background: #fee2e2; color: #991b1b; }}
     .badge.ok {{ background: #dcfce7; color: #166534; }}
@@ -256,6 +265,67 @@ def render_dashboard_html(items: DashboardItems) -> str:
     const compareCommandOutput = document.getElementById('compareCommandOutput');
     const batchPathInput = document.getElementById('batchPathInput');
     const batchCommandOutput = document.getElementById('batchCommandOutput');
+    function initReviewActionFilters() {{
+      const sectionSelector = '[data-review-actions-' + 'section="true"]';
+      const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
+      document.querySelectorAll(sectionSelector).forEach((section) => {{
+        const severityFilter = section.querySelector(filterSelector('severity'));
+        const categoryFilter = section.querySelector(filterSelector('category'));
+        const priorityFilter = section.querySelector(filterSelector('priority'));
+        const searchFilter = section.querySelector(filterSelector('search'));
+        const resetButton = section.querySelector('[data-review-filter-reset="true"]');
+        const countLabel = section.querySelector('[data-review-action-count="true"]');
+        const tbody = section.querySelector('tbody');
+        if (!severityFilter || !categoryFilter || !priorityFilter || !searchFilter || !resetButton || !countLabel || !tbody) {{
+          return;
+        }}
+        const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
+        const emptyRow = document.createElement('tr');
+        emptyRow.setAttribute('data-review-action-empty', 'true');
+        emptyRow.innerHTML = '<td colspan="5" class="empty">No review actions match the current filters.</td>';
+        function selectedValue(control) {{
+          return control.value || 'all';
+        }}
+        function applyFilters() {{
+          const severity = selectedValue(severityFilter);
+          const category = selectedValue(categoryFilter);
+          const priority = selectedValue(priorityFilter);
+          const query = searchFilter.value.trim().toLowerCase();
+          let visible = 0;
+          rows.forEach((row) => {{
+            const matchesSeverity = severity === 'all' || row.dataset.severity === severity;
+            const matchesCategory = category === 'all' || row.dataset.category === category;
+            const matchesPriority = priority === 'all' || row.dataset.priority === priority;
+            const matchesSearch = !query || (row.dataset.searchText || '').includes(query);
+            const shouldShow = matchesSeverity && matchesCategory && matchesPriority && matchesSearch;
+            row.style.display = shouldShow ? '' : 'none';
+            if (shouldShow) {{
+              visible += 1;
+            }}
+          }});
+          countLabel.textContent = `Showing ${{visible}} of ${{rows.length}} actions`;
+          if (visible === 0 && rows.length > 0) {{
+            if (!emptyRow.parentElement) {{
+              tbody.appendChild(emptyRow);
+            }}
+          }} else if (emptyRow.parentElement) {{
+            emptyRow.remove();
+          }}
+        }}
+        [severityFilter, categoryFilter, priorityFilter].forEach((control) => {{
+          control.addEventListener('change', applyFilters);
+        }});
+        searchFilter.addEventListener('input', applyFilters);
+        resetButton.addEventListener('click', () => {{
+          severityFilter.value = 'all';
+          categoryFilter.value = 'all';
+          priorityFilter.value = 'all';
+          searchFilter.value = '';
+          applyFilters();
+        }});
+        applyFilters();
+      }});
+    }}
     function updateCommand() {{
       const stock = stockInput.value || '2330';
       const name = nameInput.value || '台積電';
@@ -269,10 +339,13 @@ def render_dashboard_html(items: DashboardItems) -> str:
       const path = batchPathInput.value || 'watchlist.csv';
       batchCommandOutput.textContent = `python -m taiwan_stock_analysis.cli batch ${{path}} --output-dir batch-dist`;
     }}
-    stockInput.addEventListener('input', updateCommand);
-    nameInput.addEventListener('input', updateCommand);
-    compareInput.addEventListener('input', updateCompareCommand);
-    batchPathInput.addEventListener('input', updateBatchCommand);
+    if (stockInput && nameInput && compareInput && batchPathInput) {{
+      stockInput.addEventListener('input', updateCommand);
+      nameInput.addEventListener('input', updateCommand);
+      compareInput.addEventListener('input', updateCompareCommand);
+      batchPathInput.addEventListener('input', updateBatchCommand);
+    }}
+    initReviewActionFilters();
   </script>
 </body>
 </html>
@@ -407,14 +480,16 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
         if not action_summary and not action_queue:
             continue
         rows = _review_action_rows(action_queue if isinstance(action_queue, list) else [])
+        total_rows = _review_action_row_count(action_queue if isinstance(action_queue, list) else [])
         sections.append(
-            "<div>"
+            '<div data-review-actions-section="true">'
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
             '<p class="status-line">'
             f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
             f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
             f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
             "</p>"
+            f"{_review_action_filter_bar(total_rows)}"
             "<table><thead><tr><th>stock_id</th><th>priority</th><th>severity</th><th>category</th><th>action</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"
@@ -422,6 +497,17 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
     if not sections:
         return ""
     return f"<section><h2>Review Actions</h2>{''.join(sections)}</section>"
+
+
+def _review_action_row_count(action_queue: list[Any]) -> int:
+    count = 0
+    for item in action_queue:
+        if not isinstance(item, dict):
+            continue
+        actions = item.get("actions", [])
+        if isinstance(actions, list):
+            count += sum(1 for action in actions if isinstance(action, dict))
+    return count
 
 
 def _review_action_rows(action_queue: list[Any]) -> str:
@@ -437,13 +523,22 @@ def _review_action_rows(action_queue: list[Any]) -> str:
         for action in actions:
             if not isinstance(action, dict):
                 continue
+            severity = str(action.get("severity") or "-")
+            category = str(action.get("category") or "-")
+            message = str(action.get("message") or "-")
+            search_text = _review_metadata_text(stock_id, priority, severity, category, message)
             rows.append(
-                "<tr>"
+                '<tr data-review-action-row="true"'
+                f' data-stock-id="{escape(stock_id)}"'
+                f' data-priority="{escape(priority)}"'
+                f' data-severity="{escape(severity)}"'
+                f' data-category="{escape(category)}"'
+                f' data-search-text="{escape(search_text)}">'
                 f"<td>{escape(stock_id)}</td>"
                 f"<td>{escape(priority)}</td>"
-                f"<td>{escape(str(action.get('severity') or '-'))}</td>"
-                f"<td>{escape(str(action.get('category') or '-'))}</td>"
-                f"<td>{escape(str(action.get('message') or '-'))}</td>"
+                f"<td>{escape(severity)}</td>"
+                f"<td>{escape(category)}</td>"
+                f"<td>{escape(message)}</td>"
                 "</tr>"
             )
     return "".join(rows) or _empty_row(5, "No review actions")
@@ -565,6 +660,43 @@ def _count_pairs(counts: dict[str, Any]) -> str:
         return "-"
     pairs = sorted(((str(key), str(value)) for key, value in counts.items()), key=lambda item: item[0])
     return ", ".join(f"{escape(key)}: {escape(value)}" for key, value in pairs)
+
+
+def _review_filter_select(label: str, name: str, options: tuple[str, ...]) -> str:
+    option_html = ['<option value="all">all</option>']
+    option_html.extend(f'<option value="{escape(option)}">{escape(option)}</option>' for option in options)
+    return (
+        '<label class="filter-field">'
+        f"<span>{escape(label)}</span>"
+        f'<select data-review-filter="{escape(name)}">{"".join(option_html)}</select>'
+        "</label>"
+    )
+
+
+def _review_action_filter_bar(total_rows: int) -> str:
+    return (
+        '<div class="review-action-filters" data-review-filter-bar="true">'
+        f'{_review_filter_select("Severity", "severity", REVIEW_ACTION_SEVERITIES)}'
+        f'{_review_filter_select("Category", "category", REVIEW_ACTION_CATEGORIES)}'
+        f'{_review_filter_select("Priority", "priority", REVIEW_ACTION_PRIORITIES)}'
+        '<label class="filter-field"><span>Search</span>'
+        '<input data-review-filter="search" type="search" placeholder="stock, category, action">'
+        "</label>"
+        '<button type="button" data-review-filter-reset="true">Reset</button>'
+        f'<span class="filter-count" data-review-action-count="true">Showing {total_rows} of {total_rows} actions</span>'
+        "</div>"
+    )
+
+
+def _review_metadata_text(*values: object) -> str:
+    parts: list[str] = []
+    for value in values:
+        text = str(value or "").strip().lower()
+        for punctuation in (":", ".", ",", ";"):
+            text = text.replace(punctuation, " ")
+        if text:
+            parts.append(" ".join(text.split()))
+    return " ".join(parts)
 
 
 def _report_rows(reports: list[dict[str, Any]]) -> str:
