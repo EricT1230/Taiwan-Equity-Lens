@@ -785,11 +785,11 @@ def _review_action_state_warning(warning: str) -> str:
 def _review_action_state_path(summary: dict[str, Any]) -> str:
     state_path = str(summary.get("review_action_state_path") or "")
     if state_path:
-        return state_path
+        return state_path.replace("\\", "/")
     summary_path = str(summary.get("path") or "")
     if not summary_path:
         return "review_action_state.json"
-    return str(Path(summary_path).with_name("review_action_state.json"))
+    return Path(summary_path).with_name("review_action_state.json").as_posix()
 
 
 def _review_action_state_metadata(action: dict[str, Any]) -> str:

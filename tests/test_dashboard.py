@@ -543,8 +543,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-command="deferred"', html)
         self.assertIn('data-review-action-command="ignored"', html)
         self.assertIn('data-review-action-command="reopen"', html)
-        self.assertIn("research action set research-dist\\review_action_state.json 2330 source-audit-manual-review --status done", html)
-        self.assertIn("research action set research-dist\\review_action_state.json 2330 source-audit-manual-review --status open", html)
+        self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done", html)
+        self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status open", html)
 
     def test_render_dashboard_html_escapes_review_actions(self):
         html = render_dashboard_html(
@@ -735,7 +735,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("research action set &#x27;research dist\\review_action_state.json&#x27;", html)
+        self.assertIn("research action set &#x27;research dist/review_action_state.json&#x27;", html)
         self.assertIn("&#x27;23 30&#x27;&#x27;s&#x27;", html)
         self.assertIn("&#x27;source action&#x27;&#x27;s&#x27;", html)
         self.assertNotIn("Review <source>", html)
