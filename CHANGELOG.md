@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.17.0 - 2026-05-15
+
+Review Action Dashboard Commands release.
+
+### Added
+
+- Dashboard command buttons for marking review actions done, deferred, ignored, or open.
+- Clipboard copy behavior with a textarea fallback for static dashboard command workflows.
+- Visible fallback command text for each review action.
+- Persisted review-action `note` and `updated_at` display in dashboard rows.
+- v0.17.0 release notes.
+
+### Changed
+
+- Package version is now `0.17.0`.
+
+### Quality
+
+- Added dashboard tests for command rendering, PowerShell quoting, copy hooks, and state metadata.
+
 ## v0.16.0 - 2026-05-15
 
 Review Action Completion Persistence release.

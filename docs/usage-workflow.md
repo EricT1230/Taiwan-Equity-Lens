@@ -314,6 +314,8 @@ python -m taiwan_stock_analysis.cli research action list research-dist/research_
 
 Allowed statuses are `open`, `done`, `deferred`, and `ignored`. When `dashboard.html` is regenerated, it automatically reads `review_action_state.json` from the same directory as `research_summary.json` and overlays those statuses into the Review Actions table.
 
+From v0.17.0 onward, each dashboard review-action row also includes command buttons for `done`, `deferred`, `ignored`, and `reopen`. These buttons copy the matching `research action set` command to the clipboard. They do not mutate `review_action_state.json` until you run the copied command in PowerShell.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 9. Generate Dashboard
@@ -334,7 +336,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.16.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.17.0
 python -m unittest discover -s tests -v
 ```
 
