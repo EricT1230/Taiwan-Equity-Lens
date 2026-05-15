@@ -4,10 +4,13 @@ from pathlib import Path
 
 from taiwan_stock_analysis.review_action_state import (
     apply_review_action_state,
+    build_review_action_state_report,
+    current_review_action_keys,
     load_review_action_state,
     review_action_key,
     review_action_rows,
     set_review_action_state,
+    stale_review_action_state_rows,
     summarize_review_action_state,
     write_review_action_state,
 )
@@ -207,6 +210,188 @@ class ReviewActionStateTests(unittest.TestCase):
                 },
             ],
         )
+
+    def test_current_keys_and_stale_state_rows(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                        "status": "open",
+                    }
+                ],
+            }
+        ]
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:workflow-error": {
+                    "stock_id": "2330",
+                    "action_id": "workflow-error",
+                    "status": "done",
+                    "note": "checked",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                },
+                "9999:old-action": {
+                    "stock_id": "9999",
+                    "action_id": "old-action",
+                    "status": "ignored",
+                    "note": "obsolete",
+                    "updated_at": "2026-05-15T10:00:00Z",
+                },
+            },
+        }
+
+        self.assertEqual(current_review_action_keys(queue), {"2330:workflow-error"})
+        self.assertEqual(
+            stale_review_action_state_rows(queue, state),
+            [
+                {
+                    "stock_id": "9999",
+                    "action_id": "old-action",
+                    "status": "ignored",
+                    "note": "obsolete",
+                    "updated_at": "2026-05-15T10:00:00Z",
+                }
+            ],
+        )
+
+    def test_build_review_action_state_report_counts_stale_and_next_open(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                        "status": "open",
+                    },
+                    {
+                        "id": "valuation-unavailable",
+                        "category": "valuation",
+                        "severity": "warning",
+                        "message": "Check valuation.",
+                        "status": "open",
+                    },
+                ],
+            },
+            {
+                "stock_id": "2303",
+                "priority": "medium",
+                "actions": [
+                    {
+                        "id": "reliability-warning",
+                        "category": "reliability",
+                        "severity": "warning",
+                        "message": "Check reliability.",
+                        "status": "open",
+                    }
+                ],
+            },
+        ]
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:workflow-error": {
+                    "stock_id": "2330",
+                    "action_id": "workflow-error",
+                    "status": "done",
+                    "note": "checked",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                },
+                "9999:old-action": {
+                    "stock_id": "9999",
+                    "action_id": "old-action",
+                    "status": "deferred",
+                    "note": "old",
+                    "updated_at": "2026-05-15T10:00:00Z",
+                },
+            },
+        }
+
+        report = build_review_action_state_report(queue, state, next_open_limit=1)
+
+        self.assertEqual(report["total_actions"], 3)
+        self.assertEqual(report["by_status"], {"open": 2, "done": 1, "deferred": 0, "ignored": 0})
+        self.assertEqual(report["stale_count"], 1)
+        self.assertEqual(report["last_updated"], "2026-05-15T10:00:00Z")
+        self.assertEqual(
+            report["next_open"],
+            [
+                {
+                    "stock_id": "2330",
+                    "priority": "high",
+                    "status": "open",
+                    "severity": "warning",
+                    "category": "valuation",
+                    "action_id": "valuation-unavailable",
+                    "message": "Check valuation.",
+                }
+            ],
+        )
+
+    def test_build_review_action_state_report_handles_missing_state_and_limit_zero(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                        "status": "open",
+                    }
+                ],
+            }
+        ]
+
+        report = build_review_action_state_report(queue, None, next_open_limit=0)
+
+        self.assertEqual(report["total_actions"], 1)
+        self.assertEqual(report["by_status"], {"open": 1, "done": 0, "deferred": 0, "ignored": 0})
+        self.assertEqual(report["stale_count"], 0)
+        self.assertEqual(report["last_updated"], "-")
+        self.assertEqual(report["next_open"], [])
+
+    def test_build_review_action_state_report_ignores_malformed_state_entries(self):
+        queue = [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                    }
+                ],
+            }
+        ]
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:workflow-error": {"status": "bad", "updated_at": "2026-05-15T09:00:00Z"},
+                "9999:old-action": "not-an-object",
+                "2303:missing-status": {"stock_id": "2303", "action_id": "missing-status"},
+            },
+        }
+
+        report = build_review_action_state_report(queue, state)
+
+        self.assertEqual(report["by_status"], {"open": 1, "done": 0, "deferred": 0, "ignored": 0})
+        self.assertEqual(report["stale_state"], [])
+        self.assertEqual(report["last_updated"], "-")
 
 
 if __name__ == "__main__":

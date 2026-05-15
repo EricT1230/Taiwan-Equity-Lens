@@ -143,6 +143,50 @@ def review_action_rows(action_queue: list[Any]) -> list[dict[str, str]]:
     return rows
 
 
+def current_review_action_keys(action_queue: list[Any]) -> set[str]:
+    return {review_action_key(row["stock_id"], row["action_id"]) for row in review_action_rows(action_queue)}
+
+
+def stale_review_action_state_rows(action_queue: list[Any], state: dict[str, Any] | None) -> list[dict[str, str]]:
+    normalized_state = _normalize_state(state) if isinstance(state, dict) else {"version": STATE_VERSION, "actions": {}}
+    current_keys = current_review_action_keys(action_queue)
+    rows: list[dict[str, str]] = []
+    for key, entry in sorted(_actions_by_key(normalized_state).items()):
+        if key in current_keys or not isinstance(entry, dict):
+            continue
+        rows.append(
+            {
+                "stock_id": _clean_string(entry.get("stock_id")),
+                "action_id": _clean_string(entry.get("action_id")),
+                "status": _clean_status(entry.get("status")) or "open",
+                "note": _clean_string(entry.get("note")),
+                "updated_at": _clean_string(entry.get("updated_at")),
+            }
+        )
+    return rows
+
+
+def build_review_action_state_report(
+    action_queue: list[Any],
+    state: dict[str, Any] | None,
+    next_open_limit: int = 5,
+) -> dict[str, Any]:
+    normalized_state = _normalize_state(state) if isinstance(state, dict) else {"version": STATE_VERSION, "actions": {}}
+    overlaid_queue = apply_review_action_state(action_queue, normalized_state)
+    rows = review_action_rows(overlaid_queue)
+    stale_rows = stale_review_action_state_rows(action_queue, normalized_state)
+    next_open_limit = max(0, next_open_limit)
+    next_open = [row for row in rows if row["status"] == "open"][:next_open_limit]
+    return {
+        "total_actions": len(rows),
+        "by_status": _review_action_status_counts(overlaid_queue),
+        "stale_state": stale_rows,
+        "stale_count": len(stale_rows),
+        "last_updated": _last_updated(_actions_by_key(normalized_state)),
+        "next_open": next_open,
+    }
+
+
 def _normalize_state(payload: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {"version": STATE_VERSION, "actions": {}}
     raw_actions = payload.get("actions", {})
@@ -176,6 +220,20 @@ def _actions_by_key(state: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
         return {}
     actions = state.get("actions", {})
     return actions if isinstance(actions, dict) else {}
+
+
+def _review_action_status_counts(action_queue: list[Any]) -> dict[str, int]:
+    sparse_counts = summarize_review_action_state(action_queue)
+    return {status: sparse_counts.get(status, 0) for status in ACTION_STATUSES}
+
+
+def _last_updated(actions: dict[str, dict[str, Any]]) -> str:
+    values = [
+        _clean_string(entry.get("updated_at"))
+        for entry in actions.values()
+        if isinstance(entry, dict) and _clean_string(entry.get("updated_at"))
+    ]
+    return max(values) if values else "-"
 
 
 def _clean_status(value: object) -> str:
