@@ -553,6 +553,81 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "research-pack.md").exists())
         self.assertTrue((output_dir / "research-pack.html").exists())
 
+    def test_main_research_action_set_and_list_use_state_file(self):
+        root = Path(".tmp-cli-test")
+        state_path = root / "review_action_state.json"
+        summary_path = root / "research-action-summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "priority": "high",
+                            "actions": [
+                                {
+                                    "id": "workflow-error",
+                                    "category": "workflow",
+                                    "severity": "error",
+                                    "message": "Fix workflow.",
+                                    "status": "open",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        set_output = StringIO()
+        with redirect_stdout(set_output):
+            set_exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "done",
+                "--note",
+                "checked",
+            ])
+
+        list_output = StringIO()
+        with redirect_stdout(list_output):
+            list_exit_code = main([
+                "research",
+                "action",
+                "list",
+                str(summary_path),
+                "--state",
+                str(state_path),
+            ])
+
+        self.assertEqual(set_exit_code, 0)
+        self.assertEqual(list_exit_code, 0)
+        self.assertTrue(state_path.exists())
+        self.assertIn("Wrote", set_output.getvalue())
+        self.assertIn("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage", list_output.getvalue())
+        self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tFix workflow.", list_output.getvalue())
+
+    def test_main_research_action_set_rejects_invalid_status(self):
+        with self.assertRaises(SystemExit) as context:
+            main([
+                "research",
+                "action",
+                "set",
+                ".tmp-cli-test/review_action_state_invalid.json",
+                "2330",
+                "workflow-error",
+                "--status",
+                "bad",
+            ])
+
+        self.assertEqual(context.exception.code, 2)
+
     def test_main_research_run_writes_workflow_and_research_summary(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-fixtures"

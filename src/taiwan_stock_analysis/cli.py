@@ -25,6 +25,13 @@ from taiwan_stock_analysis.research import (
     write_research_template,
     write_watchlist_from_research,
 )
+from taiwan_stock_analysis.review_action_state import (
+    ACTION_STATUSES,
+    apply_review_action_state,
+    load_review_action_state,
+    review_action_rows,
+    set_review_action_state,
+)
 from taiwan_stock_analysis.scoring import build_scorecard
 from taiwan_stock_analysis.valuation import build_valuation
 from taiwan_stock_analysis.verification import build_verification
@@ -292,6 +299,20 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_pack.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
     research_pack.add_argument("--output-dir", default=Path("research-dist/packs"), type=Path)
 
+    research_action = research_subparsers.add_parser("action", help="Manage persisted review-action state.")
+    research_action_subparsers = research_action.add_subparsers(dest="research_action_command")
+
+    research_action_list = research_action_subparsers.add_parser("list", help="List review actions with persisted state.")
+    research_action_list.add_argument("research_summary", type=Path)
+    research_action_list.add_argument("--state", type=Path, help="Path to review_action_state.json.")
+
+    research_action_set = research_action_subparsers.add_parser("set", help="Set persisted review-action state.")
+    research_action_set.add_argument("state_path", type=Path)
+    research_action_set.add_argument("stock_id")
+    research_action_set.add_argument("action_id")
+    research_action_set.add_argument("--status", required=True, choices=ACTION_STATUSES)
+    research_action_set.add_argument("--note", default="")
+
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
     research_run.add_argument("research_csv", type=Path)
     research_run.add_argument("--output-dir", default=Path("research-dist"), type=Path)
@@ -432,6 +453,42 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Wrote {output_path}")
             return 0
+        if args.research_command == "action":
+            if args.research_action_command == "set":
+                output_path = set_review_action_state(
+                    args.state_path,
+                    args.stock_id,
+                    args.action_id,
+                    args.status,
+                    note=args.note,
+                )
+                print(f"Wrote {output_path}")
+                return 0
+            if args.research_action_command == "list":
+                payload = json.loads(args.research_summary.read_text(encoding="utf-8"))
+                queue = payload.get("review_action_queue", {}) if isinstance(payload, dict) else {}
+                state_path = args.state or (args.research_summary.parent / "review_action_state.json")
+                state, warning = load_review_action_state(state_path)
+                if warning:
+                    print(f"Warning: {warning}")
+                overlaid = apply_review_action_state(queue if isinstance(queue, list) else [], state)
+                print("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage")
+                for row in review_action_rows(overlaid):
+                    print(
+                        "\t".join(
+                            [
+                                row["stock_id"],
+                                row["priority"],
+                                row["status"],
+                                row["severity"],
+                                row["category"],
+                                row["action_id"],
+                                row["message"],
+                            ]
+                        )
+                    )
+                return 0
+            build_command_arg_parser().error("research action command is required")
         if args.research_command == "run":
             from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
