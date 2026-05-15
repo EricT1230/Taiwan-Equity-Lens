@@ -28,6 +28,7 @@ from taiwan_stock_analysis.research import (
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
+    build_review_action_state_report,
     load_review_action_state,
     review_action_rows,
     set_review_action_state,
@@ -306,6 +307,11 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_list.add_argument("research_summary", type=Path)
     research_action_list.add_argument("--state", type=Path, help="Path to review_action_state.json.")
 
+    research_action_report = research_action_subparsers.add_parser("report", help="Report review action state health.")
+    research_action_report.add_argument("research_summary", type=Path)
+    research_action_report.add_argument("--state", type=Path, help="Path to review_action_state.json.")
+    research_action_report.add_argument("--next-open-limit", type=int, default=5)
+
     research_action_set = research_action_subparsers.add_parser("set", help="Set persisted review-action state.")
     research_action_set.add_argument("state_path", type=Path)
     research_action_set.add_argument("stock_id")
@@ -488,6 +494,20 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     )
                 return 0
+            if args.research_action_command == "report":
+                payload = json.loads(args.research_summary.read_text(encoding="utf-8"))
+                queue = payload.get("review_action_queue", {}) if isinstance(payload, dict) else {}
+                state_path = args.state or (args.research_summary.parent / "review_action_state.json")
+                state, warning = load_review_action_state(state_path)
+                if warning:
+                    print(f"Warning: {warning}")
+                report = build_review_action_state_report(
+                    queue if isinstance(queue, list) else [],
+                    state,
+                    next_open_limit=args.next_open_limit,
+                )
+                _print_review_action_state_report(report)
+                return 0
             build_command_arg_parser().error("research action command is required")
         if args.research_command == "run":
             from taiwan_stock_analysis.workflow import run_watchlist_workflow
@@ -547,6 +567,53 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         build_command_arg_parser().error("research command is required")
     build_command_arg_parser().error("command is required")
+
+
+def _print_review_action_state_report(report: dict[str, object]) -> None:
+    by_status = report.get("by_status", {})
+    status_counts = by_status if isinstance(by_status, dict) else {}
+    print(f"total_actions: {report.get('total_actions', 0)}")
+    print(
+        "by_status: "
+        + " ".join(f"{status}={status_counts.get(status, 0)}" for status in ACTION_STATUSES)
+    )
+    print(f"stale_state: {report.get('stale_count', 0)}")
+    print(f"last_updated: {report.get('last_updated', '-')}")
+    print("next_open:")
+    print("stock_id\tpriority\tseverity\tcategory\taction_id\tmessage")
+    next_open = report.get("next_open", [])
+    for row in next_open if isinstance(next_open, list) else []:
+        if not isinstance(row, dict):
+            continue
+        print(
+            "\t".join(
+                [
+                    str(row.get("stock_id", "")),
+                    str(row.get("priority", "")),
+                    str(row.get("severity", "")),
+                    str(row.get("category", "")),
+                    str(row.get("action_id", "")),
+                    str(row.get("message", "")),
+                ]
+            )
+        )
+    print("stale_state_entries:")
+    print("stock_id\tstatus\taction_id\tupdated_at\tnote")
+    stale_state = report.get("stale_state", [])
+    for row in stale_state if isinstance(stale_state, list) else []:
+        if not isinstance(row, dict):
+            continue
+        print(
+            "\t".join(
+                [
+                    str(row.get("stock_id", "")),
+                    str(row.get("status", "")),
+                    str(row.get("action_id", "")),
+                    str(row.get("updated_at", "")),
+                    str(row.get("note", "")),
+                ]
+            )
+        )
 
 
 if __name__ == "__main__":

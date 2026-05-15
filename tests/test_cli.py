@@ -613,6 +613,111 @@ class CliTests(unittest.TestCase):
         self.assertIn("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage", list_output.getvalue())
         self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tFix workflow.", list_output.getvalue())
 
+    def test_main_research_action_report_uses_explicit_state_file(self):
+        root = Path(".tmp-cli-test")
+        state_path = root / "review_action_report_state.json"
+        summary_path = root / "research-action-report-summary.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "done",
+                            "note": "checked",
+                            "updated_at": "2026-05-15T09:00:00Z",
+                        },
+                        "9999:old-action": {
+                            "stock_id": "9999",
+                            "action_id": "old-action",
+                            "status": "ignored",
+                            "note": "obsolete",
+                            "updated_at": "2026-05-15T10:00:00Z",
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "report",
+                str(summary_path),
+                "--state",
+                str(state_path),
+                "--next-open-limit",
+                "1",
+            ])
+
+        text = output.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("total_actions: 2", text)
+        self.assertIn("by_status: open=1 done=1 deferred=0 ignored=0", text)
+        self.assertIn("stale_state: 1", text)
+        self.assertIn("last_updated: 2026-05-15T10:00:00Z", text)
+        self.assertIn("2330\thigh\twarning\tvaluation\tvaluation-unavailable\tCheck valuation.", text)
+        self.assertIn("9999\tignored\told-action\t2026-05-15T10:00:00Z\tobsolete", text)
+
+    def test_main_research_action_report_defaults_state_file(self):
+        root = Path(".tmp-cli-test/research-action-report-default")
+        root.mkdir(parents=True, exist_ok=True)
+        summary_path = root / "research_summary.json"
+        state_path = root / "review_action_state.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "deferred",
+                            "updated_at": "2026-05-15T09:00:00Z",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "report", str(summary_path)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("by_status: open=1 done=0 deferred=1 ignored=0", output.getvalue())
+
+    def test_main_research_action_report_warns_for_invalid_state(self):
+        root = Path(".tmp-cli-test")
+        summary_path = root / "research-action-report-invalid-summary.json"
+        state_path = root / "review_action_report_invalid.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text("{", encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "report",
+                str(summary_path),
+                "--state",
+                str(state_path),
+            ])
+
+        text = output.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Warning: Could not read review action state", text)
+        self.assertIn("by_status: open=2 done=0 deferred=0 ignored=0", text)
+        self.assertIn("stale_state: 0", text)
+
     def test_main_research_action_set_rejects_invalid_status(self):
         with self.assertRaises(SystemExit) as context:
             main([
@@ -845,6 +950,33 @@ def _memo_analysis_payload():
         "scorecard": {"total_score": 80, "confidence": 90, "dimensions": {}},
         "diagnostics": {"issues": []},
         "metadata": {"reliability": []},
+    }
+
+
+def _review_action_summary_payload():
+    return {
+        "review_action_queue": [
+            {
+                "stock_id": "2330",
+                "priority": "high",
+                "actions": [
+                    {
+                        "id": "workflow-error",
+                        "category": "workflow",
+                        "severity": "error",
+                        "message": "Fix workflow.",
+                        "status": "open",
+                    },
+                    {
+                        "id": "valuation-unavailable",
+                        "category": "valuation",
+                        "severity": "warning",
+                        "message": "Check valuation.",
+                        "status": "open",
+                    },
+                ],
+            }
+        ]
     }
 
 
