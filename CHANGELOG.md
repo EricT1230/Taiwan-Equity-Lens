@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.18.0 - 2026-05-16
+
+Review Action State Report release.
+
+### Added
+
+- `research action report` CLI command for read-only review-action state audits.
+- Review-action state report helpers for status counts, stale sidecar entries, latest update time, and next open actions.
+- Dashboard state-health badges for persisted status counts, stale state count, and latest `updated_at`.
+- v0.18.0 release notes.
+
+### Changed
+
+- Package version is now `0.18.0`.
+
+### Quality
+
+- Added unit coverage for report helpers, CLI report output, and dashboard health badges.
+- Release doctor updated for `0.18.0`.
+
 ## v0.17.0 - 2026-05-15
 
 Review Action Dashboard Commands release.

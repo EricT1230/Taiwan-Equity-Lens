@@ -310,11 +310,14 @@ From v0.16.0 onward, manual review-action decisions can be persisted in a siblin
 ```powershell
 python -m taiwan_stock_analysis.cli research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
 python -m taiwan_stock_analysis.cli research action list research-dist/research_summary.json --state research-dist/review_action_state.json
+python -m taiwan_stock_analysis.cli research action report research-dist/research_summary.json --state research-dist/review_action_state.json
 ```
 
 Allowed statuses are `open`, `done`, `deferred`, and `ignored`. When `dashboard.html` is regenerated, it automatically reads `review_action_state.json` from the same directory as `research_summary.json` and overlays those statuses into the Review Actions table.
 
 From v0.17.0 onward, each dashboard review-action row also includes command buttons for `done`, `deferred`, `ignored`, and `reopen`. These buttons copy the matching `research action set` command to the clipboard. They do not mutate `review_action_state.json` until you run the copied command in PowerShell.
+
+From v0.18.0 onward, `research action report` audits the sidecar state without mutating it. The report shows total generated actions, current status counts, stale state entries that no longer match the generated queue, the latest `updated_at`, and the next open actions in queue order. The dashboard Review Actions section shows the same state-health counts, stale count, and latest update timestamp as compact badges.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
@@ -336,7 +339,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.17.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.18.0
 python -m unittest discover -s tests -v
 ```
 
