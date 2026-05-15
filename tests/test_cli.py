@@ -696,6 +696,145 @@ class CliTests(unittest.TestCase):
         self.assertIn("Warning: Could not read review action state", invalid_output.getvalue())
         self.assertEqual(list(root.glob("*.bak-*")), [])
 
+    def test_main_research_action_restore_backs_up_current_and_restores_backup(self):
+        root = Path(".tmp-cli-test/research-action-restore")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        backup_path = root / "review_action_state.json.bak-source"
+        for backup in root.glob("review_action_state.json.bak-*"):
+            if backup != backup_path:
+                backup.unlink()
+        current_text = json.dumps(
+            {
+                "actions": {
+                    "2330:workflow-error": {
+                        "stock_id": "2330",
+                        "action_id": "workflow-error",
+                        "status": "done",
+                        "note": "current",
+                        "updated_at": "2026-05-15T09:00:00Z",
+                    }
+                }
+            },
+            indent=2,
+        )
+        restore_bytes = (
+            b'{\r\n'
+            b'  "actions": {\r\n'
+            b'    "2330:workflow-error": {\r\n'
+            b'      "stock_id": "2330",\r\n'
+            b'      "action_id": "workflow-error",\r\n'
+            b'      "status": "open",\r\n'
+            b'      "note": "restore",\r\n'
+            b'      "updated_at": "2026-05-15T08:00:00Z"\r\n'
+            b'    }\r\n'
+            b'  }\r\n'
+            b'}\r\n'
+        )
+        state_path.write_text(current_text, encoding="utf-8")
+        backup_path.write_bytes(restore_bytes)
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "restore", str(state_path), str(backup_path)])
+
+        backups = [backup for backup in root.glob("review_action_state.json.bak-*") if backup != backup_path]
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), current_text)
+        self.assertEqual(state_path.read_bytes(), restore_bytes)
+        self.assertIn(f"Backup review action state: {backups[0]}", output.getvalue())
+        self.assertIn(f"Restored review action state: {state_path}", output.getvalue())
+
+    def test_main_research_action_restore_missing_target_prints_only_restore_line(self):
+        root = Path(".tmp-cli-test/research-action-restore-missing-target")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        backup_path = root / "review_action_state.json.bak-source"
+        if state_path.exists():
+            state_path.unlink()
+        for backup in root.glob("review_action_state.json.bak-*"):
+            if backup != backup_path:
+                backup.unlink()
+        backup_path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "open",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "restore", str(state_path), str(backup_path)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(state_path.read_bytes(), backup_path.read_bytes())
+        self.assertNotIn("Backup review action state", output.getvalue())
+        self.assertIn(f"Restored review action state: {state_path}", output.getvalue())
+
+    def test_main_research_action_restore_invalid_backup_returns_one_without_writing(self):
+        root = Path(".tmp-cli-test/research-action-restore-invalid-backup")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        backup_path = root / "review_action_state.json.bak-source"
+        current_text = json.dumps(
+            {
+                "actions": {
+                    "2330:workflow-error": {
+                        "stock_id": "2330",
+                        "action_id": "workflow-error",
+                        "status": "done",
+                    }
+                }
+            }
+        )
+        state_path.write_text(current_text, encoding="utf-8")
+        backup_path.write_text("{", encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "restore", str(state_path), str(backup_path)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(state_path.read_text(encoding="utf-8"), current_text)
+        self.assertIn("Warning: Could not read backup review action state", output.getvalue())
+
+    def test_main_research_action_restore_invalid_current_returns_one_without_writing(self):
+        root = Path(".tmp-cli-test/research-action-restore-invalid-current")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        backup_path = root / "review_action_state.json.bak-source"
+        state_path.write_text("{", encoding="utf-8")
+        backup_text = json.dumps(
+            {
+                "actions": {
+                    "2330:workflow-error": {
+                        "stock_id": "2330",
+                        "action_id": "workflow-error",
+                        "status": "open",
+                    }
+                }
+            }
+        )
+        backup_path.write_text(backup_text, encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "restore", str(state_path), str(backup_path)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(state_path.read_text(encoding="utf-8"), "{")
+        self.assertEqual(backup_path.read_text(encoding="utf-8"), backup_text)
+        self.assertIn("Warning: Could not read current review action state", output.getvalue())
+
     def test_main_research_action_report_uses_explicit_state_file(self):
         root = Path(".tmp-cli-test")
         state_path = root / "review_action_report_state.json"

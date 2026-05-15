@@ -33,6 +33,7 @@ from taiwan_stock_analysis.review_action_state import (
     load_review_action_state,
     prune_stale_review_action_state,
     review_action_rows,
+    restore_review_action_state,
     set_review_action_state,
     write_review_action_state,
 )
@@ -320,6 +321,10 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_prune.add_argument("--state", type=Path, help="Path to review_action_state.json.")
     research_action_prune.add_argument("--write", action="store_true", help="Rewrite the state file after pruning stale entries.")
 
+    research_action_restore = research_action_subparsers.add_parser("restore", help="Restore review-action state from a backup file.")
+    research_action_restore.add_argument("state_path", type=Path)
+    research_action_restore.add_argument("backup_path", type=Path)
+
     research_action_set = research_action_subparsers.add_parser("set", help="Set persisted review-action state.")
     research_action_set.add_argument("state_path", type=Path)
     research_action_set.add_argument("stock_id")
@@ -540,6 +545,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Pruned {len(stale_rows)} stale review action state entries")
                     return 0
                 _print_review_action_stale_rows(stale_rows, write_enabled=args.write, state_exists=state_path.exists())
+                return 0
+            if args.research_action_command == "restore":
+                try:
+                    output_path, backup_path = restore_review_action_state(args.state_path, args.backup_path)
+                except ValueError as exc:
+                    print(f"Warning: {exc}")
+                    return 1
+                _print_review_action_state_backup(backup_path)
+                print(f"Restored review action state: {output_path}")
                 return 0
             build_command_arg_parser().error("research action command is required")
         if args.research_command == "run":
