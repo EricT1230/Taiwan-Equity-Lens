@@ -6,11 +6,19 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from taiwan_stock_analysis.review_action_state import (
+    ACTION_STATUSES,
+    apply_review_action_state,
+    load_review_action_state,
+    summarize_review_action_state,
+)
+
 
 DashboardItems = dict[str, list[dict[str, Any]]]
 REVIEW_ACTION_SEVERITIES = ("error", "stale", "unknown", "manual_review", "warning", "info")
 REVIEW_ACTION_CATEGORIES = ("source_audit", "workflow", "reliability", "valuation", "research_quality")
 REVIEW_ACTION_PRIORITIES = ("high", "medium", "low")
+REVIEW_ACTION_STATUSES = ACTION_STATUSES
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
@@ -76,6 +84,13 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
             if not isinstance(payload, dict):
                 payload = {"error": "invalid JSON"}
             payload["path"] = str(research_summary)
+            state_path = directory / "review_action_state.json"
+            if state_path.exists():
+                state, warning = load_review_action_state(state_path)
+                payload["review_action_state"] = state
+                payload["review_action_state_path"] = str(state_path)
+                if warning:
+                    payload["review_action_state_warning"] = warning
             items["research_summaries"].append(payload)
 
         _discover_memo_outputs(directory, items)
@@ -272,17 +287,18 @@ def render_dashboard_html(items: DashboardItems) -> str:
         const severityFilter = section.querySelector(filterSelector('severity'));
         const categoryFilter = section.querySelector(filterSelector('category'));
         const priorityFilter = section.querySelector(filterSelector('priority'));
+        const statusFilter = section.querySelector(filterSelector('status'));
         const searchFilter = section.querySelector(filterSelector('search'));
         const resetButton = section.querySelector('[data-review-filter-reset="true"]');
         const countLabel = section.querySelector('[data-review-action-count="true"]');
         const tbody = section.querySelector('tbody');
-        if (!severityFilter || !categoryFilter || !priorityFilter || !searchFilter || !resetButton || !countLabel || !tbody) {{
+        if (!severityFilter || !categoryFilter || !priorityFilter || !statusFilter || !searchFilter || !resetButton || !countLabel || !tbody) {{
           return;
         }}
         const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
         const emptyRow = document.createElement('tr');
         emptyRow.setAttribute('data-review-action-empty', 'true');
-        emptyRow.innerHTML = '<td colspan="5" class="empty">No review actions match the current filters.</td>';
+        emptyRow.innerHTML = '<td colspan="6" class="empty">No review actions match the current filters.</td>';
         function selectedValue(control) {{
           return control.value || 'all';
         }}
@@ -290,14 +306,16 @@ def render_dashboard_html(items: DashboardItems) -> str:
           const severity = selectedValue(severityFilter);
           const category = selectedValue(categoryFilter);
           const priority = selectedValue(priorityFilter);
+          const status = selectedValue(statusFilter);
           const query = searchFilter.value.trim().toLowerCase();
           let visible = 0;
           rows.forEach((row) => {{
             const matchesSeverity = severity === 'all' || row.dataset.severity === severity;
             const matchesCategory = category === 'all' || row.dataset.category === category;
             const matchesPriority = priority === 'all' || row.dataset.priority === priority;
+            const matchesStatus = status === 'all' || row.dataset.status === status;
             const matchesSearch = !query || (row.dataset.searchText || '').includes(query);
-            const shouldShow = matchesSeverity && matchesCategory && matchesPriority && matchesSearch;
+            const shouldShow = matchesSeverity && matchesCategory && matchesPriority && matchesStatus && matchesSearch;
             row.style.display = shouldShow ? '' : 'none';
             if (shouldShow) {{
               visible += 1;
@@ -312,7 +330,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
             emptyRow.remove();
           }}
         }}
-        [severityFilter, categoryFilter, priorityFilter].forEach((control) => {{
+        [severityFilter, categoryFilter, priorityFilter, statusFilter].forEach((control) => {{
           control.addEventListener('change', applyFilters);
         }});
         searchFilter.addEventListener('input', applyFilters);
@@ -320,6 +338,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
           severityFilter.value = 'all';
           categoryFilter.value = 'all';
           priorityFilter.value = 'all';
+          statusFilter.value = 'all';
           searchFilter.value = '';
           applyFilters();
         }});
@@ -479,8 +498,11 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
         action_queue = summary.get("review_action_queue", [])
         if not action_summary and not action_queue:
             continue
-        rows = _review_action_rows(action_queue if isinstance(action_queue, list) else [])
-        total_rows = _review_action_row_count(action_queue if isinstance(action_queue, list) else [])
+        source_queue = action_queue if isinstance(action_queue, list) else []
+        overlaid_queue = apply_review_action_state(source_queue, _dict_value(summary.get("review_action_state")))
+        rows = _review_action_rows(overlaid_queue)
+        total_rows = _review_action_row_count(overlaid_queue)
+        state_warning = str(summary.get("review_action_state_warning") or "")
         sections.append(
             '<div data-review-actions-section="true">'
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
@@ -488,9 +510,11 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
             f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
             f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
+            f'<span class="badge">state: {_count_pairs(summarize_review_action_state(overlaid_queue))}</span>'
             "</p>"
+            f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
-            "<table><thead><tr><th>stock_id</th><th>priority</th><th>severity</th><th>category</th><th>action</th></tr></thead>"
+            "<table><thead><tr><th>stock_id</th><th>priority</th><th>status</th><th>severity</th><th>category</th><th>action</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"
         )
@@ -525,23 +549,26 @@ def _review_action_rows(action_queue: list[Any]) -> str:
                 continue
             severity = str(action.get("severity") or "-")
             category = str(action.get("category") or "-")
+            status = str(action.get("status") or "open")
             message = str(action.get("message") or "-")
-            search_text = _review_metadata_text(stock_id, priority, severity, category, message)
+            search_text = _review_metadata_text(stock_id, priority, status, severity, category, message)
             rows.append(
                 '<tr data-review-action-row="true"'
                 f' data-stock-id="{escape(stock_id)}"'
                 f' data-priority="{escape(priority)}"'
+                f' data-status="{escape(status)}"'
                 f' data-severity="{escape(severity)}"'
                 f' data-category="{escape(category)}"'
                 f' data-search-text="{escape(search_text)}">'
                 f"<td>{escape(stock_id)}</td>"
                 f"<td>{escape(priority)}</td>"
+                f"<td>{escape(status)}</td>"
                 f"<td>{escape(severity)}</td>"
                 f"<td>{escape(category)}</td>"
                 f"<td>{escape(message)}</td>"
                 "</tr>"
             )
-    return "".join(rows) or _empty_row(5, "No review actions")
+    return "".join(rows) or _empty_row(6, "No review actions")
 
 
 def _universe_count_badges(counts: dict[str, Any]) -> str:
@@ -679,6 +706,7 @@ def _review_action_filter_bar(total_rows: int) -> str:
         f'{_review_filter_select("Severity", "severity", REVIEW_ACTION_SEVERITIES)}'
         f'{_review_filter_select("Category", "category", REVIEW_ACTION_CATEGORIES)}'
         f'{_review_filter_select("Priority", "priority", REVIEW_ACTION_PRIORITIES)}'
+        f'{_review_filter_select("Status", "status", REVIEW_ACTION_STATUSES)}'
         '<label class="filter-field"><span>Search</span>'
         '<input data-review-filter="search" type="search" placeholder="stock, category, action">'
         "</label>"
@@ -697,6 +725,12 @@ def _review_metadata_text(*values: object) -> str:
         if text:
             parts.append(" ".join(text.split()))
     return " ".join(parts)
+
+
+def _review_action_state_warning(warning: str) -> str:
+    if not warning:
+        return ""
+    return f'<p class="status-line"><span class="badge error">{escape(warning)}</span></p>'
 
 
 def _report_rows(reports: list[dict[str, Any]]) -> str:
@@ -1001,7 +1035,7 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
             if isinstance(comparison, dict):
                 _relativize_fields(comparison, ["html", "json"], base_dir)
     for summary in items.get("research_summaries", []):
-        _relativize_fields(summary, ["path"], base_dir)
+        _relativize_fields(summary, ["path", "review_action_state_path"], base_dir)
     for output in items.get("memo_outputs", []):
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
     for output in items.get("pack_outputs", []):

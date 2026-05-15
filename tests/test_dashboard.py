@@ -520,11 +520,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-filter="severity"', html)
         self.assertIn('data-review-filter="category"', html)
         self.assertIn('data-review-filter="priority"', html)
+        self.assertIn('data-review-filter="status"', html)
         self.assertIn('data-review-filter="search"', html)
         self.assertIn('data-review-filter-reset="true"', html)
         self.assertIn('data-review-action-count="true"', html)
         self.assertIn("Showing 1 of 1 actions", html)
         self.assertIn("total open: 2", html)
+        self.assertIn("state: open: 1", html)
         self.assertIn("manual_review", html)
         self.assertIn("source_audit", html)
         self.assertIn("2330", html)
@@ -532,9 +534,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-row="true"', html)
         self.assertIn('data-stock-id="2330"', html)
         self.assertIn('data-priority="high"', html)
+        self.assertIn('data-status="open"', html)
         self.assertIn('data-severity="manual_review"', html)
         self.assertIn('data-category="source_audit"', html)
-        self.assertIn('data-search-text="2330 high manual_review source_audit review source audit fixture source"', html)
+        self.assertIn('data-search-text="2330 high open manual_review source_audit review source audit fixture source"', html)
 
     def test_render_dashboard_html_escapes_review_actions(self):
         html = render_dashboard_html(
@@ -578,11 +581,153 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2330&lt;script&gt;", html)
         self.assertIn("Review &lt;source&gt;", html)
         self.assertIn('data-stock-id="2330&lt;script&gt;"', html)
-        self.assertIn('data-search-text="2330&lt;script&gt; high manual_review source_audit review &lt;source&gt;"', html)
+        self.assertIn('data-status="open"', html)
+        self.assertIn('data-search-text="2330&lt;script&gt; high open manual_review source_audit review &lt;source&gt;"', html)
         self.assertNotIn("2330<script>", html)
         self.assertNotIn("Review <source>", html)
         self.assertNotIn('data-stock-id="2330<script>"', html)
         self.assertNotIn('data-search-text="2330<script>', html)
+
+    def test_discover_dashboard_items_loads_review_action_state(self):
+        root = Path(".tmp-cli-test/dashboard-review-action-state")
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "research_summary.json").write_text(
+            json.dumps(
+                {
+                    "review_action_summary": {"total_open": 1},
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "priority": "high",
+                            "actions": [
+                                {
+                                    "id": "workflow-error",
+                                    "category": "workflow",
+                                    "severity": "error",
+                                    "message": "Fix workflow.",
+                                    "status": "open",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "review_action_state.json").write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "done",
+                            "note": "checked",
+                            "updated_at": "2026-05-15T09:00:00Z",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        items = discover_dashboard_items([root])
+
+        self.assertEqual(
+            items["research_summaries"][0]["review_action_state"]["actions"]["2330:workflow-error"]["status"],
+            "done",
+        )
+        self.assertEqual(items["research_summaries"][0]["review_action_state_path"], str(root / "review_action_state.json"))
+
+    def test_render_dashboard_html_overlays_review_action_state(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {"total_open": 1},
+                        "review_action_state": {
+                            "actions": {
+                                "2330:workflow-error": {
+                                    "stock_id": "2330",
+                                    "action_id": "workflow-error",
+                                    "status": "done",
+                                    "note": "checked",
+                                    "updated_at": "2026-05-15T09:00:00Z",
+                                }
+                            }
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "workflow-error",
+                                        "category": "workflow",
+                                        "severity": "error",
+                                        "message": "Fix workflow.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "counts": {"total": 1, "needs_attention": 1},
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn("<th>status</th>", html)
+        self.assertIn('data-status="done"', html)
+        self.assertIn("state: done: 1", html)
+        self.assertIn('data-review-filter="status"', html)
+
+    def test_render_dashboard_html_warns_for_invalid_review_action_state(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {"total_open": 1},
+                        "review_action_state_warning": "Could not read review action state: invalid JSON",
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "workflow-error",
+                                        "category": "workflow",
+                                        "severity": "error",
+                                        "message": "Fix workflow.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "counts": {"total": 1, "needs_attention": 1},
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn("Could not read review action state: invalid JSON", html)
+        self.assertIn('data-status="open"', html)
 
     def test_render_dashboard_html_omits_review_action_filters_for_legacy_summary(self):
         html = render_dashboard_html(
@@ -646,6 +791,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("No review actions match the current filters.", html)
         self.assertIn("data-review-action-empty", html)
         self.assertIn("data-review-filter-reset", html)
+        self.assertIn("row.dataset.status", html)
         self.assertIn("row.dataset.searchText", html)
 
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
