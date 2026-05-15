@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.19.0 - 2026-05-16
+
+Review Action State Pruning release.
+
+### Added
+
+- `research action prune-stale` CLI command for explicit stale sidecar cleanup.
+- Dry-run output that lists stale review-action state entries without modifying the state file.
+- `--write` mode for pruning stale entries while preserving current generated action state.
+- v0.19.0 release notes.
+
+### Changed
+
+- Package version is now `0.19.0`.
+
+### Quality
+
+- Added unit coverage for stale pruning helpers, CLI dry-run behavior, write behavior, default state path, missing state files, and invalid state JSON.
+- Release doctor updated for `0.19.0`.
+
 ## v0.18.0 - 2026-05-16
 
 Review Action State Report release.
