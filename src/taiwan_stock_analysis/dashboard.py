@@ -350,6 +350,45 @@ def render_dashboard_html(items: DashboardItems) -> str:
         applyFilters();
       }});
     }}
+    function initReviewActionCommandCopy() {{
+      const sectionSelector = '[data-review-actions-' + 'section="true"]';
+      document.querySelectorAll(sectionSelector).forEach((section) => {{
+        const copyStatus = section.querySelector('[data-review-action-copy-status="true"]');
+        section.querySelectorAll('[data-command]').forEach((button) => {{
+          button.addEventListener('click', async () => {{
+            const command = button.dataset.command || '';
+            if (!command) {{
+              return;
+            }}
+            try {{
+              if (navigator.clipboard && navigator.clipboard.writeText) {{
+                await navigator.clipboard.writeText(command);
+              }} else {{
+                const textarea = document.createElement('textarea');
+                textarea.value = command;
+                textarea.setAttribute('readonly', 'true');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+              }}
+              if (copyStatus) {{
+                const label = button.dataset.reviewActionCommand || 'command';
+                const row = button.closest('[data-review-action-row="true"]');
+                const stockId = row ? row.dataset.stockId : '';
+                copyStatus.textContent = `Copied ${{label}} command${{stockId ? ` for ${{stockId}}` : ''}}`;
+              }}
+            }} catch (error) {{
+              if (copyStatus) {{
+                copyStatus.textContent = 'Copy failed. Use the visible command text.';
+              }}
+            }}
+          }});
+        }});
+      }});
+    }}
     function updateCommand() {{
       const stock = stockInput.value || '2330';
       const name = nameInput.value || '台積電';
@@ -370,6 +409,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
       batchPathInput.addEventListener('input', updateBatchCommand);
     }}
     initReviewActionFilters();
+    initReviewActionCommandCopy();
   </script>
 </body>
 </html>
@@ -520,6 +560,7 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
+            '<p class="status-line"><span class="badge" data-review-action-copy-status="true">Copy a command to update state</span></p>'
             "<table><thead><tr><th>stock_id</th><th>priority</th><th>status</th><th>severity</th><th>category</th><th>action</th><th>commands</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"

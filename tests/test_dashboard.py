@@ -843,6 +843,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("data-review-filter-reset", html)
         self.assertIn("row.dataset.status", html)
         self.assertIn("row.dataset.searchText", html)
+        self.assertIn("function initReviewActionCommandCopy()", html)
+        self.assertIn("navigator.clipboard.writeText", html)
+        self.assertIn("document.execCommand('copy')", html)
+        self.assertIn('data-review-action-copy-status="true"', html)
+        self.assertIn("Copy failed. Use the visible command text.", html)
 
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
         html = render_dashboard_html(
