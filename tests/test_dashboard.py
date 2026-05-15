@@ -526,7 +526,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-count="true"', html)
         self.assertIn("Showing 1 of 1 actions", html)
         self.assertIn("total open: 2", html)
-        self.assertIn("state: open: 1", html)
+        self.assertIn("state health: open: 1 done: 0 deferred: 0 ignored: 0", html)
+        self.assertIn("stale state: 0", html)
+        self.assertIn("last updated: -", html)
         self.assertIn("manual_review", html)
         self.assertIn("source_audit", html)
         self.assertIn("2330", html)
@@ -665,6 +667,13 @@ class DashboardTests(unittest.TestCase):
                                     "status": "done",
                                     "note": "checked",
                                     "updated_at": "2026-05-15T09:00:00Z",
+                                },
+                                "9999:old-action": {
+                                    "stock_id": "9999",
+                                    "action_id": "old-action",
+                                    "status": "ignored",
+                                    "note": "obsolete",
+                                    "updated_at": "2026-05-15T10:00:00Z",
                                 }
                             }
                         },
@@ -695,7 +704,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("<th>status</th>", html)
         self.assertIn("<th>commands</th>", html)
         self.assertIn('data-status="done"', html)
-        self.assertIn("state: done: 1", html)
+        self.assertIn("state health: open: 0 done: 1 deferred: 0 ignored: 0", html)
+        self.assertIn("stale state: 1", html)
+        self.assertIn("last updated: 2026-05-15T10:00:00Z", html)
+        self.assertNotIn("old-action", html)
         self.assertIn('data-review-filter="status"', html)
         self.assertIn("note: checked", html)
         self.assertIn("updated: 2026-05-15T09:00:00Z", html)
@@ -778,6 +790,9 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Could not read review action state: invalid JSON", html)
         self.assertIn('data-status="open"', html)
+        self.assertIn("state health: open: 1 done: 0 deferred: 0 ignored: 0", html)
+        self.assertIn("stale state: 0", html)
+        self.assertIn("last updated: -", html)
 
     def test_render_dashboard_html_omits_review_action_filters_for_legacy_summary(self):
         html = render_dashboard_html(

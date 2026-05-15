@@ -9,8 +9,8 @@ from typing import Any
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
+    build_review_action_state_report,
     load_review_action_state,
-    summarize_review_action_state,
 )
 
 
@@ -544,7 +544,9 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
         if not action_summary and not action_queue:
             continue
         source_queue = action_queue if isinstance(action_queue, list) else []
-        overlaid_queue = apply_review_action_state(source_queue, _dict_value(summary.get("review_action_state")))
+        state = _dict_value(summary.get("review_action_state"))
+        overlaid_queue = apply_review_action_state(source_queue, state)
+        state_report = build_review_action_state_report(source_queue, state)
         state_path = _review_action_state_path(summary)
         rows = _review_action_rows(overlaid_queue, state_path)
         total_rows = _review_action_row_count(overlaid_queue)
@@ -556,7 +558,9 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
             f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
             f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
-            f'<span class="badge">state: {_count_pairs(summarize_review_action_state(overlaid_queue))}</span>'
+            f'<span class="badge">state health: {_review_action_status_pairs(_dict_value(state_report.get("by_status")))}</span>'
+            f'<span class="badge">stale state: {escape(str(state_report.get("stale_count", 0)))}</span>'
+            f'<span class="badge">last updated: {escape(str(state_report.get("last_updated", "-")))}</span>'
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
@@ -736,6 +740,12 @@ def _count_pairs(counts: dict[str, Any]) -> str:
         return "-"
     pairs = sorted(((str(key), str(value)) for key, value in counts.items()), key=lambda item: item[0])
     return ", ".join(f"{escape(key)}: {escape(value)}" for key, value in pairs)
+
+
+def _review_action_status_pairs(counts: dict[str, Any]) -> str:
+    if not counts:
+        return "-"
+    return " ".join(f"{status}: {escape(str(counts.get(status, 0)))}" for status in REVIEW_ACTION_STATUSES)
 
 
 def _review_filter_select(label: str, name: str, options: tuple[str, ...]) -> str:
