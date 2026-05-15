@@ -30,8 +30,10 @@ from taiwan_stock_analysis.review_action_state import (
     apply_review_action_state,
     build_review_action_state_report,
     load_review_action_state,
+    prune_stale_review_action_state,
     review_action_rows,
     set_review_action_state,
+    write_review_action_state,
 )
 from taiwan_stock_analysis.scoring import build_scorecard
 from taiwan_stock_analysis.valuation import build_valuation
@@ -312,6 +314,11 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_report.add_argument("--state", type=Path, help="Path to review_action_state.json.")
     research_action_report.add_argument("--next-open-limit", type=int, default=5)
 
+    research_action_prune = research_action_subparsers.add_parser("prune-stale", help="Prune stale review-action state entries.")
+    research_action_prune.add_argument("research_summary", type=Path)
+    research_action_prune.add_argument("--state", type=Path, help="Path to review_action_state.json.")
+    research_action_prune.add_argument("--write", action="store_true", help="Rewrite the state file after pruning stale entries.")
+
     research_action_set = research_action_subparsers.add_parser("set", help="Set persisted review-action state.")
     research_action_set.add_argument("state_path", type=Path)
     research_action_set.add_argument("stock_id")
@@ -508,6 +515,24 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 _print_review_action_state_report(report)
                 return 0
+            if args.research_action_command == "prune-stale":
+                payload = json.loads(args.research_summary.read_text(encoding="utf-8"))
+                queue = payload.get("review_action_queue", {}) if isinstance(payload, dict) else {}
+                state_path = args.state or (args.research_summary.parent / "review_action_state.json")
+                state, warning = load_review_action_state(state_path)
+                if warning:
+                    print(f"Warning: {warning}")
+                    return 1
+                pruned_state, stale_rows = prune_stale_review_action_state(
+                    queue if isinstance(queue, list) else [],
+                    state,
+                )
+                if args.write and state_path.exists():
+                    write_review_action_state(state_path, pruned_state)
+                    print(f"Pruned {len(stale_rows)} stale review action state entries")
+                    return 0
+                _print_review_action_stale_rows(stale_rows, write_enabled=args.write, state_exists=state_path.exists())
+                return 0
             build_command_arg_parser().error("research action command is required")
         if args.research_command == "run":
             from taiwan_stock_analysis.workflow import run_watchlist_workflow
@@ -611,6 +636,32 @@ def _print_review_action_state_report(report: dict[str, object]) -> None:
                     str(row.get("action_id", "")),
                     str(row.get("updated_at", "")),
                     str(row.get("note", "")),
+                ]
+            )
+        )
+
+
+def _print_review_action_stale_rows(
+    stale_rows: list[dict[str, str]],
+    *,
+    write_enabled: bool = False,
+    state_exists: bool = True,
+) -> None:
+    if write_enabled and not state_exists:
+        print("Pruned 0 stale review action state entries")
+        return
+    print(f"stale_state: {len(stale_rows)}")
+    print("mode: dry-run")
+    print("stock_id\tstatus\taction_id\tupdated_at\tnote")
+    for row in stale_rows:
+        print(
+            "\t".join(
+                [
+                    row["stock_id"],
+                    row["status"],
+                    row["action_id"],
+                    row["updated_at"],
+                    row["note"],
                 ]
             )
         )

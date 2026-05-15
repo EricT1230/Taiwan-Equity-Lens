@@ -718,6 +718,148 @@ class CliTests(unittest.TestCase):
         self.assertIn("by_status: open=2 done=0 deferred=0 ignored=0", text)
         self.assertIn("stale_state: 0", text)
 
+    def test_main_research_action_prune_stale_dry_run_does_not_write(self):
+        root = Path(".tmp-cli-test")
+        summary_path = root / "research-action-prune-summary.json"
+        state_path = root / "review_action_prune_state.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_text = json.dumps(_review_action_state_with_stale_payload(), indent=2)
+        state_path.write_text(state_text, encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "prune-stale",
+                str(summary_path),
+                "--state",
+                str(state_path),
+            ])
+
+        text = output.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(state_path.read_text(encoding="utf-8"), state_text)
+        self.assertIn("stale_state: 1", text)
+        self.assertIn("mode: dry-run", text)
+        self.assertIn("9999\tignored\told-action\t2026-05-15T10:00:00Z\tobsolete", text)
+
+    def test_main_research_action_prune_stale_write_removes_stale_entries(self):
+        root = Path(".tmp-cli-test")
+        summary_path = root / "research-action-prune-write-summary.json"
+        state_path = root / "review_action_prune_write_state.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text(json.dumps(_review_action_state_with_stale_payload()), encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "prune-stale",
+                str(summary_path),
+                "--state",
+                str(state_path),
+                "--write",
+            ])
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Pruned 1 stale review action state entries", output.getvalue())
+        self.assertEqual(list(state["actions"]), ["2330:workflow-error"])
+        self.assertEqual(state["actions"]["2330:workflow-error"]["status"], "done")
+
+    def test_main_research_action_prune_stale_defaults_state_file(self):
+        root = Path(".tmp-cli-test/research-action-prune-default")
+        root.mkdir(parents=True, exist_ok=True)
+        summary_path = root / "research_summary.json"
+        state_path = root / "review_action_state.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text(json.dumps(_review_action_state_with_stale_payload()), encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "prune-stale", str(summary_path)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("stale_state: 1", output.getvalue())
+
+    def test_main_research_action_prune_stale_no_stale_and_missing_state(self):
+        root = Path(".tmp-cli-test")
+        summary_path = root / "research-action-prune-empty-summary.json"
+        state_path = root / "review_action_prune_empty_state.json"
+        missing_state_path = root / "review_action_prune_missing_state.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "done",
+                            "updated_at": "2026-05-15T09:00:00Z",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        if missing_state_path.exists():
+            missing_state_path.unlink()
+
+        no_stale_output = StringIO()
+        with redirect_stdout(no_stale_output):
+            no_stale_exit_code = main([
+                "research",
+                "action",
+                "prune-stale",
+                str(summary_path),
+                "--state",
+                str(state_path),
+                "--write",
+            ])
+        missing_output = StringIO()
+        with redirect_stdout(missing_output):
+            missing_exit_code = main([
+                "research",
+                "action",
+                "prune-stale",
+                str(summary_path),
+                "--state",
+                str(missing_state_path),
+                "--write",
+            ])
+
+        self.assertEqual(no_stale_exit_code, 0)
+        self.assertIn("Pruned 0 stale review action state entries", no_stale_output.getvalue())
+        self.assertEqual(missing_exit_code, 0)
+        self.assertIn("Pruned 0 stale review action state entries", missing_output.getvalue())
+        self.assertFalse(missing_state_path.exists())
+
+    def test_main_research_action_prune_stale_invalid_state_returns_one_without_writing(self):
+        root = Path(".tmp-cli-test")
+        summary_path = root / "research-action-prune-invalid-summary.json"
+        state_path = root / "review_action_prune_invalid.json"
+        summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
+        state_path.write_text("{", encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "prune-stale",
+                str(summary_path),
+                "--state",
+                str(state_path),
+                "--write",
+            ])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(state_path.read_text(encoding="utf-8"), "{")
+        self.assertIn("Warning: Could not read review action state", output.getvalue())
+
     def test_main_research_action_set_rejects_invalid_status(self):
         with self.assertRaises(SystemExit) as context:
             main([
@@ -977,6 +1119,28 @@ def _review_action_summary_payload():
                 ],
             }
         ]
+    }
+
+
+def _review_action_state_with_stale_payload():
+    return {
+        "version": 1,
+        "actions": {
+            "2330:workflow-error": {
+                "stock_id": "2330",
+                "action_id": "workflow-error",
+                "status": "done",
+                "note": "checked",
+                "updated_at": "2026-05-15T09:00:00Z",
+            },
+            "9999:old-action": {
+                "stock_id": "9999",
+                "action_id": "old-action",
+                "status": "ignored",
+                "note": "obsolete",
+                "updated_at": "2026-05-15T10:00:00Z",
+            },
+        },
     }
 
 
