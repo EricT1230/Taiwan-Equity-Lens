@@ -613,6 +613,89 @@ class CliTests(unittest.TestCase):
         self.assertIn("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage", list_output.getvalue())
         self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tFix workflow.", list_output.getvalue())
 
+    def test_main_research_action_set_backs_up_existing_state_file(self):
+        root = Path(".tmp-cli-test/research-action-set-backup")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        for backup in root.glob("review_action_state.json.bak-*"):
+            backup.unlink()
+        original_state = {
+            "actions": {
+                "2330:workflow-error": {
+                    "stock_id": "2330",
+                    "action_id": "workflow-error",
+                    "status": "open",
+                    "note": "original",
+                    "updated_at": "2026-05-15T09:00:00Z",
+                }
+            }
+        }
+        original_text = json.dumps(original_state, indent=2)
+        state_path.write_text(original_text, encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "done",
+            ])
+
+        backups = list(root.glob("review_action_state.json.bak-*"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), original_text)
+        self.assertIn(f"Backup review action state: {backups[0]}", output.getvalue())
+        self.assertIn("Wrote", output.getvalue())
+
+    def test_main_research_action_set_does_not_backup_missing_or_invalid_state(self):
+        root = Path(".tmp-cli-test/research-action-set-no-backup")
+        root.mkdir(parents=True, exist_ok=True)
+        missing_state_path = root / "missing_review_action_state.json"
+        invalid_state_path = root / "invalid_review_action_state.json"
+        for backup in root.glob("*.bak-*"):
+            backup.unlink()
+        if missing_state_path.exists():
+            missing_state_path.unlink()
+        invalid_state_path.write_text("{", encoding="utf-8")
+
+        missing_output = StringIO()
+        with redirect_stdout(missing_output):
+            missing_exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(missing_state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "done",
+            ])
+        invalid_output = StringIO()
+        with redirect_stdout(invalid_output):
+            invalid_exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(invalid_state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "done",
+            ])
+
+        self.assertEqual(missing_exit_code, 0)
+        self.assertNotIn("Backup review action state", missing_output.getvalue())
+        self.assertEqual(invalid_exit_code, 1)
+        self.assertEqual(invalid_state_path.read_text(encoding="utf-8"), "{")
+        self.assertIn("Warning: Could not read review action state", invalid_output.getvalue())
+        self.assertEqual(list(root.glob("*.bak-*")), [])
+
     def test_main_research_action_report_uses_explicit_state_file(self):
         root = Path(".tmp-cli-test")
         state_path = root / "review_action_report_state.json"
@@ -745,11 +828,15 @@ class CliTests(unittest.TestCase):
         self.assertIn("9999\tignored\told-action\t2026-05-15T10:00:00Z\tobsolete", text)
 
     def test_main_research_action_prune_stale_write_removes_stale_entries(self):
-        root = Path(".tmp-cli-test")
+        root = Path(".tmp-cli-test/research-action-prune-write")
+        root.mkdir(parents=True, exist_ok=True)
         summary_path = root / "research-action-prune-write-summary.json"
         state_path = root / "review_action_prune_write_state.json"
+        for backup in root.glob("review_action_prune_write_state.json.bak-*"):
+            backup.unlink()
         summary_path.write_text(json.dumps(_review_action_summary_payload()), encoding="utf-8")
-        state_path.write_text(json.dumps(_review_action_state_with_stale_payload()), encoding="utf-8")
+        original_text = json.dumps(_review_action_state_with_stale_payload(), indent=2)
+        state_path.write_text(original_text, encoding="utf-8")
 
         output = StringIO()
         with redirect_stdout(output):
@@ -764,7 +851,11 @@ class CliTests(unittest.TestCase):
             ])
 
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        backups = list(root.glob("review_action_prune_write_state.json.bak-*"))
         self.assertEqual(exit_code, 0)
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), original_text)
+        self.assertIn(f"Backup review action state: {backups[0]}", output.getvalue())
         self.assertIn("Pruned 1 stale review action state entries", output.getvalue())
         self.assertEqual(list(state["actions"]), ["2330:workflow-error"])
         self.assertEqual(state["actions"]["2330:workflow-error"]["status"], "done")

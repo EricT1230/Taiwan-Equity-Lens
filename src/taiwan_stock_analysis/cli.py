@@ -28,6 +28,7 @@ from taiwan_stock_analysis.research import (
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
+    backup_review_action_state,
     build_review_action_state_report,
     load_review_action_state,
     prune_stale_review_action_state,
@@ -468,13 +469,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.research_command == "action":
             if args.research_action_command == "set":
-                output_path = set_review_action_state(
-                    args.state_path,
-                    args.stock_id,
-                    args.action_id,
-                    args.status,
-                    note=args.note,
-                )
+                try:
+                    output_path, backup_path = set_review_action_state(
+                        args.state_path,
+                        args.stock_id,
+                        args.action_id,
+                        args.status,
+                        note=args.note,
+                    )
+                except ValueError as exc:
+                    print(f"Warning: {exc}")
+                    return 1
+                _print_review_action_state_backup(backup_path)
                 print(f"Wrote {output_path}")
                 return 0
             if args.research_action_command == "list":
@@ -528,7 +534,9 @@ def main(argv: list[str] | None = None) -> int:
                     state,
                 )
                 if args.write and state_path.exists():
+                    backup_path = backup_review_action_state(state_path)
                     write_review_action_state(state_path, pruned_state)
+                    _print_review_action_state_backup(backup_path)
                     print(f"Pruned {len(stale_rows)} stale review action state entries")
                     return 0
                 _print_review_action_stale_rows(stale_rows, write_enabled=args.write, state_exists=state_path.exists())
@@ -639,6 +647,11 @@ def _print_review_action_state_report(report: dict[str, object]) -> None:
                 ]
             )
         )
+
+
+def _print_review_action_state_backup(backup_path: Path | None) -> None:
+    if backup_path is not None:
+        print(f"Backup review action state: {backup_path}")
 
 
 def _print_review_action_stale_rows(

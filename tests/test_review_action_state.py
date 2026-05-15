@@ -116,6 +116,8 @@ class ReviewActionStateTests(unittest.TestCase):
     def test_backup_review_action_state_preserves_original_bytes(self):
         path = Path(".tmp-cli-test/review-action-state-backup.json")
         path.parent.mkdir(parents=True, exist_ok=True)
+        for backup in path.parent.glob(f"{path.name}.bak-*"):
+            backup.unlink()
         original = b'{"actions":{"2330:workflow-error":{"status":"done"}}}\r\n'
         path.write_bytes(original)
 
@@ -142,6 +144,8 @@ class ReviewActionStateTests(unittest.TestCase):
     def test_backup_review_action_state_avoids_overwriting_existing_backup(self):
         path = Path(".tmp-cli-test/review-action-state-backup-collision.json")
         path.parent.mkdir(parents=True, exist_ok=True)
+        for backup in path.parent.glob(f"{path.name}.bak-*"):
+            backup.unlink()
         path.write_text("current", encoding="utf-8")
         existing = Path(".tmp-cli-test/review-action-state-backup-collision.json.bak-20260516T173000Z")
         existing.write_text("existing", encoding="utf-8")

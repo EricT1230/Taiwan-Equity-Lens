@@ -53,13 +53,15 @@ def set_review_action_state(
     status: str,
     note: str = "",
     updated_at: str | None = None,
-) -> Path:
+) -> tuple[Path, Path | None]:
     status = _clean_string(status)
     if status not in ACTION_STATUSES:
         allowed = ", ".join(ACTION_STATUSES)
         raise ValueError(f"invalid review action status '{status}'. Allowed: {allowed}")
 
-    state, _warning = load_review_action_state(path)
+    state, warning = load_review_action_state(path)
+    if warning:
+        raise ValueError(warning)
     key = review_action_key(stock_id, action_id)
     state["actions"][key] = {
         "stock_id": _clean_string(stock_id),
@@ -68,7 +70,8 @@ def set_review_action_state(
         "note": _clean_string(note),
         "updated_at": updated_at or _utc_now(),
     }
-    return write_review_action_state(path, state)
+    backup_path = backup_review_action_state(path)
+    return write_review_action_state(path, state), backup_path
 
 
 def apply_review_action_state(
