@@ -193,6 +193,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>Workflow summary</span></div>
     </section>
     {_research_summary_section(research_summaries)}
+    {_review_actions_section(research_summaries)}
     <section>
       <h2>Research Memos</h2>
       <table><thead><tr><th>stock_id</th><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_memo_rows(memo_outputs)}</tbody></table>
@@ -394,6 +395,58 @@ def _universe_attention_rows(queue: list[Any]) -> str:
             "</tr>"
         )
     return "".join(rows) or _empty_row(8, "No universe attention queue items")
+
+
+def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
+    sections: list[str] = []
+    for summary in research_summaries:
+        if not isinstance(summary, dict) or summary.get("error"):
+            continue
+        action_summary = _dict_value(summary.get("review_action_summary"))
+        action_queue = summary.get("review_action_queue", [])
+        if not action_summary and not action_queue:
+            continue
+        rows = _review_action_rows(action_queue if isinstance(action_queue, list) else [])
+        sections.append(
+            "<div>"
+            f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
+            '<p class="status-line">'
+            f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
+            f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
+            f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
+            "</p>"
+            "<table><thead><tr><th>stock_id</th><th>priority</th><th>severity</th><th>category</th><th>action</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+            "</div>"
+        )
+    if not sections:
+        return ""
+    return f"<section><h2>Review Actions</h2>{''.join(sections)}</section>"
+
+
+def _review_action_rows(action_queue: list[Any]) -> str:
+    rows: list[str] = []
+    for item in action_queue:
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "-")
+        priority = str(item.get("priority") or "-")
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            rows.append(
+                "<tr>"
+                f"<td>{escape(stock_id)}</td>"
+                f"<td>{escape(priority)}</td>"
+                f"<td>{escape(str(action.get('severity') or '-'))}</td>"
+                f"<td>{escape(str(action.get('category') or '-'))}</td>"
+                f"<td>{escape(str(action.get('message') or '-'))}</td>"
+                "</tr>"
+            )
+    return "".join(rows) or _empty_row(5, "No review actions")
 
 
 def _universe_count_badges(counts: dict[str, Any]) -> str:

@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.13.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.14.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -23,6 +23,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Carries working thesis, key risks, watch triggers, and follow-up questions through research summaries, memos, and packs.
 - Adds lightweight traceability metadata so workflow, summary, memo, and pack outputs can be followed across a run.
 - Tracks source mode, freshness, and source-audit status across workflow, pack, and dashboard outputs.
+- Converts source-audit, reliability, valuation, and research-quality signals into deterministic review actions.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -143,7 +144,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-d
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.13.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.14.0
 ```
 
 ## Example Files
@@ -210,6 +211,8 @@ The source-audit layer uses source modes such as `live`, `fixture`, `offline`, `
 
 Research summaries include a `universe_review` object for work prioritization. It groups the research universe by category, state, and priority, then builds a deterministic attention queue. This is a research workflow queue, not a portfolio ranking or investment recommendation.
 
+Research summaries also include `review_actions`, `review_action_summary`, and `review_action_queue` so handoff artifacts show concrete source, workflow, reliability, valuation, and research-quality checks.
+
 The project uses four status values:
 
 - `ok`: the stage completed without detected data issues
@@ -246,6 +249,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.14.0 release notes](docs/releases/v0.14.0.md)
 - [v0.13.0 release notes](docs/releases/v0.13.0.md)
 - [v0.12.0 release notes](docs/releases/v0.12.0.md)
 - [v0.11.0 release notes](docs/releases/v0.11.0.md)

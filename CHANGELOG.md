@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.14.0 - 2026-05-15
+
+Review Action Layer release.
+
+### Added
+
+- Deterministic review actions for source audit, workflow, reliability, valuation, and research-quality checks.
+- Per-stock `review_actions` in research summaries.
+- Top-level `review_action_summary` and `review_action_queue`.
+- Review Action Checklist in research packs.
+- Review Actions section in dashboards.
+- v0.14.0 release notes.
+
+### Changed
+
+- GitHub Actions now uses Node 24-compatible `actions/checkout@v6` and `actions/setup-python@v6`.
+- Package version is now `0.14.0`.
+
+### Quality
+
+- Added tests for action building, research-summary aggregation, pack/dashboard rendering, CI workflow action versions, and release readiness.
+
 ## v0.13.0 - 2026-05-14
 
 Data Freshness & Source Audit release.

@@ -25,7 +25,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.13.0"])
+            exit_code = main(["doctor", "release", "--version", "0.14.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -38,6 +38,14 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("Release readiness failed", output.getvalue())
+
+    def test_tests_workflow_uses_node24_compatible_actions(self):
+        workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
+
+        self.assertIn("actions/checkout@v6", workflow)
+        self.assertIn("actions/setup-python@v6", workflow)
+        self.assertNotIn("actions/checkout@v4", workflow)
+        self.assertNotIn("actions/setup-python@v5", workflow)
 
     def test_run_with_fixture_writes_json_and_html(self):
         root = Path(".tmp-cli-test")
@@ -598,6 +606,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "packs" / "pack_summary.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
+        self.assertIn("Review Actions", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
 
     def test_main_research_run_writes_memos_by_default(self):
         root = Path(".tmp-cli-test")

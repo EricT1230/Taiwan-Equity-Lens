@@ -241,6 +241,8 @@ def build_pack_context(
         "run_metadata": read_run_metadata(research_summary),
         "workflow_reliability": workflow_reliability,
         "source_audit": source_audit,
+        "review_action_summary": _dict(research_summary.get("review_action_summary")),
+        "review_action_queue": research_summary.get("review_action_queue", []),
         "workflow_summary": workflow_summary,
         "items": items,
         "review_queue": sorted(items, key=_review_sort_key),
@@ -270,9 +272,62 @@ def _attention_text(item: dict[str, Any]) -> str:
     return "-"
 
 
+def _review_action_markdown_rows(queue: Any) -> list[str]:
+    if not isinstance(queue, list):
+        return ["-"]
+    rows: list[str] = []
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            rows.append(
+                " | ".join(
+                    [
+                        _markdown_cell(item.get("stock_id")),
+                        _markdown_cell(item.get("priority")),
+                        _markdown_cell(action.get("severity")),
+                        _markdown_cell(action.get("category")),
+                        _markdown_cell(action.get("message")),
+                    ]
+                )
+            )
+    return rows or ["-"]
+
+
+def _review_action_html_rows(queue: Any) -> str:
+    if not isinstance(queue, list):
+        return '<tr><td colspan="5">-</td></tr>'
+    rows: list[str] = []
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            rows.append(
+                "<tr>"
+                f"<td>{escape(_text(item.get('stock_id')))}</td>"
+                f"<td>{escape(_text(item.get('priority')))}</td>"
+                f"<td>{escape(_text(action.get('severity')))}</td>"
+                f"<td>{escape(_text(action.get('category')))}</td>"
+                f"<td>{escape(_text(action.get('message')))}</td>"
+                "</tr>"
+            )
+    return "".join(rows) or '<tr><td colspan="5">-</td></tr>'
+
+
 def render_pack_markdown(context: dict[str, Any]) -> str:
     research_quality = _dict(context.get("research_quality"))
     source_audit = _dict(context.get("source_audit"))
+    review_action_summary = _dict(context.get("review_action_summary"))
     overview_lines = [
         "# Research Pack",
         "",
@@ -293,6 +348,18 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         "## Source Audit Overview",
         f"- Overall: {_markdown_scalar(source_audit.get('status'))}",
         f"- Counts: {_format_markdown_counts(source_audit.get('counts'))}",
+        "",
+        "## Review Action Checklist",
+        f"- Total open: {_markdown_scalar(review_action_summary.get('total_open'))}",
+        f"- By severity: {_format_markdown_counts(review_action_summary.get('by_severity'))}",
+        f"- By category: {_format_markdown_counts(review_action_summary.get('by_category'))}",
+        "",
+        "| Stock | Priority | Severity | Category | Action |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    review_action_rows = _review_action_markdown_rows(context.get("review_action_queue"))
+
+    reliability_lines = [
         "",
         "## Reliability Overview",
         f"- Workflow reliability: {_format_counts(context.get('workflow_reliability'))}",
@@ -359,7 +426,7 @@ def render_pack_markdown(context: dict[str, Any]) -> str:
         "This pack is research workflow support only and is not investment advice.",
         "",
     ]
-    return "\n".join(overview_lines + queue_rows + output_lines + index_rows + closing_lines)
+    return "\n".join(overview_lines + review_action_rows + reliability_lines + queue_rows + output_lines + index_rows + closing_lines)
 
 
 def _html_list_item(label: str, value: Any) -> str:
@@ -369,6 +436,7 @@ def _html_list_item(label: str, value: Any) -> str:
 def render_pack_html(context: dict[str, Any]) -> str:
     research_quality = _dict(context.get("research_quality"))
     source_audit = _dict(context.get("source_audit"))
+    review_action_summary = _dict(context.get("review_action_summary"))
     queue_rows = []
     for item in context.get("review_queue", []):
         if not isinstance(item, dict):
@@ -441,6 +509,18 @@ def render_pack_html(context: dict[str, Any]) -> str:
         {_html_list_item("Overall", source_audit.get("status"))}
         {_html_list_item("Counts", _format_counts(source_audit.get("counts")))}
       </ul>
+    </section>
+    <section>
+      <h2>Review Action Checklist</h2>
+      <ul>
+        {_html_list_item("Total open", review_action_summary.get("total_open"))}
+        {_html_list_item("By severity", _format_counts(review_action_summary.get("by_severity")))}
+        {_html_list_item("By category", _format_counts(review_action_summary.get("by_category")))}
+      </ul>
+      <table>
+        <thead><tr><th>Stock</th><th>Priority</th><th>Severity</th><th>Category</th><th>Action</th></tr></thead>
+        <tbody>{_review_action_html_rows(context.get("review_action_queue"))}</tbody>
+      </table>
     </section>
     <section>
       <h2>Reliability Overview</h2>

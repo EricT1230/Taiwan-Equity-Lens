@@ -475,6 +475,97 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2330", html)
         self.assertIn("2303", html)
 
+    def test_render_dashboard_html_contains_review_actions(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {
+                            "total_open": 2,
+                            "by_category": {"source_audit": 1, "valuation": 1},
+                            "by_severity": {"manual_review": 1, "warning": 1},
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "source-audit-manual-review",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review source audit: fixture source",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "counts": {"total": 1, "needs_attention": 1},
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn("Review Actions", html)
+        self.assertIn("total open: 2", html)
+        self.assertIn("manual_review", html)
+        self.assertIn("source_audit", html)
+        self.assertIn("2330", html)
+        self.assertIn("Review source audit: fixture source", html)
+
+    def test_render_dashboard_html_escapes_review_actions(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {
+                            "total_open": 1,
+                            "by_category": {"source_audit": 1},
+                            "by_severity": {"manual_review": 1},
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330<script>",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "x",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review <source>",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "counts": {"total": 1, "needs_attention": 1},
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn("2330&lt;script&gt;", html)
+        self.assertIn("Review &lt;source&gt;", html)
+        self.assertNotIn("2330<script>", html)
+        self.assertNotIn("Review <source>", html)
+
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
         html = render_dashboard_html(
             {

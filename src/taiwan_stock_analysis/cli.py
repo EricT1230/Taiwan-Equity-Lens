@@ -469,6 +469,17 @@ def main(argv: list[str] | None = None) -> int:
                     else None,
                     dashboard_path=args.output_dir / "dashboard.html",
                 )
+            write_dashboard_index(
+                [
+                    args.output_dir,
+                    args.output_dir / "reports",
+                    args.output_dir / "valuation-reports",
+                    args.output_dir / "comparison",
+                    args.output_dir / "memos",
+                    args.output_dir / "packs",
+                ],
+                args.output_dir / "dashboard.html",
+            )
             print(f"Wrote {workflow_summary}")
             print(f"Wrote {research_summary}")
             if not args.skip_memos:

@@ -53,6 +53,12 @@ The source audit is a workflow control. It records whether financial statements 
 
 The source audit does not rank securities, approve data quality, or remove the need for accounting and source-document review. It only makes source freshness and review boundaries visible across workflow summaries, research packs, and dashboards.
 
+## Review Actions
+
+Review actions convert workflow state into a deterministic checklist. They can flag source-audit review, workflow failures, reliability warnings, missing valuation output, and missing high-priority research fields.
+
+They are operational tasks only. They do not rank securities, approve a thesis, or create buy, sell, hold, or allocation recommendations.
+
 ## Disclaimer
 
 All outputs are research workflow support only. They are not investment advice, recommendations, or decision labels.

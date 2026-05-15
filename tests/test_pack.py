@@ -29,6 +29,7 @@ class ResearchPackTests(unittest.TestCase):
         self.assertIn("# Research Pack", markdown)
         self.assertIn("## Run Overview", markdown)
         self.assertIn("## Reliability Overview", markdown)
+        self.assertIn("## Review Action Checklist", markdown)
         self.assertIn("## Priority Review Queue", markdown)
         self.assertIn("2330 | TSMC | review | high", markdown)
         self.assertIn("## Generated Outputs", markdown)
@@ -154,6 +155,105 @@ class ResearchPackTests(unittest.TestCase):
         self.assertIn("&lt;manual_review&gt;", html)
         self.assertNotIn("<manual_review>", html)
 
+    def test_build_pack_context_passes_review_actions(self):
+        research_summary = self._write_research_summary(
+            review_action_summary={
+                "total_open": 1,
+                "by_category": {"source_audit": 1},
+                "by_severity": {"manual_review": 1},
+            },
+            review_action_queue=[
+                {
+                    "stock_id": "2330",
+                    "company_name": "TSMC",
+                    "priority": "high",
+                    "actions": [
+                        {
+                            "id": "source-audit-manual-review",
+                            "category": "source_audit",
+                            "severity": "manual_review",
+                            "message": "Review source audit: fixture source",
+                            "status": "open",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        context = build_pack_context(research_summary, research_csv_path=Path("research.csv"))
+
+        self.assertEqual(1, context["review_action_summary"]["total_open"])
+        self.assertEqual("2330", context["review_action_queue"][0]["stock_id"])
+
+    def test_render_pack_markdown_includes_review_action_checklist(self):
+        context = build_pack_context(
+            self._write_research_summary(
+                review_action_summary={
+                    "total_open": 2,
+                    "by_category": {"source_audit": 1, "valuation": 1},
+                    "by_severity": {"manual_review": 1, "warning": 1},
+                },
+                review_action_queue=[
+                    {
+                        "stock_id": "2330",
+                        "priority": "high",
+                        "actions": [
+                            {
+                                "id": "source-audit-manual-review",
+                                "category": "source_audit",
+                                "severity": "manual_review",
+                                "message": "Review source audit: fixture | source\ncheck",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+            ),
+            research_csv_path=Path("research.csv"),
+        )
+
+        markdown = render_pack_markdown(context)
+
+        self.assertIn("## Review Action Checklist", markdown)
+        self.assertIn("- Total open: 2", markdown)
+        self.assertIn("- By severity: manual_review: 1, warning: 1", markdown)
+        self.assertIn("2330 | high | manual_review | source_audit | Review source audit: fixture \\| source check", markdown)
+
+    def test_render_pack_html_includes_escaped_review_action_checklist(self):
+        context = build_pack_context(
+            self._write_research_summary(
+                review_action_summary={
+                    "total_open": 1,
+                    "by_category": {"source_audit": 1},
+                    "by_severity": {"manual_review": 1},
+                },
+                review_action_queue=[
+                    {
+                        "stock_id": "2330<script>",
+                        "priority": "high",
+                        "actions": [
+                            {
+                                "id": "source-audit-manual-review",
+                                "category": "source_audit",
+                                "severity": "manual_review",
+                                "message": "Review <source>",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+            ),
+            research_csv_path=Path("research.csv"),
+        )
+
+        html = render_pack_html(context)
+
+        self.assertIn("<h2>Review Action Checklist</h2>", html)
+        self.assertIn("2330&lt;script&gt;", html)
+        self.assertIn("Review &lt;source&gt;", html)
+        self.assertNotIn("2330<script>", html)
+        self.assertNotIn("Review <source>", html)
+
     def test_build_pack_context_tolerates_missing_optional_inputs(self):
         context = build_pack_context(self._write_research_summary(), research_csv_path=Path("research.csv"))
 
@@ -268,7 +368,15 @@ class ResearchPackTests(unittest.TestCase):
             payload["artifact_registry"]["outputs"],
         )
 
-    def _write_research_summary(self, company_name="TSMC", extra_items=None, nested_counts=False, source_audit=None):
+    def _write_research_summary(
+        self,
+        company_name="TSMC",
+        extra_items=None,
+        nested_counts=False,
+        source_audit=None,
+        review_action_summary=None,
+        review_action_queue=None,
+    ):
         path = self.root / "research_summary.json"
         items = [
             {
@@ -319,6 +427,8 @@ class ResearchPackTests(unittest.TestCase):
                     "priority_counts": priority_counts,
                     "items": items,
                     "source_audit": source_audit or {},
+                    "review_action_summary": review_action_summary or {},
+                    "review_action_queue": review_action_queue or [],
                 }
             ),
             encoding="utf-8",
