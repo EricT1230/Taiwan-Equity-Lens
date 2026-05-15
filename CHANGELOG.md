@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.15.0 - 2026-05-15
+
+Review Action Dashboard Filtering release.
+
+### Added
+
+- Dashboard filters for review action severity, category, priority, and search text.
+- Stable review-action row metadata for client-side filtering.
+- No-match empty state for filtered review action tables.
+- v0.15.0 release notes.
+
+### Changed
+
+- Package version is now `0.15.0`.
+
+### Quality
+
+- Added dashboard tests for filter controls, row metadata, escaping, JavaScript hooks, and legacy compatibility.
+
 ## v0.14.0 - 2026-05-15
 
 Review Action Layer release.

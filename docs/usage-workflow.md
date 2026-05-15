@@ -303,6 +303,8 @@ From v0.14.0 onward, `research_summary.json` also includes review-action fields:
 
 Review actions are workflow tasks, not investment recommendations. They identify source checks, workflow failures, reliability warnings, valuation gaps, and missing research-quality fields.
 
+The dashboard `Review Actions` section can filter open actions by severity, category, priority, and search text. Filtering is local to the static dashboard page and does not modify `research_summary.json`.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 9. Generate Dashboard
@@ -323,7 +325,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.14.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.15.0
 python -m unittest discover -s tests -v
 ```
 
