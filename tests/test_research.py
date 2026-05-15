@@ -271,6 +271,73 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual("manual_review", item["source_audit_status"])
         self.assertEqual(["fixture source"], item["source_audit_reasons"])
 
+    def test_build_research_summary_adds_review_actions_and_queue(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-review-actions.csv"
+        workflow_dir = root / "review-actions-workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions\n"
+            "2330,TSMC,Semiconductor,high,review,Needs review,,FX risk,Revenue trigger,\n"
+            "2303,UMC,Semiconductor,medium,watching,Track warnings,UMC thesis,,Utilization?,What margin is assumed?\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330", "2303"],
+                    "data_reliability": {"overall_status": "warning", "warning": 1, "error": 0},
+                    "step_statuses": {"valuation": {"status": "warning"}},
+                    "source_audit": {
+                        "status": "manual_review",
+                        "items": [
+                            {
+                                "stock_id": "2330",
+                                "status": "manual_review",
+                                "financial_statement": {"review_reason": "fixture source requires manual review"},
+                                "price": {"review_reason": "offline mode"},
+                            }
+                        ],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        items = {item["stock_id"]: item for item in summary["items"]}
+        item_2330_action_ids = [action["id"] for action in items["2330"]["review_actions"]]
+        self.assertIn("source-audit-manual-review", item_2330_action_ids)
+        self.assertIn("research-quality-missing-thesis", item_2330_action_ids)
+        self.assertIn("research-quality-missing-follow-up", item_2330_action_ids)
+        self.assertEqual(summary["review_action_summary"]["total_open"], 9)
+        self.assertEqual(summary["review_action_summary"]["by_category"]["source_audit"], 2)
+        self.assertEqual(summary["review_action_summary"]["by_severity"]["unknown"], 1)
+        self.assertEqual(summary["review_action_queue"][0]["stock_id"], "2303")
+        self.assertEqual(summary["review_action_queue"][0]["actions"][0]["id"], "source-audit-unknown")
+
+    def test_build_research_summary_review_actions_handles_missing_workflow(self):
+        path = Path(".tmp-research-test/review-actions-no-workflow.csv")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,medium,watching,\n",
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(
+            path,
+            workflow_dir=Path(".tmp-research-test/missing-review-action-workflow"),
+        )
+
+        actions = summary["items"][0]["review_actions"]
+        self.assertEqual(actions[0]["id"], "valuation-unavailable")
+        self.assertEqual(actions[1]["id"], "workflow-skipped")
+        self.assertEqual(actions[1]["category"], "workflow")
+        self.assertEqual(actions[1]["severity"], "info")
+        self.assertEqual(summary["review_action_summary"]["total_open"], 2)
+
     def test_build_research_summary_includes_universe_review_counts_and_buckets(self):
         root = Path(".tmp-research-test")
         research = root / "summary-universe-review.csv"

@@ -6,6 +6,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from taiwan_stock_analysis.review_actions import (
+    build_review_action_queue,
+    build_review_action_summary,
+    build_review_actions,
+)
 from taiwan_stock_analysis.traceability import build_artifact_registry, read_run_metadata
 
 
@@ -148,19 +153,19 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             reliability_status=reliability_status,
             workflow_payload=workflow_payload,
         )
-        items.append(
-            {
-                **row,
-                "workflow_status": workflow_status,
-                "reliability_status": reliability_status,
-                "attention_reasons": attention_reasons,
-                "source_audit_status": _source_audit_status(
-                    stock_source_audit,
-                    has_source_audit=bool(source_audit),
-                ),
-                "source_audit_reasons": _source_audit_reasons(stock_source_audit),
-            }
-        )
+        item = {
+            **row,
+            "workflow_status": workflow_status,
+            "reliability_status": reliability_status,
+            "attention_reasons": attention_reasons,
+            "source_audit_status": _source_audit_status(
+                stock_source_audit,
+                has_source_audit=bool(source_audit),
+            ),
+            "source_audit_reasons": _source_audit_reasons(stock_source_audit),
+        }
+        item["review_actions"] = build_review_actions(item)
+        items.append(item)
 
     summary = {
         "research_path": str(research_path),
@@ -173,6 +178,8 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
         },
         "items": items,
         "universe_review": build_universe_review(items),
+        "review_action_summary": build_review_action_summary(items),
+        "review_action_queue": build_review_action_queue(items),
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
         "source_audit": source_audit,
     }
