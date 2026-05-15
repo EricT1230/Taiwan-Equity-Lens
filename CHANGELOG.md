@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.21.0 - 2026-05-16
+
+Review Action State Restore release.
+
+### Added
+
+- `research action restore STATE_PATH BACKUP_PATH` CLI command for restoring explicit review-action state backups.
+- Current-state backup creation before restore when `STATE_PATH` already exists and is valid.
+- Restore output lines showing both the current-state backup path and restored state path.
+- v0.21.0 release notes.
+
+### Changed
+
+- Package version is now `0.21.0`.
+
+### Quality
+
+- Added unit and CLI coverage for byte-preserving restore, missing targets, current-state backups, invalid backups, and invalid current state files.
+- Release doctor updated for `0.21.0`.
+
 ## v0.20.0 - 2026-05-16
 
 Review Action State Backups release.

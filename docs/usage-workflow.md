@@ -313,6 +313,7 @@ python -m taiwan_stock_analysis.cli research action list research-dist/research_
 python -m taiwan_stock_analysis.cli research action report research-dist/research_summary.json --state research-dist/review_action_state.json
 python -m taiwan_stock_analysis.cli research action prune-stale research-dist/research_summary.json --state research-dist/review_action_state.json
 python -m taiwan_stock_analysis.cli research action prune-stale research-dist/research_summary.json --state research-dist/review_action_state.json --write
+python -m taiwan_stock_analysis.cli research action restore research-dist/review_action_state.json research-dist/review_action_state.json.bak-20260516T173000Z
 ```
 
 Allowed statuses are `open`, `done`, `deferred`, and `ignored`. When `dashboard.html` is regenerated, it automatically reads `review_action_state.json` from the same directory as `research_summary.json` and overlays those statuses into the Review Actions table.
@@ -324,6 +325,8 @@ From v0.18.0 onward, `research action report` audits the sidecar state without m
 From v0.19.0 onward, `research action prune-stale` removes stale sidecar entries only when `--write` is provided. Without `--write`, it runs as a dry-run and lists the stale entries that would be removed.
 
 From v0.20.0 onward, write commands that update an existing valid `review_action_state.json` first create a timestamped backup such as `review_action_state.json.bak-20260516T173000Z`. Backups are created for `research action set` and `research action prune-stale --write`; missing or invalid state files are not backed up.
+
+From v0.21.0 onward, `research action restore STATE_PATH BACKUP_PATH` restores an explicit backup file. If the current state file exists and is valid, the command first creates a new timestamped backup of the current state, then copies the selected backup bytes to `STATE_PATH`. Invalid backup files or invalid current state files are not overwritten.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
@@ -345,7 +348,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.20.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.21.0
 python -m unittest discover -s tests -v
 ```
 
