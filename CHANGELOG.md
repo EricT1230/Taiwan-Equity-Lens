@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.20.0 - 2026-05-16
+
+Review Action State Backups release.
+
+### Added
+
+- Timestamped backups before `research action set` rewrites an existing valid state file.
+- Timestamped backups before `research action prune-stale --write` rewrites an existing valid state file.
+- Backup output lines showing the created backup path.
+- v0.20.0 release notes.
+
+### Changed
+
+- Package version is now `0.20.0`.
+- `research action set` now refuses to overwrite invalid state JSON.
+
+### Quality
+
+- Added unit coverage for backup naming, byte preservation, collision handling, CLI backup output, missing state files, and invalid state JSON.
+- Release doctor updated for `0.20.0`.
+
 ## v0.19.0 - 2026-05-16
 
 Review Action State Pruning release.

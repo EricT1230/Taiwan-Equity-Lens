@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.19.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.20.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -28,6 +28,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Persists review-action done, deferred, and ignored states in a local sidecar state file.
 - Reports review-action state health, stale sidecar entries, and the next open actions from the CLI and dashboard.
 - Prunes stale review-action state entries explicitly with a dry-run-by-default CLI command.
+- Backs up existing review-action state files before CLI writes.
 - Copies review-action state update commands directly from the static dashboard.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
@@ -149,7 +150,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-d
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.19.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.20.0
 ```
 
 ## Example Files
@@ -254,6 +255,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.20.0 release notes](docs/releases/v0.20.0.md)
 - [v0.19.0 release notes](docs/releases/v0.19.0.md)
 - [v0.18.0 release notes](docs/releases/v0.18.0.md)
 - [v0.17.0 release notes](docs/releases/v0.17.0.md)

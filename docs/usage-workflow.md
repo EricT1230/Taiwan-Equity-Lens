@@ -323,6 +323,8 @@ From v0.18.0 onward, `research action report` audits the sidecar state without m
 
 From v0.19.0 onward, `research action prune-stale` removes stale sidecar entries only when `--write` is provided. Without `--write`, it runs as a dry-run and lists the stale entries that would be removed.
 
+From v0.20.0 onward, write commands that update an existing valid `review_action_state.json` first create a timestamped backup such as `review_action_state.json.bak-20260516T173000Z`. Backups are created for `research action set` and `research action prune-stale --write`; missing or invalid state files are not backed up.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 9. Generate Dashboard
@@ -343,7 +345,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 10. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.19.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.20.0
 python -m unittest discover -s tests -v
 ```
 
