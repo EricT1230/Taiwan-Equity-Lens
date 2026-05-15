@@ -38,6 +38,14 @@ def write_review_action_state(path: Path, state: dict[str, Any]) -> Path:
     return path
 
 
+def backup_review_action_state(path: Path, timestamp: datetime | None = None) -> Path | None:
+    if not path.exists():
+        return None
+    backup_path = _unique_backup_path(path, timestamp or datetime.now(timezone.utc))
+    backup_path.write_bytes(path.read_bytes())
+    return backup_path
+
+
 def set_review_action_state(
     path: Path,
     stock_id: str,
@@ -247,6 +255,16 @@ def _last_updated(actions: dict[str, dict[str, Any]]) -> str:
         if isinstance(entry, dict) and _clean_string(entry.get("updated_at"))
     ]
     return max(values) if values else "-"
+
+
+def _unique_backup_path(path: Path, timestamp: datetime) -> Path:
+    suffix = timestamp.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = path.with_name(f"{path.name}.bak-{suffix}")
+    counter = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.name}.bak-{suffix}.{counter}")
+        counter += 1
+    return candidate
 
 
 def _clean_status(value: object) -> str:

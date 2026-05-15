@@ -1,9 +1,11 @@
 import json
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from taiwan_stock_analysis.review_action_state import (
     apply_review_action_state,
+    backup_review_action_state,
     build_review_action_state_report,
     current_review_action_keys,
     load_review_action_state,
@@ -110,6 +112,48 @@ class ReviewActionStateTests(unittest.TestCase):
 
         self.assertEqual(list(payload["actions"]), ["2303:source-audit-stale", "2330:workflow-error"])
         self.assertEqual(payload["actions"]["2330:workflow-error"]["status"], "done")
+
+    def test_backup_review_action_state_preserves_original_bytes(self):
+        path = Path(".tmp-cli-test/review-action-state-backup.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = b'{"actions":{"2330:workflow-error":{"status":"done"}}}\r\n'
+        path.write_bytes(original)
+
+        backup_path = backup_review_action_state(
+            path,
+            timestamp=datetime(2026, 5, 16, 17, 30, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(backup_path, Path(".tmp-cli-test/review-action-state-backup.json.bak-20260516T173000Z"))
+        self.assertEqual(backup_path.read_bytes(), original)
+
+    def test_backup_review_action_state_returns_none_when_missing(self):
+        path = Path(".tmp-cli-test/review-action-state-backup-missing.json")
+        if path.exists():
+            path.unlink()
+
+        self.assertIsNone(
+            backup_review_action_state(
+                path,
+                timestamp=datetime(2026, 5, 16, 17, 30, 0, tzinfo=timezone.utc),
+            )
+        )
+
+    def test_backup_review_action_state_avoids_overwriting_existing_backup(self):
+        path = Path(".tmp-cli-test/review-action-state-backup-collision.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("current", encoding="utf-8")
+        existing = Path(".tmp-cli-test/review-action-state-backup-collision.json.bak-20260516T173000Z")
+        existing.write_text("existing", encoding="utf-8")
+
+        backup_path = backup_review_action_state(
+            path,
+            timestamp=datetime(2026, 5, 16, 17, 30, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(backup_path, Path(".tmp-cli-test/review-action-state-backup-collision.json.bak-20260516T173000Z.1"))
+        self.assertEqual(existing.read_text(encoding="utf-8"), "existing")
+        self.assertEqual(backup_path.read_text(encoding="utf-8"), "current")
 
     def test_set_state_rejects_invalid_status(self):
         with self.assertRaisesRegex(ValueError, "invalid review action status"):
