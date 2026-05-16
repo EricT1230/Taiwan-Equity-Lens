@@ -835,6 +835,78 @@ class CliTests(unittest.TestCase):
         self.assertEqual(backup_path.read_text(encoding="utf-8"), backup_text)
         self.assertIn("Warning: Could not read current review action state", output.getvalue())
 
+    def test_main_research_action_backups_lists_text_rows_newest_first(self):
+        root = Path(".tmp-cli-test/research-action-backups-text")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        for item in root.glob("*"):
+            if item.is_file():
+                item.unlink()
+        older = root / "review_action_state.json.bak-20260516T173000Z"
+        newer = root / "review_action_state.json.bak-20260516T180000Z"
+        older.write_text("old", encoding="utf-8")
+        newer.write_text("newer", encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "backups", str(state_path)])
+
+        lines = output.getvalue().splitlines()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(lines[0], "created_at\tsize\tpath")
+        self.assertEqual(lines[1], f"2026-05-16T18:00:00Z\t5\t{newer}")
+        self.assertEqual(lines[2], f"2026-05-16T17:30:00Z\t3\t{older}")
+
+    def test_main_research_action_backups_empty_output_prints_header(self):
+        root = Path(".tmp-cli-test/research-action-backups-empty")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        for item in root.glob("*"):
+            if item.is_file():
+                item.unlink()
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "backups", str(state_path)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue().splitlines(), ["created_at\tsize\tpath"])
+
+    def test_main_research_action_backups_json_output_is_deterministic(self):
+        root = Path(".tmp-cli-test/research-action-backups-json")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        for item in root.glob("*"):
+            if item.is_file():
+                item.unlink()
+        newer = root / "review_action_state.json.bak-20260516T180000Z"
+        unknown = root / "review_action_state.json.bak-source"
+        newer.write_text("newer", encoding="utf-8")
+        unknown.write_text("unknown", encoding="utf-8")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["research", "action", "backups", str(state_path), "--json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["state_path"], str(state_path))
+        self.assertEqual(
+            payload["backups"],
+            [
+                {
+                    "created_at": "2026-05-16T18:00:00Z",
+                    "path": str(newer),
+                    "size": 5,
+                },
+                {
+                    "created_at": "unknown",
+                    "path": str(unknown),
+                    "size": 7,
+                },
+            ],
+        )
+
     def test_main_research_action_report_uses_explicit_state_file(self):
         root = Path(".tmp-cli-test")
         state_path = root / "review_action_report_state.json"

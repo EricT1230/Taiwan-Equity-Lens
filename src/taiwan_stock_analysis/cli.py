@@ -30,6 +30,7 @@ from taiwan_stock_analysis.review_action_state import (
     apply_review_action_state,
     backup_review_action_state,
     build_review_action_state_report,
+    list_review_action_state_backups,
     load_review_action_state,
     prune_stale_review_action_state,
     review_action_rows,
@@ -316,6 +317,10 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_report.add_argument("--state", type=Path, help="Path to review_action_state.json.")
     research_action_report.add_argument("--next-open-limit", type=int, default=5)
 
+    research_action_backups = research_action_subparsers.add_parser("backups", help="List review-action state backup files.")
+    research_action_backups.add_argument("state_path", type=Path)
+    research_action_backups.add_argument("--json", action="store_true", help="Print backup list as JSON.")
+
     research_action_prune = research_action_subparsers.add_parser("prune-stale", help="Prune stale review-action state entries.")
     research_action_prune.add_argument("research_summary", type=Path)
     research_action_prune.add_argument("--state", type=Path, help="Path to review_action_state.json.")
@@ -526,6 +531,20 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 _print_review_action_state_report(report)
                 return 0
+            if args.research_action_command == "backups":
+                rows = list_review_action_state_backups(args.state_path)
+                if args.json:
+                    print(
+                        json.dumps(
+                            {"backups": rows, "state_path": str(args.state_path)},
+                            ensure_ascii=False,
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                    return 0
+                _print_review_action_state_backups(rows)
+                return 0
             if args.research_action_command == "prune-stale":
                 payload = json.loads(args.research_summary.read_text(encoding="utf-8"))
                 queue = payload.get("review_action_queue", {}) if isinstance(payload, dict) else {}
@@ -666,6 +685,12 @@ def _print_review_action_state_report(report: dict[str, object]) -> None:
 def _print_review_action_state_backup(backup_path: Path | None) -> None:
     if backup_path is not None:
         print(f"Backup review action state: {backup_path}")
+
+
+def _print_review_action_state_backups(rows: list[dict[str, object]]) -> None:
+    print("created_at\tsize\tpath")
+    for row in rows:
+        print(f"{row.get('created_at', '')}\t{row.get('size', '')}\t{row.get('path', '')}")
 
 
 def _print_review_action_stale_rows(
