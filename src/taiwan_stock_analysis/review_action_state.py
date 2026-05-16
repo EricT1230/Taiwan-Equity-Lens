@@ -65,6 +65,30 @@ def restore_review_action_state(path: Path, backup_path: Path) -> tuple[Path, Pa
     return path, current_backup_path
 
 
+def list_review_action_state_backups(path: Path) -> list[dict[str, object]]:
+    if not path.parent.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for backup_path in path.parent.glob(f"{path.name}.bak-*"):
+        if not backup_path.is_file():
+            continue
+        try:
+            size = backup_path.stat().st_size
+        except OSError:
+            continue
+        timestamp = _parse_backup_timestamp(path, backup_path)
+        rows.append(
+            {
+                "created_at": _format_backup_created_at(timestamp),
+                "size": size,
+                "path": str(backup_path),
+                "_created_at_sort": timestamp,
+            }
+        )
+    rows.sort(key=_backup_list_sort_key, reverse=True)
+    return [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
+
+
 def set_review_action_state(
     path: Path,
     stock_id: str,
@@ -287,6 +311,30 @@ def _unique_backup_path(path: Path, timestamp: datetime) -> Path:
         candidate = path.with_name(f"{path.name}.bak-{suffix}.{counter}")
         counter += 1
     return candidate
+
+
+def _parse_backup_timestamp(path: Path, backup_path: Path) -> datetime | None:
+    prefix = f"{path.name}.bak-"
+    if not backup_path.name.startswith(prefix):
+        return None
+    suffix = backup_path.name[len(prefix):].split(".", 1)[0]
+    try:
+        return datetime.strptime(suffix, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _format_backup_created_at(timestamp: datetime | None) -> str:
+    if timestamp is None:
+        return "unknown"
+    return timestamp.isoformat().replace("+00:00", "Z")
+
+
+def _backup_list_sort_key(row: dict[str, object]) -> tuple[int, datetime, str]:
+    timestamp = row.get("_created_at_sort")
+    if isinstance(timestamp, datetime):
+        return (1, timestamp, str(row.get("path", "")))
+    return (0, datetime.min.replace(tzinfo=timezone.utc), str(row.get("path", "")))
 
 
 def _clean_status(value: object) -> str:

@@ -8,6 +8,7 @@ from taiwan_stock_analysis.review_action_state import (
     backup_review_action_state,
     build_review_action_state_report,
     current_review_action_keys,
+    list_review_action_state_backups,
     load_review_action_state,
     prune_stale_review_action_state,
     review_action_key,
@@ -300,6 +301,72 @@ class ReviewActionStateTests(unittest.TestCase):
             restore_review_action_state(path, backup_path)
 
         self.assertEqual(path.read_text(encoding="utf-8"), "{")
+
+    def test_list_review_action_state_backups_sorts_newest_first_and_ignores_unrelated(self):
+        root = Path(".tmp-cli-test/review-action-state-backups-list")
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "review_action_state.json"
+        for item in root.glob("*"):
+            if item.is_file():
+                item.unlink()
+        older = root / "review_action_state.json.bak-20260516T173000Z"
+        newer = root / "review_action_state.json.bak-20260516T180000Z"
+        unrelated = root / "other_state.json.bak-20260516T190000Z"
+        older.write_text("old", encoding="utf-8")
+        newer.write_text("newer", encoding="utf-8")
+        unrelated.write_text("unrelated", encoding="utf-8")
+
+        rows = list_review_action_state_backups(path)
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "created_at": "2026-05-16T18:00:00Z",
+                    "size": 5,
+                    "path": str(newer),
+                },
+                {
+                    "created_at": "2026-05-16T17:30:00Z",
+                    "size": 3,
+                    "path": str(older),
+                },
+            ],
+        )
+
+    def test_list_review_action_state_backups_handles_collisions_and_unknown_timestamps(self):
+        root = Path(".tmp-cli-test/review-action-state-backups-collisions")
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "review_action_state.json"
+        for item in root.glob("*"):
+            if item.is_file():
+                item.unlink()
+        base = root / "review_action_state.json.bak-20260516T180000Z"
+        collision = root / "review_action_state.json.bak-20260516T180000Z.1"
+        unknown_b = root / "review_action_state.json.bak-source-b"
+        unknown_a = root / "review_action_state.json.bak-source-a"
+        base.write_text("base", encoding="utf-8")
+        collision.write_text("collision", encoding="utf-8")
+        unknown_b.write_text("unknown-b", encoding="utf-8")
+        unknown_a.write_text("unknown-a", encoding="utf-8")
+
+        rows = list_review_action_state_backups(path)
+
+        self.assertEqual([row["path"] for row in rows], [str(collision), str(base), str(unknown_b), str(unknown_a)])
+        self.assertEqual(rows[0]["created_at"], "2026-05-16T18:00:00Z")
+        self.assertEqual(rows[1]["created_at"], "2026-05-16T18:00:00Z")
+        self.assertEqual(rows[2]["created_at"], "unknown")
+        self.assertEqual(rows[3]["created_at"], "unknown")
+
+    def test_list_review_action_state_backups_returns_empty_for_missing_parent(self):
+        path = Path(".tmp-cli-test/missing-backup-parent/review_action_state.json")
+        if path.parent.exists():
+            for item in path.parent.glob("*"):
+                if item.is_file():
+                    item.unlink()
+            path.parent.rmdir()
+
+        self.assertEqual(list_review_action_state_backups(path), [])
 
     def test_set_state_rejects_invalid_status(self):
         with self.assertRaisesRegex(ValueError, "invalid review action status"):
