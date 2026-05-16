@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.22.0 - 2026-05-16
+
+Review Action State Backup List release.
+
+### Added
+
+- `research action backups STATE_PATH` CLI command for listing review-action state backup files.
+- `--json` output for deterministic backup inventory automation.
+- Newest-first backup sorting with parsed timestamps and deterministic handling for unknown suffixes.
+- v0.22.0 release notes.
+
+### Changed
+
+- Package version is now `0.22.0`.
+
+### Quality
+
+- Added unit and CLI coverage for backup discovery, sorting, empty listings, text output, and JSON output.
+- Release doctor updated for `0.22.0`.
+
 ## v0.21.0 - 2026-05-16
 
 Review Action State Restore release.
