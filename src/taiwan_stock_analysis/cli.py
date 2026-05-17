@@ -287,6 +287,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_release.add_argument("--version", help="Expected release version, for example 0.10.0.")
     doctor_demo = doctor_subparsers.add_parser("demo", help="Check bundled demo output readiness.")
     doctor_demo.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
+    doctor_demo.add_argument("--json", action="store_true", help="Print demo readiness as JSON.")
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
@@ -553,7 +554,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.ok else 1
         if args.doctor_command == "demo":
             result = check_demo_readiness(args.output_dir)
-            print(format_demo_doctor_result(result))
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "failures": result.failures,
+                            "messages": result.messages,
+                            "ok": result.ok,
+                            "output_dir": str(args.output_dir),
+                            "repair_command": result.repair_command,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(format_demo_doctor_result(result))
             return 0 if result.ok else 1
         build_command_arg_parser().error("doctor command is required")
 

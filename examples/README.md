@@ -20,6 +20,12 @@ Verify the generated demo handoff files:
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
 ```
 
+For machine-readable output:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --json
+```
+
 `examples/fixtures/` contains synthetic financial-statement HTML for offline demos. It is not source data and should not be used as real company data.
 
 After opening the dashboard, inspect the review-action queue:

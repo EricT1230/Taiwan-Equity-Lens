@@ -25,7 +25,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.25.0"])
+            exit_code = main(["doctor", "release", "--version", "0.26.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -63,6 +63,38 @@ class CliTests(unittest.TestCase):
         self.assertIn("Demo readiness failed", stdout)
         self.assertIn("Repair:", stdout)
         self.assertIn(f"python -m taiwan_stock_analysis.cli demo quickstart --output-dir {output_dir}", stdout)
+
+    def test_main_doctor_demo_json_returns_machine_readable_payload(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-json-pass")
+        main(["demo", "quickstart", "--output-dir", str(output_dir)])
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["failures"], [])
+        self.assertEqual(payload["output_dir"], str(output_dir))
+        self.assertIn("required files present", payload["messages"])
+        self.assertEqual(
+            payload["repair_command"],
+            f"python -m taiwan_stock_analysis.cli demo quickstart --output-dir {output_dir}",
+        )
+
+    def test_main_doctor_demo_json_returns_failures(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-json-missing")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["output_dir"], str(output_dir))
+        self.assertTrue(any("missing" in failure for failure in payload["failures"]))
 
     def test_tests_workflow_uses_node24_compatible_actions(self):
         workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")

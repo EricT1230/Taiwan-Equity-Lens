@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.26.0 - 2026-05-18
+
+Demo Doctor JSON release.
+
+### Added
+
+- `doctor demo --json` for machine-readable demo readiness output.
+- JSON fields for `ok`, `messages`, `failures`, `output_dir`, and `repair_command`.
+- CLI coverage for successful and failing JSON demo doctor output.
+- v0.26.0 release notes.
+
+### Changed
+
+- README, usage workflow, and examples now document JSON demo doctor output for scripts and CI.
+- Package version is now `0.26.0`.
+
+### Quality
+
+- Added deterministic JSON output coverage for demo readiness pass and failure paths.
+- Release doctor updated for `0.26.0`.
+
 ## v0.25.0 - 2026-05-18
 
 Demo Doctor release.

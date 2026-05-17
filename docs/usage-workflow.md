@@ -31,6 +31,12 @@ Check that the demo generated the expected handoff files and review-action surfa
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
 ```
 
+Use JSON output when another tool should read the result:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --json
+```
+
 Open:
 
 ```text
@@ -389,6 +395,8 @@ From v0.22.0 onward, `research action backups STATE_PATH` lists matching backup 
 
 From v0.25.0 onward, `doctor demo --output-dir demo-dist` checks the quickstart demo output directory for required files, readable workflow and research summaries, successful stock IDs, review-action queue data, and the dashboard Review Actions section. It reports a repair command instead of mutating demo outputs.
 
+From v0.26.0 onward, pass `--json` to `doctor demo` for machine-readable `ok`, `messages`, `failures`, `output_dir`, and `repair_command` fields.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -409,7 +417,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.25.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.26.0
 python -m unittest discover -s tests -v
 ```
 
