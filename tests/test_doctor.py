@@ -1,7 +1,13 @@
+import json
 import unittest
 from pathlib import Path
 
-from taiwan_stock_analysis.doctor import check_release_readiness, find_local_markdown_links
+from taiwan_stock_analysis.doctor import (
+    check_demo_readiness,
+    check_release_readiness,
+    find_local_markdown_links,
+    format_demo_doctor_result,
+)
 
 
 class DoctorTests(unittest.TestCase):
@@ -72,6 +78,97 @@ class DoctorTests(unittest.TestCase):
 
         self.assertEqual([("README.md", "docs/usage-workflow.md")], links)
 
+    def test_check_demo_readiness_passes_for_complete_demo(self):
+        output_dir = Path(".tmp-doctor-test/demo-pass")
+        write_demo_fixture(output_dir)
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertTrue(result.ok)
+        self.assertEqual([], result.failures)
+        self.assertIn(f"output directory {output_dir}", result.messages)
+        self.assertIn("required files present", result.messages)
+        self.assertIn("dashboard includes Review Actions", result.messages)
+
+    def test_format_demo_doctor_result_reports_success(self):
+        output_dir = Path(".tmp-doctor-test/demo-format-pass")
+        write_demo_fixture(output_dir)
+
+        text = format_demo_doctor_result(check_demo_readiness(output_dir))
+
+        self.assertIn("Demo readiness OK:", text)
+        self.assertIn("required files present", text)
+
+    def test_check_demo_readiness_reports_missing_required_file(self):
+        output_dir = Path(".tmp-doctor-test/demo-missing-dashboard")
+        write_demo_fixture(output_dir)
+        (output_dir / "dashboard.html").unlink()
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"missing {output_dir / 'dashboard.html'}", result.failures)
+
+    def test_check_demo_readiness_reports_invalid_research_json(self):
+        output_dir = Path(".tmp-doctor-test/demo-invalid-json")
+        write_demo_fixture(output_dir)
+        (output_dir / "research_summary.json").write_text("{", encoding="utf-8")
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(f"invalid JSON: {output_dir / 'research_summary.json'}" in failure for failure in result.failures)
+        )
+
+    def test_check_demo_readiness_reports_missing_review_action_queue(self):
+        output_dir = Path(".tmp-doctor-test/demo-missing-queue")
+        write_demo_fixture(output_dir)
+        (output_dir / "research_summary.json").write_text(json.dumps({"items": []}), encoding="utf-8")
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            f"research summary has no review-action queue: {output_dir / 'research_summary.json'}",
+            result.failures,
+        )
+
+    def test_check_demo_readiness_reports_missing_successful_stock_ids(self):
+        output_dir = Path(".tmp-doctor-test/demo-no-successes")
+        write_demo_fixture(output_dir)
+        (output_dir / "workflow_summary.json").write_text(json.dumps({"successful_stock_ids": []}), encoding="utf-8")
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            f"workflow summary has no successful stock ids: {output_dir / 'workflow_summary.json'}",
+            result.failures,
+        )
+
+    def test_check_demo_readiness_reports_dashboard_without_review_actions(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-missing-actions")
+        write_demo_fixture(output_dir)
+        (output_dir / "dashboard.html").write_text("<html><body>No actions</body></html>", encoding="utf-8")
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"dashboard missing Review Actions: {output_dir / 'dashboard.html'}", result.failures)
+
+    def test_format_demo_doctor_result_includes_repair_command(self):
+        output_dir = Path(".tmp-doctor-test/demo-format-fail")
+
+        text = format_demo_doctor_result(check_demo_readiness(output_dir))
+
+        self.assertIn("Demo readiness failed:", text)
+        self.assertIn("Repair:", text)
+        self.assertIn(
+            f"python -m taiwan_stock_analysis.cli demo quickstart --output-dir {output_dir}",
+            text,
+        )
+
 
 def write_release_fixture(
     root: Path,
@@ -95,3 +192,23 @@ def write_release_fixture(
     (root / "CHANGELOG.md").write_text(f"# Changelog\n\n## v{changelog} - 2026-05-14\n", encoding="utf-8")
     (root / "docs/usage-workflow.md").write_text("# Usage\n", encoding="utf-8")
     (root / f"docs/releases/v{version}.md").write_text(f"# v{version}\n", encoding="utf-8")
+
+
+def write_demo_fixture(output_dir: Path) -> None:
+    (output_dir / "memos").mkdir(parents=True, exist_ok=True)
+    (output_dir / "packs").mkdir(parents=True, exist_ok=True)
+    (output_dir / "comparison").mkdir(parents=True, exist_ok=True)
+    (output_dir / "dashboard.html").write_text("<html><body>Review Actions</body></html>", encoding="utf-8")
+    (output_dir / "workflow_summary.json").write_text(
+        json.dumps({"successful_stock_ids": ["2330"]}),
+        encoding="utf-8",
+    )
+    (output_dir / "research_summary.json").write_text(
+        json.dumps({"review_action_queue": [{"stock_id": "2330", "actions": [{"id": "source-audit"}]}]}),
+        encoding="utf-8",
+    )
+    (output_dir / "memos" / "memo_summary.json").write_text("{}", encoding="utf-8")
+    (output_dir / "packs" / "pack_summary.json").write_text("{}", encoding="utf-8")
+    (output_dir / "comparison" / "comparison.html").write_text("<html></html>", encoding="utf-8")
+    (output_dir / "comparison" / "comparison.json").write_text("{}", encoding="utf-8")
+    (output_dir / "valuation.csv").write_text("stock_id\n2330\n", encoding="utf-8")
