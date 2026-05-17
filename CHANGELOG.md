@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.25.0 - 2026-05-18
+
+Demo Doctor release.
+
+### Added
+
+- `doctor demo --output-dir demo-dist` CLI check for validating bundled quickstart demo outputs.
+- Demo readiness checks for required handoff files, readable summary JSON, successful stock IDs, review-action queue data, and the dashboard Review Actions section.
+- Repair guidance that points back to `demo quickstart` when demo output is incomplete.
+- v0.25.0 release notes.
+
+### Changed
+
+- README, usage workflow, and examples now show the demo doctor after `demo quickstart`.
+- Package version is now `0.25.0`.
+
+### Quality
+
+- Added demo doctor unit and CLI coverage for pass and failure paths.
+- Release doctor updated for `0.25.0`.
+
 ## v0.24.0 - 2026-05-18
 
 Demo Quickstart Command release.

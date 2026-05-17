@@ -25,7 +25,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.24.0"])
+            exit_code = main(["doctor", "release", "--version", "0.25.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -38,6 +38,31 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("Release readiness failed", output.getvalue())
+
+    def test_main_doctor_demo_returns_zero_for_quickstart_output(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-pass")
+        main(["demo", "quickstart", "--output-dir", str(output_dir)])
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "demo", "--output-dir", str(output_dir)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Demo readiness OK", output.getvalue())
+        self.assertIn("required files present", output.getvalue())
+
+    def test_main_doctor_demo_returns_one_with_repair_command(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-missing")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "demo", "--output-dir", str(output_dir)])
+
+        self.assertEqual(exit_code, 1)
+        stdout = output.getvalue()
+        self.assertIn("Demo readiness failed", stdout)
+        self.assertIn("Repair:", stdout)
+        self.assertIn(f"python -m taiwan_stock_analysis.cli demo quickstart --output-dir {output_dir}", stdout)
 
     def test_tests_workflow_uses_node24_compatible_actions(self):
         workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")

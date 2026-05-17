@@ -25,6 +25,12 @@ python -m taiwan_stock_analysis.cli demo quickstart
 
 The command runs the bundled synthetic fixtures offline, writes the dashboard, and prints review-action follow-up commands.
 
+Check that the demo generated the expected handoff files and review-action surfaces:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
+```
+
 Open:
 
 ```text
@@ -381,6 +387,8 @@ From v0.21.0 onward, `research action restore STATE_PATH BACKUP_PATH` restores a
 
 From v0.22.0 onward, `research action backups STATE_PATH` lists matching backup files newest first. The default output is a tab-separated `created_at`, `size`, and `path` table; pass `--json` for deterministic JSON output.
 
+From v0.25.0 onward, `doctor demo --output-dir demo-dist` checks the quickstart demo output directory for required files, readable workflow and research summaries, successful stock IDs, review-action queue data, and the dashboard Review Actions section. It reports a repair command instead of mutating demo outputs.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -401,7 +409,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.24.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.25.0
 python -m unittest discover -s tests -v
 ```
 

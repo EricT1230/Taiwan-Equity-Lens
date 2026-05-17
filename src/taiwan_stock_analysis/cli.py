@@ -9,7 +9,12 @@ from pathlib import Path
 from taiwan_stock_analysis.comparison import compare_results
 from taiwan_stock_analysis.dashboard import write_dashboard_index
 from taiwan_stock_analysis.diagnostics import build_diagnostics
-from taiwan_stock_analysis.doctor import check_release_readiness, format_doctor_result
+from taiwan_stock_analysis.doctor import (
+    check_demo_readiness,
+    check_release_readiness,
+    format_demo_doctor_result,
+    format_doctor_result,
+)
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
@@ -280,6 +285,8 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
     doctor_release = doctor_subparsers.add_parser("release", help="Check release readiness.")
     doctor_release.add_argument("--version", help="Expected release version, for example 0.10.0.")
+    doctor_demo = doctor_subparsers.add_parser("demo", help="Check bundled demo output readiness.")
+    doctor_demo.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
@@ -543,6 +550,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.doctor_command == "release":
             result = check_release_readiness(Path.cwd(), expected_version=args.version)
             print(format_doctor_result(result))
+            return 0 if result.ok else 1
+        if args.doctor_command == "demo":
+            result = check_demo_readiness(args.output_dir)
+            print(format_demo_doctor_result(result))
             return 0 if result.ok else 1
         build_command_arg_parser().error("doctor command is required")
 
