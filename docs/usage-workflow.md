@@ -15,7 +15,48 @@ For direct module execution during development:
 $env:PYTHONPATH='src'
 ```
 
-## 2. Run Single-Stock Analysis
+## 2. Fastest Local Demo
+
+Run the complete synthetic offline research workflow:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+```
+
+Open:
+
+```text
+demo-dist/dashboard.html
+```
+
+This writes:
+
+- `demo-dist/reports/`
+- `demo-dist/valuation.csv`
+- `demo-dist/valuation-reports/`
+- `demo-dist/comparison/`
+- `demo-dist/memos/`
+- `demo-dist/packs/`
+- `demo-dist/workflow_summary.json`
+- `demo-dist/research_summary.json`
+
+Inspect the generated review queue and state health:
+
+```powershell
+python -m taiwan_stock_analysis.cli research action list demo-dist/research_summary.json --state demo-dist/review_action_state.json
+python -m taiwan_stock_analysis.cli research action report demo-dist/research_summary.json --state demo-dist/review_action_state.json
+```
+
+Create local review-action state and list available backups:
+
+```powershell
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
+```
+
+The example fixtures are synthetic and useful for trying the workflow. They are not real company source data.
+
+## 3. Run Single-Stock Analysis
 
 Live Goodinfo run:
 
@@ -44,7 +85,7 @@ The JSON contains:
 - diagnostics
 - metadata source mode and source-review status
 
-## 3. Generate Valuation CSV Template
+## 4. Generate Valuation CSV Template
 
 Price template with TWSE close price lookup:
 
@@ -70,7 +111,7 @@ Fields intentionally left blank until reliable source data exists:
 - `cash_dividend_per_share`
 - `eps_growth_rate`
 
-## 4. Run Valuation-Aware Report
+## 5. Run Valuation-Aware Report
 
 After editing `valuation.csv`:
 
@@ -88,7 +129,7 @@ The HTML report will show:
 These are scenario outputs, not investment advice.
 Single-stock reports use Traditional Chinese sections for KPIs, quality score, valuation scenarios, data quality, and operating / profitability / financial health observations.
 
-## 5. Compare Multiple Stocks
+## 6. Compare Multiple Stocks
 
 ```powershell
 python -m taiwan_stock_analysis.cli compare 2330 2303 2454 --output-dir compare-dist
@@ -99,7 +140,7 @@ Outputs:
 - `compare-dist/comparison.json`
 - `compare-dist/comparison.html`
 
-## 6. Batch Analyze a Watchlist
+## 7. Batch Analyze a Watchlist
 
 Create `watchlist.csv`:
 
@@ -121,7 +162,7 @@ Output:
 
 Each row records `ok` or `error`. Successful rows include `warning_count`.
 
-## 7. Run the One-Shot Watchlist Workflow
+## 8. Run the One-Shot Watchlist Workflow
 
 The workflow command runs the normal watchlist path end to end:
 
@@ -202,7 +243,7 @@ python -m taiwan_stock_analysis.cli workflow watchlist.csv --output-dir workflow
 
 The workflow refreshes its generated subdirectories on each run to avoid stale report links. Comparison uses only stocks that succeeded in the first batch analysis.
 
-## 8. Research Workbench
+## 9. Research Workbench
 
 The research workbench lets you track a CSV research universe through the existing workflow outputs without adding a database or hosted service.
 
@@ -334,7 +375,7 @@ From v0.22.0 onward, `research action backups STATE_PATH` lists matching backup 
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
-## 9. Generate Dashboard
+## 10. Generate Dashboard
 
 ```powershell
 python -m taiwan_stock_analysis.cli dashboard --scan-dir live-dist --scan-dir compare-dist --scan-dir batch-dist --scan-dir valuation-dist --output dashboard-index.html
@@ -349,7 +390,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir workflow-dist --scan-di
 Open `dashboard-index.html` in a browser. It lists generated reports, comparison outputs, batch status, and command builders.
 When no `--scan-dir` is provided, the dashboard command also scans `workflow-dist` by default.
 
-## 10. Verify
+## 11. Verify
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor release --version 0.22.0

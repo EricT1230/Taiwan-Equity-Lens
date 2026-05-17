@@ -16,6 +16,22 @@ demo-dist/dashboard.html
 
 `examples/fixtures/` contains synthetic financial-statement HTML for offline demos. It is not source data and should not be used as real company data.
 
+After opening the dashboard, inspect the review-action queue:
+
+```powershell
+python -m taiwan_stock_analysis.cli research action list demo-dist/research_summary.json --state demo-dist/review_action_state.json
+python -m taiwan_stock_analysis.cli research action report demo-dist/research_summary.json --state demo-dist/review_action_state.json
+```
+
+Try persisting one review decision:
+
+```powershell
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
+```
+
+The first state write creates `review_action_state.json`. Later writes create timestamped backups next to that file.
+
 ## Research Workbench
 
 ```powershell

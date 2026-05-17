@@ -80,6 +80,17 @@ Demo outputs:
 - `demo-dist/workflow_summary.json`
 - `demo-dist/research_summary.json`
 
+First review-action checks:
+
+```powershell
+python -m taiwan_stock_analysis.cli research action list demo-dist/research_summary.json --state demo-dist/review_action_state.json
+python -m taiwan_stock_analysis.cli research action report demo-dist/research_summary.json --state demo-dist/review_action_state.json
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
+```
+
+The first `set` command creates `demo-dist/review_action_state.json`. Later state-changing commands back up the existing valid state before writing.
+
 ## Common Commands
 
 Batch analyze a watchlist:
