@@ -393,7 +393,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.22.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.23.0
 python -m unittest discover -s tests -v
 ```
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.23.0 - 2026-05-17
+
+Quickstart Onboarding release.
+
+### Added
+
+- Fastest Local Demo guidance in `docs/usage-workflow.md` with copyable offline workflow commands.
+- README and example quickstart commands for opening the dashboard and inspecting review-action state.
+- v0.23.0 release notes.
+
+### Changed
+
+- Package version is now `0.23.0`.
+- Release readiness examples now target `0.23.0`.
+
+### Quality
+
+- Added a docs-only release path that keeps quickstart commands aligned with the existing offline fixtures.
+- Release doctor updated for `0.23.0`.
+
 ## v0.22.0 - 2026-05-16
 
 Review Action State Backup List release.
