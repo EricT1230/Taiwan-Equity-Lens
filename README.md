@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.26.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.27.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -34,6 +34,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Copies review-action state update commands directly from the static dashboard.
 - Checks bundled demo output readiness with a local `doctor demo` command.
 - Emits machine-readable demo doctor output with `doctor demo --json`.
+- Opens the demo dashboard after a passing readiness check with `doctor demo --open`.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
 
@@ -70,6 +71,12 @@ Verify that the demo produced the expected handoff files:
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
+```
+
+Open the dashboard after a passing check:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --open
 ```
 
 For scripts or CI:
@@ -185,7 +192,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir dist --scan-dir batch-d
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.26.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.27.0
 ```
 
 ## Example Files
@@ -290,6 +297,7 @@ Current sources and inputs:
 - [Data sources](docs/data-sources.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.27.0 release notes](docs/releases/v0.27.0.md)
 - [v0.26.0 release notes](docs/releases/v0.26.0.md)
 - [v0.25.0 release notes](docs/releases/v0.25.0.md)
 - [v0.24.0 release notes](docs/releases/v0.24.0.md)

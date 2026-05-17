@@ -4,6 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from taiwan_stock_analysis.cli import main, run
 
@@ -25,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.26.0"])
+            exit_code = main(["doctor", "release", "--version", "0.27.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -95,6 +96,59 @@ class CliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["output_dir"], str(output_dir))
         self.assertTrue(any("missing" in failure for failure in payload["failures"]))
+
+    def test_main_doctor_demo_open_opens_dashboard_after_pass(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-open-pass")
+        main(["demo", "quickstart", "--output-dir", str(output_dir)])
+        output = StringIO()
+
+        with patch("taiwan_stock_analysis.cli._open_dashboard") as open_dashboard:
+            with redirect_stdout(output):
+                exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--open"])
+
+        self.assertEqual(exit_code, 0)
+        open_dashboard.assert_called_once_with(output_dir / "dashboard.html")
+        self.assertIn(f"Opened {output_dir / 'dashboard.html'}", output.getvalue())
+
+    def test_main_doctor_demo_open_does_not_open_after_failure(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-open-fail")
+        output = StringIO()
+
+        with patch("taiwan_stock_analysis.cli._open_dashboard") as open_dashboard:
+            with redirect_stdout(output):
+                exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--open"])
+
+        self.assertEqual(exit_code, 1)
+        open_dashboard.assert_not_called()
+        self.assertIn("Demo readiness failed", output.getvalue())
+
+    def test_main_doctor_demo_json_open_stays_valid_json(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-json-open-pass")
+        main(["demo", "quickstart", "--output-dir", str(output_dir)])
+        output = StringIO()
+
+        with patch("taiwan_stock_analysis.cli._open_dashboard") as open_dashboard:
+            with redirect_stdout(output):
+                exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--json", "--open"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        open_dashboard.assert_called_once_with(output_dir / "dashboard.html")
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["opened_dashboard"])
+        self.assertEqual(payload["open_error"], "")
+
+    def test_main_doctor_demo_open_failure_returns_one(self):
+        output_dir = Path(".tmp-cli-test/doctor-demo-open-error")
+        main(["demo", "quickstart", "--output-dir", str(output_dir)])
+        output = StringIO()
+
+        with patch("taiwan_stock_analysis.cli._open_dashboard", side_effect=OSError("blocked")):
+            with redirect_stdout(output):
+                exit_code = main(["doctor", "demo", "--output-dir", str(output_dir), "--open"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Warning: could not open", output.getvalue())
 
     def test_tests_workflow_uses_node24_compatible_actions(self):
         workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")

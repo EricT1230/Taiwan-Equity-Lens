@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import webbrowser
 from dataclasses import asdict
 from pathlib import Path
+from typing import Callable
 
 from taiwan_stock_analysis.comparison import compare_results
 from taiwan_stock_analysis.dashboard import write_dashboard_index
@@ -54,6 +57,8 @@ REPORT_FILES = {
     "balance_sheet": ("BS_YEAR", "BS_YEAR.html"),
     "cash_flow": ("CF_YEAR", "CF_YEAR.html"),
 }
+
+DashboardOpener = Callable[[Path], None]
 
 
 def _read_reports(stock_id: str, fixture_dir: Path | None) -> dict[str, str]:
@@ -288,6 +293,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_demo = doctor_subparsers.add_parser("demo", help="Check bundled demo output readiness.")
     doctor_demo.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
     doctor_demo.add_argument("--json", action="store_true", help="Print demo readiness as JSON.")
+    doctor_demo.add_argument("--open", action="store_true", help="Open dashboard.html when demo readiness passes.")
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
@@ -440,6 +446,15 @@ def _print_research_workflow_outputs(paths: dict[str, Path | None]) -> None:
     print(f"Open {paths['dashboard']}")
 
 
+def _open_dashboard(path: Path) -> None:
+    resolved = path.resolve()
+    if hasattr(os, "startfile"):
+        os.startfile(str(resolved))  # type: ignore[attr-defined]
+        return
+    if not webbrowser.open(resolved.as_uri()):
+        raise OSError("browser open returned false")
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
     if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "demo", "doctor", "research"}:
@@ -554,6 +569,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.ok else 1
         if args.doctor_command == "demo":
             result = check_demo_readiness(args.output_dir)
+            opened_dashboard = False
+            open_error = ""
+            if args.open and result.ok:
+                dashboard_path = args.output_dir / "dashboard.html"
+                try:
+                    _open_dashboard(dashboard_path)
+                except OSError as exc:
+                    open_error = f"could not open {dashboard_path}: {exc}"
+                else:
+                    opened_dashboard = True
             if args.json:
                 print(
                     json.dumps(
@@ -561,6 +586,8 @@ def main(argv: list[str] | None = None) -> int:
                             "failures": result.failures,
                             "messages": result.messages,
                             "ok": result.ok,
+                            "open_error": open_error,
+                            "opened_dashboard": opened_dashboard,
                             "output_dir": str(args.output_dir),
                             "repair_command": result.repair_command,
                         },
@@ -569,8 +596,16 @@ def main(argv: list[str] | None = None) -> int:
                         sort_keys=True,
                     )
                 )
+                if open_error:
+                    return 1
+                return 0 if result.ok else 1
             else:
                 print(format_demo_doctor_result(result))
+                if opened_dashboard:
+                    print(f"Opened {args.output_dir / 'dashboard.html'}")
+                if open_error:
+                    print(f"Warning: {open_error}")
+                    return 1
             return 0 if result.ok else 1
         build_command_arg_parser().error("doctor command is required")
 

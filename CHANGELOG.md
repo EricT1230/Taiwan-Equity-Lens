@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.27.0 - 2026-05-18
+
+Demo Doctor Open release.
+
+### Added
+
+- `doctor demo --open` for opening the generated demo dashboard after readiness passes.
+- `opened_dashboard` and `open_error` fields in `doctor demo --json` output.
+- CLI coverage for successful opens, failed readiness without opening, JSON plus open, and opener failure.
+- v0.27.0 release notes.
+
+### Changed
+
+- `doctor demo --open` returns non-zero when dashboard opening fails.
+- README, usage workflow, and examples now document dashboard opening after demo readiness checks.
+- Package version is now `0.27.0`.
+
+### Quality
+
+- Added opener tests with a patched dashboard opener so tests do not launch a browser.
+- Release doctor updated for `0.27.0`.
+
 ## v0.26.0 - 2026-05-18
 
 Demo Doctor JSON release.

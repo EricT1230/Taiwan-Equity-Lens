@@ -31,6 +31,12 @@ Check that the demo generated the expected handoff files and review-action surfa
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
 ```
 
+Open the dashboard after a passing demo readiness check:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --open
+```
+
 Use JSON output when another tool should read the result:
 
 ```powershell
@@ -397,6 +403,8 @@ From v0.25.0 onward, `doctor demo --output-dir demo-dist` checks the quickstart 
 
 From v0.26.0 onward, pass `--json` to `doctor demo` for machine-readable `ok`, `messages`, `failures`, `output_dir`, and `repair_command` fields.
 
+From v0.27.0 onward, pass `--open` to `doctor demo` to open `dashboard.html` only after readiness passes. If opening fails, the command returns non-zero and reports a warning. `--json --open` keeps stdout valid JSON and reports `opened_dashboard` plus `open_error`.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -417,7 +425,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.26.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.27.0
 python -m unittest discover -s tests -v
 ```
 

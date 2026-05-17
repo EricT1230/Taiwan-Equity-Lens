@@ -20,6 +20,12 @@ Verify the generated demo handoff files:
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist
 ```
 
+Open the dashboard after the check passes:
+
+```powershell
+python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --open
+```
+
 For machine-readable output:
 
 ```powershell
