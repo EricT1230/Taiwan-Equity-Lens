@@ -59,8 +59,10 @@ Outputs:
 Use the synthetic example fixtures for a fully offline local demo:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+python -m taiwan_stock_analysis.cli demo quickstart
 ```
+
+The command prints the dashboard path and the next review-action commands.
 
 Open:
 
@@ -90,6 +92,12 @@ python -m taiwan_stock_analysis.cli research action backups demo-dist/review_act
 ```
 
 The first `set` command creates `demo-dist/review_action_state.json`. Later state-changing commands back up the existing valid state before writing.
+
+Equivalent lower-level command:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+```
 
 ## Common Commands
 

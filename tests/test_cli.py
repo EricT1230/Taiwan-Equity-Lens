@@ -1232,6 +1232,30 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
         self.assertIn("Review Actions", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
 
+    def test_main_demo_quickstart_runs_bundled_offline_demo(self):
+        output_dir = Path(".tmp-cli-test/demo-quickstart-dist")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main([
+                "demo",
+                "quickstart",
+                "--output-dir",
+                str(output_dir),
+            ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "dashboard.html").exists())
+        self.assertTrue((output_dir / "workflow_summary.json").exists())
+        self.assertTrue((output_dir / "research_summary.json").exists())
+        stdout = output.getvalue()
+        self.assertIn(f"Open {output_dir / 'dashboard.html'}", stdout)
+        self.assertIn("Next review-action commands:", stdout)
+        self.assertIn("research action list", stdout)
+        self.assertIn("research action report", stdout)
+        self.assertIn("research action set", stdout)
+        self.assertIn("research action backups", stdout)
+
     def test_main_research_run_writes_memos_by_default(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-memos-fixtures"

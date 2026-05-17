@@ -269,6 +269,13 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     workflow_parser.add_argument("--valuation-csv", type=Path, help="Existing valuation CSV to use for valuation-aware reports.")
     workflow_parser.add_argument("--skip-valuation", action="store_true", help="Skip valuation template and valuation-aware rerun.")
 
+    demo_parser = subparsers.add_parser("demo", help="Run bundled local demos.")
+    demo_subparsers = demo_parser.add_subparsers(dest="demo_command")
+    demo_quickstart = demo_subparsers.add_parser("quickstart", help="Run the synthetic offline quickstart demo.")
+    demo_quickstart.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
+    demo_quickstart.add_argument("--research-csv", default=Path("examples/research.csv"), type=Path)
+    demo_quickstart.add_argument("--fixture-root", default=Path("examples/fixtures"), type=Path)
+
     doctor_parser = subparsers.add_parser("doctor", help="Run local project health checks.")
     doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
     doctor_release = doctor_subparsers.add_parser("release", help="Check release readiness.")
@@ -349,9 +356,85 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_research_workflow_command(
+    research_csv: Path,
+    output_dir: Path,
+    fixture_root: Path | None,
+    offline_prices: bool,
+    valuation_csv: Path | None,
+    skip_valuation: bool,
+    skip_memos: bool,
+    skip_packs: bool,
+) -> dict[str, Path | None]:
+    from taiwan_stock_analysis.workflow import run_watchlist_workflow
+
+    watchlist_path = output_dir / "research_watchlist.csv"
+    write_watchlist_from_research(research_csv, watchlist_path)
+    workflow_summary = run_watchlist_workflow(
+        watchlist_path,
+        output_dir,
+        fixture_root=fixture_root,
+        offline_prices=offline_prices,
+        valuation_csv=valuation_csv,
+        include_valuation=not skip_valuation,
+    )
+    research_summary = write_research_summary(
+        research_csv,
+        output_dir,
+        output_dir / "research_summary.json",
+    )
+    memo_summary: Path | None = None
+    if not skip_memos:
+        memo_summary = write_research_memos(
+            research_summary,
+            output_dir,
+            output_dir / "memos",
+        )
+    pack_summary: Path | None = None
+    if not skip_packs:
+        from taiwan_stock_analysis.pack import write_research_pack
+
+        pack_summary = write_research_pack(
+            research_summary,
+            output_dir / "packs",
+            research_csv_path=research_csv,
+            workflow_summary_path=output_dir / "workflow_summary.json",
+            memo_summary_path=(output_dir / "memos" / "memo_summary.json") if not skip_memos else None,
+            dashboard_path=output_dir / "dashboard.html",
+        )
+    write_dashboard_index(
+        [
+            output_dir,
+            output_dir / "reports",
+            output_dir / "valuation-reports",
+            output_dir / "comparison",
+            output_dir / "memos",
+            output_dir / "packs",
+        ],
+        output_dir / "dashboard.html",
+    )
+    return {
+        "workflow_summary": workflow_summary,
+        "research_summary": research_summary,
+        "memo_summary": memo_summary,
+        "pack_summary": pack_summary,
+        "dashboard": output_dir / "dashboard.html",
+    }
+
+
+def _print_research_workflow_outputs(paths: dict[str, Path | None]) -> None:
+    print(f"Wrote {paths['workflow_summary']}")
+    print(f"Wrote {paths['research_summary']}")
+    if paths["memo_summary"] is not None:
+        print(f"Wrote {paths['memo_summary']}")
+    if paths["pack_summary"] is not None:
+        print(f"Wrote {paths['pack_summary']}")
+    print(f"Open {paths['dashboard']}")
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else argv
-    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "doctor", "research"}:
+    if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "demo", "doctor", "research"}:
         args = build_command_arg_parser().parse_args(raw_args)
     else:
         args = build_arg_parser().parse_args(raw_args)
@@ -428,6 +511,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {summary_path}")
         print(f"Open {args.output_dir / 'dashboard.html'}")
         return 0
+
+    if args.command == "demo":
+        if args.demo_command == "quickstart":
+            paths = _run_research_workflow_command(
+                args.research_csv,
+                args.output_dir,
+                fixture_root=args.fixture_root,
+                offline_prices=True,
+                valuation_csv=None,
+                skip_valuation=False,
+                skip_memos=False,
+                skip_packs=False,
+            )
+            _print_research_workflow_outputs(paths)
+            research_summary = paths["research_summary"]
+            state_path = args.output_dir / "review_action_state.json"
+            print("Next review-action commands:")
+            print(f"python -m taiwan_stock_analysis.cli research action list {research_summary} --state {state_path}")
+            print(f"python -m taiwan_stock_analysis.cli research action report {research_summary} --state {state_path}")
+            print(
+                "python -m taiwan_stock_analysis.cli research action set "
+                f"{state_path} 2330 source-audit-manual-review --status done --note "
+                '"checked source freshness"'
+            )
+            print(f"python -m taiwan_stock_analysis.cli research action backups {state_path}")
+            return 0
+        build_command_arg_parser().error("demo command is required")
 
     if args.command == "doctor":
         if args.doctor_command == "release":
@@ -576,60 +686,17 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             build_command_arg_parser().error("research action command is required")
         if args.research_command == "run":
-            from taiwan_stock_analysis.workflow import run_watchlist_workflow
-
-            watchlist_path = args.output_dir / "research_watchlist.csv"
-            write_watchlist_from_research(args.research_csv, watchlist_path)
-            workflow_summary = run_watchlist_workflow(
-                watchlist_path,
+            paths = _run_research_workflow_command(
+                args.research_csv,
                 args.output_dir,
                 fixture_root=args.fixture_root,
                 offline_prices=args.offline_prices,
                 valuation_csv=args.valuation_csv,
-                include_valuation=not args.skip_valuation,
+                skip_valuation=args.skip_valuation,
+                skip_memos=args.skip_memos,
+                skip_packs=args.skip_packs,
             )
-            research_summary = write_research_summary(
-                args.research_csv,
-                args.output_dir,
-                args.output_dir / "research_summary.json",
-            )
-            if not args.skip_memos:
-                memo_summary = write_research_memos(
-                    research_summary,
-                    args.output_dir,
-                    args.output_dir / "memos",
-                )
-            if not args.skip_packs:
-                from taiwan_stock_analysis.pack import write_research_pack
-
-                pack_summary = write_research_pack(
-                    research_summary,
-                    args.output_dir / "packs",
-                    research_csv_path=args.research_csv,
-                    workflow_summary_path=args.output_dir / "workflow_summary.json",
-                    memo_summary_path=(args.output_dir / "memos" / "memo_summary.json")
-                    if not args.skip_memos
-                    else None,
-                    dashboard_path=args.output_dir / "dashboard.html",
-                )
-            write_dashboard_index(
-                [
-                    args.output_dir,
-                    args.output_dir / "reports",
-                    args.output_dir / "valuation-reports",
-                    args.output_dir / "comparison",
-                    args.output_dir / "memos",
-                    args.output_dir / "packs",
-                ],
-                args.output_dir / "dashboard.html",
-            )
-            print(f"Wrote {workflow_summary}")
-            print(f"Wrote {research_summary}")
-            if not args.skip_memos:
-                print(f"Wrote {memo_summary}")
-            if not args.skip_packs:
-                print(f"Wrote {pack_summary}")
-            print(f"Open {args.output_dir / 'dashboard.html'}")
+            _print_research_workflow_outputs(paths)
             return 0
         build_command_arg_parser().error("research command is required")
     build_command_arg_parser().error("command is required")

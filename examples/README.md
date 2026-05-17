@@ -5,7 +5,7 @@ This folder contains small CSV files and synthetic fixtures that make the CLI ea
 ## Offline Research Workflow Demo
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+python -m taiwan_stock_analysis.cli demo quickstart
 ```
 
 Open:
@@ -31,6 +31,12 @@ python -m taiwan_stock_analysis.cli research action backups demo-dist/review_act
 ```
 
 The first state write creates `review_action_state.json`. Later writes create timestamped backups next to that file.
+
+Equivalent lower-level command:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+```
 
 ## Research Workbench
 

@@ -20,8 +20,10 @@ $env:PYTHONPATH='src'
 Run the complete synthetic offline research workflow:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+python -m taiwan_stock_analysis.cli demo quickstart
 ```
+
+The command runs the bundled synthetic fixtures offline, writes the dashboard, and prints review-action follow-up commands.
 
 Open:
 
@@ -55,6 +57,12 @@ python -m taiwan_stock_analysis.cli research action backups demo-dist/review_act
 ```
 
 The example fixtures are synthetic and useful for trying the workflow. They are not real company source data.
+
+Equivalent lower-level command:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+```
 
 ## 3. Run Single-Stock Analysis
 
