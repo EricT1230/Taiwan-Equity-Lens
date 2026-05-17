@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.24.0 - 2026-05-18
+
+Demo Quickstart Command release.
+
+### Added
+
+- `demo quickstart` CLI command for running the bundled synthetic offline demo.
+- Quickstart output that prints the dashboard path and first review-action commands.
+- CLI coverage for the bundled quickstart command.
+- v0.24.0 release notes.
+
+### Changed
+
+- README, usage workflow, and examples now recommend `demo quickstart` as the first demo entrypoint.
+- `research run` and `demo quickstart` now share the same internal workflow execution path.
+- Package version is now `0.24.0`.
+
+### Quality
+
+- Added full-demo CLI regression coverage for `demo quickstart`.
+- Release doctor updated for `0.24.0`.
+
 ## v0.23.0 - 2026-05-17
 
 Quickstart Onboarding release.
