@@ -413,6 +413,8 @@ From v0.30.0 onward, served dashboard updates also display the full API result J
 
 From v0.31.0 onward, review-action buttons use user-facing Traditional Chinese labels, the command/API details are collapsed by default, and the JSON update result opens only after a served dashboard button click.
 
+From v0.32.0 onward, the review-action dashboard behaves more like a task queue: visible statuses, categories, and filter options use Traditional Chinese labels, the default view focuses on open actions, status updates refresh the active filter, and JSON output is kept under technical details.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -439,7 +441,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.31.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.32.0
 python -m unittest discover -s tests -v
 ```
 

@@ -19,6 +19,32 @@ REVIEW_ACTION_SEVERITIES = ("error", "stale", "unknown", "manual_review", "warni
 REVIEW_ACTION_CATEGORIES = ("source_audit", "workflow", "reliability", "valuation", "research_quality")
 REVIEW_ACTION_PRIORITIES = ("high", "medium", "low")
 REVIEW_ACTION_STATUSES = ACTION_STATUSES
+REVIEW_ACTION_STATUS_LABELS = {
+    "open": "待處理",
+    "done": "已完成",
+    "deferred": "稍後處理",
+    "ignored": "不處理",
+}
+REVIEW_ACTION_SEVERITY_LABELS = {
+    "error": "錯誤",
+    "stale": "資料過期",
+    "unknown": "狀態不明",
+    "manual_review": "需人工確認",
+    "warning": "需注意",
+    "info": "提醒",
+}
+REVIEW_ACTION_CATEGORY_LABELS = {
+    "source_audit": "來源檢查",
+    "workflow": "工作流程",
+    "reliability": "資料可信度",
+    "valuation": "估值",
+    "research_quality": "研究品質",
+}
+REVIEW_ACTION_PRIORITY_LABELS = {
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+}
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
@@ -190,13 +216,25 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .review-action-commands {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }}
     .review-action-command {{ padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; font-size: 13px; min-width: 52px; }}
     .review-action-command[data-review-action-command="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
+    .review-action-command[data-review-action-command="ignored"] {{ color: #991b1b; border-color: #fecaca; }}
     .review-action-command:hover {{ background: #eef4fb; }}
     .review-action-command[data-review-action-command="done"]:hover {{ background: #bbf7d0; }}
+    tr[data-status="open"] .review-action-command[data-review-action-command="reopen"] {{ display: none; }}
+    tr:not([data-status="open"]) .review-action-command[data-review-action-command="done"],
+    tr:not([data-status="open"]) .review-action-command[data-review-action-command="deferred"],
+    tr:not([data-status="open"]) .review-action-command[data-review-action-command="ignored"] {{ display: none; }}
+    .review-action-status {{ display: inline-block; border-radius: 999px; padding: 3px 9px; background: #eef4fb; color: #12355b; font-size: 12px; font-weight: 600; }}
+    tr[data-status="done"] .review-action-status {{ background: #dcfce7; color: #166534; }}
+    tr[data-status="deferred"] .review-action-status {{ background: #fef3c7; color: #92400e; }}
+    tr[data-status="ignored"] .review-action-status {{ background: #fee2e2; color: #991b1b; }}
     .review-action-command-fallback {{ margin-top: 6px; padding: 8px; font-size: 12px; white-space: pre-wrap; }}
     .review-action-detail {{ margin-top: 8px; color: #475569; font-size: 13px; }}
     .review-action-detail summary {{ cursor: pointer; color: #0f5aa8; }}
     .review-action-api-result {{ display: none; margin: 0 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }}
     .review-action-api-result summary {{ cursor: pointer; padding: 10px 12px; color: #12355b; font-weight: 600; }}
+    .review-action-result-summary {{ padding: 0 12px 12px; color: #172033; }}
+    .review-action-api-result details {{ margin: 0 12px 12px; }}
+    .review-action-api-result details summary {{ padding: 6px 0; font-size: 13px; color: #475569; }}
     .review-action-api-output {{ margin: 0; padding: 12px; background: #0f172a; color: #e5e7eb; border-radius: 0 0 8px 8px; overflow-x: auto; white-space: pre-wrap; }}
     .review-action-state-meta {{ color: #64748b; font-size: 12px; margin-top: 6px; }}
     .badge {{ display: inline-block; border-radius: 999px; padding: 4px 10px; background: #eef4fb; color: #12355b; font-size: 13px; }}
@@ -294,6 +332,15 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     const batchPathInput = document.getElementById('batchPathInput');
     const batchCommandOutput = document.getElementById('batchCommandOutput');
     const reviewActionApiEnabled = {action_api_flag};
+    const reviewActionStatusLabels = {{
+      open: '待處理',
+      done: '已完成',
+      deferred: '稍後處理',
+      ignored: '不處理',
+    }};
+    function reviewActionStatusLabel(status) {{
+      return reviewActionStatusLabels[status] || status || '-';
+    }}
     function initReviewActionFilters() {{
       const sectionSelector = '[data-review-actions-' + 'section="true"]';
       const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
@@ -344,6 +391,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
             emptyRow.remove();
           }}
         }}
+        section.reviewActionApplyFilters = applyFilters;
         [severityFilter, categoryFilter, priorityFilter, statusFilter].forEach((control) => {{
           control.addEventListener('change', applyFilters);
         }});
@@ -352,10 +400,11 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           severityFilter.value = 'all';
           categoryFilter.value = 'all';
           priorityFilter.value = 'all';
-          statusFilter.value = 'all';
+          statusFilter.value = 'open';
           searchFilter.value = '';
           applyFilters();
         }});
+        statusFilter.value = 'open';
         applyFilters();
       }});
     }}
@@ -415,6 +464,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         }}
         return;
       }}
+      if (payload.status === 'ignored' && !window.confirm('確定要把這筆標記為不處理嗎？')) {{
+        return;
+      }}
       button.disabled = true;
       if (copyStatus) {{
         copyStatus.textContent = '正在更新狀態...';
@@ -434,14 +486,19 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           row.dataset.status = result.status || payload.status;
           const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
           if (statusCell) {{
-            statusCell.textContent = result.status || payload.status;
+            statusCell.textContent = reviewActionStatusLabel(result.status || payload.status);
           }}
         }}
         updateReviewActionSummary(button, result);
         showReviewActionApiResult(button, result);
+        const section = button.closest('[data-review-actions-section="true"]');
+        if (section && section.reviewActionApplyFilters) {{
+          section.reviewActionApplyFilters();
+        }}
         if (copyStatus) {{
           const backupText = result.backup_path ? `，已建立備份` : '';
-          copyStatus.textContent = `已更新：${{payload.stock_id}} 的 ${{payload.action_id}} 已標記為 ${{result.status || payload.status}}${{backupText}}`;
+          const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || payload.action_id : payload.action_id;
+          copyStatus.textContent = `已更新：${{payload.stock_id}} 的 ${{categoryLabel}}已標記為${{reviewActionStatusLabel(result.status || payload.status)}}${{backupText}}`;
         }}
       }} catch (error) {{
         if (copyStatus) {{
@@ -457,28 +514,41 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         return;
       }}
       const byStatus = result.by_status || {{}};
+      const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
+      const total = rows.length;
+      const openTotal = section.querySelector('[data-review-action-open-total="true"]');
+      if (openTotal) {{
+        openTotal.textContent = `待處理 ${{byStatus.open || 0}} / 全部 ${{total}}`;
+      }}
       const stateHealth = section.querySelector('[data-review-action-state-health="true"]');
       if (stateHealth) {{
-        stateHealth.textContent = `state health: open: ${{byStatus.open || 0}} done: ${{byStatus.done || 0}} deferred: ${{byStatus.deferred || 0}} ignored: ${{byStatus.ignored || 0}}`;
+        stateHealth.textContent = `已完成 ${{byStatus.done || 0}} / 稍後 ${{byStatus.deferred || 0}} / 不處理 ${{byStatus.ignored || 0}}`;
       }}
       const staleState = section.querySelector('[data-review-action-stale-count="true"]');
       if (staleState) {{
-        staleState.textContent = `stale state: ${{result.stale_count ?? 0}}`;
+        staleState.textContent = `過期狀態 ${{result.stale_count ?? 0}}`;
       }}
       const lastUpdated = section.querySelector('[data-review-action-last-updated="true"]');
       if (lastUpdated) {{
-        lastUpdated.textContent = `last updated: ${{result.last_updated || '-'}}`;
+        lastUpdated.textContent = `最後更新：${{result.last_updated || '-'}}`;
       }}
     }}
     function showReviewActionApiResult(button, result) {{
       const section = button.closest('[data-review-actions-section="true"]');
       const detail = section ? section.querySelector('[data-review-action-api-result="true"]') : null;
+      const summary = detail ? detail.querySelector('[data-review-action-result-summary="true"]') : null;
       const output = detail ? detail.querySelector('[data-review-action-api-output="true"]') : null;
       if (!output) {{
         return;
       }}
       detail.style.display = 'block';
       detail.open = true;
+      if (summary) {{
+        const byStatus = result.by_status || {{}};
+        const row = button.closest('[data-review-action-row="true"]');
+        const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || result.action_id : result.action_id;
+        summary.textContent = `已將 ${{result.stock_id}} 的 ${{categoryLabel}}標記為${{reviewActionStatusLabel(result.status)}}，待處理剩 ${{byStatus.open || 0}} 件。`;
+      }}
       output.textContent = JSON.stringify(result, null, 2);
     }}
     function updateCommand() {{
@@ -642,24 +712,28 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
         state_path = _review_action_state_path(summary)
         rows = _review_action_rows(overlaid_queue, state_path)
         total_rows = _review_action_row_count(overlaid_queue)
+        by_status = _dict_value(state_report.get("by_status"))
         state_warning = str(summary.get("review_action_state_warning") or "")
         sections.append(
             '<div data-review-actions-section="true">'
             f"<p>{_link(str(summary.get('path', '')), Path(str(summary.get('path', ''))).name)}</p>"
             '<p class="status-line">'
-            f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
-            f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
-            f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
-            f'<span class="badge" data-review-action-state-health="true">state health: {_review_action_status_pairs(_dict_value(state_report.get("by_status")))}</span>'
-            f'<span class="badge" data-review-action-stale-count="true">stale state: {escape(str(state_report.get("stale_count", 0)))}</span>'
-            f'<span class="badge" data-review-action-last-updated="true">last updated: {escape(str(state_report.get("last_updated", "-")))}</span>'
+            f'<span class="badge" data-review-action-open-total="true">待處理 {escape(str(by_status.get("open", 0)))} / 全部 {escape(str(total_rows))}</span>'
+            f'<span class="badge">重要性：{_count_pairs(_dict_value(action_summary.get("by_severity")), REVIEW_ACTION_SEVERITY_LABELS)}</span>'
+            f'<span class="badge">類別：{_count_pairs(_dict_value(action_summary.get("by_category")), REVIEW_ACTION_CATEGORY_LABELS)}</span>'
+            f'<span class="badge" data-review-action-state-health="true">{_review_action_status_pairs(by_status)}</span>'
+            f'<span class="badge" data-review-action-stale-count="true">過期狀態 {escape(str(state_report.get("stale_count", 0)))}</span>'
+            f'<span class="badge" data-review-action-last-updated="true">最後更新：{escape(str(state_report.get("last_updated", "-")))}</span>'
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
             '<p class="status-line"><span class="badge" data-review-action-copy-status="true">請選擇每筆事項的處理結果</span></p>'
             '<details class="review-action-api-result" data-review-action-api-result="true" aria-live="polite">'
             '<summary>更新結果</summary>'
+            '<div class="review-action-result-summary" data-review-action-result-summary="true"></div>'
+            '<details><summary>技術詳細資訊</summary>'
             '<pre class="review-action-api-output" data-review-action-api-output="true"></pre>'
+            '</details>'
             '</details>'
             "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>待處理事項</th><th>操作</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
@@ -699,7 +773,24 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
             status = str(action.get("status") or "open")
             action_id = str(action.get("id") or "")
             message = str(action.get("message") or "-")
-            search_text = _review_metadata_text(stock_id, priority, status, severity, category, message)
+            priority_label = _review_label(priority, REVIEW_ACTION_PRIORITY_LABELS)
+            status_label = _review_label(status, REVIEW_ACTION_STATUS_LABELS)
+            severity_label = _review_label(severity, REVIEW_ACTION_SEVERITY_LABELS)
+            category_label = _review_label(category, REVIEW_ACTION_CATEGORY_LABELS)
+            user_message = _review_action_user_message(action, message)
+            search_text = _review_metadata_text(
+                stock_id,
+                priority,
+                priority_label,
+                status,
+                status_label,
+                severity,
+                severity_label,
+                category,
+                category_label,
+                message,
+                user_message,
+            )
             rows.append(
                 '<tr data-review-action-row="true"'
                 f' data-stock-id="{escape(stock_id)}"'
@@ -707,13 +798,14 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f' data-status="{escape(status)}"'
                 f' data-severity="{escape(severity)}"'
                 f' data-category="{escape(category)}"'
+                f' data-category-label="{escape(category_label)}"'
                 f' data-search-text="{escape(search_text)}">'
                 f"<td>{escape(stock_id)}</td>"
-                f"<td>{escape(priority)}</td>"
-                f'<td data-review-action-status-cell="true">{escape(status)}</td>'
-                f"<td>{escape(severity)}</td>"
-                f"<td>{escape(category)}</td>"
-                f"<td>{escape(message)}{_review_action_state_metadata(action)}</td>"
+                f"<td>{escape(priority_label)}</td>"
+                f'<td><span class="review-action-status" data-review-action-status-cell="true">{escape(status_label)}</span></td>'
+                f"<td>{escape(severity_label)}</td>"
+                f"<td>{escape(category_label)}</td>"
+                f"<td>{escape(user_message)}{_review_action_state_metadata(action)}</td>"
                 f"<td>{_review_action_command_cell(state_path, stock_id, action_id)}</td>"
                 "</tr>"
             )
@@ -831,22 +923,38 @@ def _dict_value(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _count_pairs(counts: dict[str, Any]) -> str:
+def _review_label(value: str, labels: dict[str, str]) -> str:
+    return labels.get(value, value.replace("_", " ") if value else "-")
+
+
+def _count_pairs(counts: dict[str, Any], labels: dict[str, str] | None = None) -> str:
     if not counts:
         return "-"
     pairs = sorted(((str(key), str(value)) for key, value in counts.items()), key=lambda item: item[0])
-    return ", ".join(f"{escape(key)}: {escape(value)}" for key, value in pairs)
+    return ", ".join(f"{escape(_review_label(key, labels or {}))}: {escape(value)}" for key, value in pairs)
 
 
 def _review_action_status_pairs(counts: dict[str, Any]) -> str:
     if not counts:
         return "-"
-    return " ".join(f"{status}: {escape(str(counts.get(status, 0)))}" for status in REVIEW_ACTION_STATUSES)
+    return " / ".join(
+        f"{REVIEW_ACTION_STATUS_LABELS.get(status, status)} {escape(str(counts.get(status, 0)))}"
+        for status in ("done", "deferred", "ignored")
+    )
 
 
-def _review_filter_select(label: str, name: str, options: tuple[str, ...]) -> str:
-    option_html = ['<option value="all">all</option>']
-    option_html.extend(f'<option value="{escape(option)}">{escape(option)}</option>' for option in options)
+def _review_filter_select(
+    label: str,
+    name: str,
+    options: tuple[str, ...],
+    labels: dict[str, str] | None = None,
+    default: str = "all",
+) -> str:
+    option_html = [f'<option value="all"{_selected_attr(default, "all")}>全部</option>']
+    option_html.extend(
+        f'<option value="{escape(option)}"{_selected_attr(default, option)}>{escape(_review_label(option, labels or {}))}</option>'
+        for option in options
+    )
     return (
         '<label class="filter-field">'
         f"<span>{escape(label)}</span>"
@@ -855,18 +963,22 @@ def _review_filter_select(label: str, name: str, options: tuple[str, ...]) -> st
     )
 
 
+def _selected_attr(selected: str, value: str) -> str:
+    return ' selected' if selected == value else ""
+
+
 def _review_action_filter_bar(total_rows: int) -> str:
     return (
         '<div class="review-action-filters" data-review-filter-bar="true">'
-        f'{_review_filter_select("嚴重度", "severity", REVIEW_ACTION_SEVERITIES)}'
-        f'{_review_filter_select("類別", "category", REVIEW_ACTION_CATEGORIES)}'
-        f'{_review_filter_select("優先度", "priority", REVIEW_ACTION_PRIORITIES)}'
-        f'{_review_filter_select("狀態", "status", REVIEW_ACTION_STATUSES)}'
+        f'{_review_filter_select("重要性", "severity", REVIEW_ACTION_SEVERITIES, REVIEW_ACTION_SEVERITY_LABELS)}'
+        f'{_review_filter_select("類別", "category", REVIEW_ACTION_CATEGORIES, REVIEW_ACTION_CATEGORY_LABELS)}'
+        f'{_review_filter_select("優先度", "priority", REVIEW_ACTION_PRIORITIES, REVIEW_ACTION_PRIORITY_LABELS)}'
+        f'{_review_filter_select("狀態", "status", REVIEW_ACTION_STATUSES, REVIEW_ACTION_STATUS_LABELS, default="open")}'
         '<label class="filter-field"><span>搜尋</span>'
         '<input data-review-filter="search" type="search" placeholder="股票、類別、動作">'
         "</label>"
         '<button type="button" data-review-filter-reset="true">重設</button>'
-        f'<span class="filter-count" data-review-action-count="true">顯示 {total_rows} / {total_rows} 個動作</span>'
+        f'<span class="filter-count" data-review-action-count="true">顯示待處理 / 全部 {total_rows} 件</span>'
         "</div>"
     )
 
@@ -880,6 +992,29 @@ def _review_metadata_text(*values: object) -> str:
         if text:
             parts.append(" ".join(text.split()))
     return " ".join(parts)
+
+
+def _review_action_user_message(action: dict[str, Any], fallback: str) -> str:
+    action_id = str(action.get("id") or "")
+    if action_id.startswith("source-audit"):
+        return "來源檢查需要確認：請查看來源稽核區塊，確認資料來源與離線/過期狀態可接受後按「標記完成」。"
+    if action_id.startswith("workflow"):
+        return "工作流程需要處理：請查看 Workflow 狀態，修正失敗或確認 fallback 輸出可用後按「標記完成」。"
+    if action_id.startswith("reliability"):
+        return "資料可信度有警示：請查看資料可信度區塊，確認可交接後按「標記完成」。"
+    if action_id == "valuation-unavailable":
+        return "估值輸出缺失：請補跑估值或確認本次不需要估值，確認後按「標記完成」。"
+    if action_id == "research-state-blocked":
+        return "研究項目被封鎖：請解除 blocker 或補齊原因後按「標記完成」。"
+    if action_id == "research-state-new":
+        return "新研究項目尚未分類：請確認研究狀態與優先度後按「標記完成」。"
+    if action_id == "research-state-review":
+        return "研究項目仍在審查：請完成主動審查檢查後按「標記完成」。"
+    if action_id == "research-quality-missing-thesis":
+        return "高優先研究缺少 thesis：請補上投資假說或確認暫不需要後按「標記完成」。"
+    if action_id == "research-quality-missing-follow-up":
+        return "高優先研究缺少追蹤問題：請補上後續追蹤問題或確認暫不需要後按「標記完成」。"
+    return fallback
 
 
 def _review_action_state_warning(warning: str) -> str:
@@ -903,9 +1038,9 @@ def _review_action_state_metadata(action: dict[str, Any]) -> str:
     note = str(action.get("note") or "").strip()
     updated_at = str(action.get("updated_at") or "").strip()
     if note:
-        details.append(f"note: {escape(note)}")
+        details.append(f"備註：{escape(note)}")
     if updated_at:
-        details.append(f"updated: {escape(updated_at)}")
+        details.append(f"更新：{escape(updated_at)}")
     if not details:
         return ""
     return f'<div class="review-action-state-meta">{" | ".join(details)}</div>'
@@ -915,10 +1050,10 @@ def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) 
     if not action_id:
         return "-"
     commands = [
-        ("done", "done", "完成"),
-        ("deferred", "deferred", "延後"),
-        ("ignored", "ignored", "忽略"),
-        ("reopen", "open", "重開"),
+        ("done", "done", "標記完成"),
+        ("deferred", "deferred", "稍後處理"),
+        ("ignored", "ignored", "不處理"),
+        ("reopen", "open", "重新開啟"),
     ]
     buttons = []
     fallback_lines = []

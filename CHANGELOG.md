@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.32.0 - 2026-05-19
+
+Review Actions Task Queue UX release.
+
+### Changed
+
+- Review-action dashboard statuses, severities, categories, priorities, and filter options now use Traditional Chinese user-facing labels.
+- Review-action summaries now emphasize task-queue counts such as `待處理`, `已完成`, `稍後處理`, and `不處理`.
+- The default review-action filter now focuses on open items.
+- Served dashboard status updates now re-apply the active filter, so completed items leave the default queue immediately.
+- Row actions now present task-oriented labels such as `標記完成`, `稍後處理`, `不處理`, and `重新開啟`.
+- API update results now show a user-facing summary first, with raw JSON under `技術詳細資訊`.
+- README and usage workflow release doctor examples now target `0.32.0`.
+- Package version is now `0.32.0`.
+
+### Quality
+
+- Updated dashboard coverage for localized labels, default queue filtering, human-readable task messages, and technical-detail API output.
+
 ## v0.31.0 - 2026-05-19
 
 Review Actions UX Cleanup release.
