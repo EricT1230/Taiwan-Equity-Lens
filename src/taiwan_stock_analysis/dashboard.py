@@ -219,17 +219,17 @@ def render_dashboard_html(items: DashboardItems) -> str:
       <div id="summaryComparisons"><strong>{comparison_count}</strong><span>同業比較</span></div>
       <div id="summaryBatchItems"><strong>{batch_count}</strong><span>批次筆數</span></div>
       <div id="summaryBatchErrors"><strong>{batch_error_count}</strong><span>失敗筆數</span></div>
-      <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>Workflow summary</span></div>
+      <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>工作流程摘要</span></div>
     </section>
     {_research_summary_section(research_summaries)}
     {_review_actions_section(research_summaries)}
     <section>
-      <h2>Research Memos</h2>
-      <table><thead><tr><th>stock_id</th><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_memo_rows(memo_outputs)}</tbody></table>
+      <h2>研究備忘錄</h2>
+      <table><thead><tr><th>股票代號</th><th>Markdown</th><th>HTML</th><th>摘要</th></tr></thead><tbody>{_memo_rows(memo_outputs)}</tbody></table>
     </section>
     <section>
-      <h2>Research Packs</h2>
-      <table><thead><tr><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_pack_rows(pack_outputs)}</tbody></table>
+      <h2>研究包</h2>
+      <table><thead><tr><th>Markdown</th><th>HTML</th><th>摘要</th></tr></thead><tbody>{_pack_rows(pack_outputs)}</tbody></table>
     </section>
     <section>
       <h2>資料可信度</h2>
@@ -303,7 +303,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
         const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
         const emptyRow = document.createElement('tr');
         emptyRow.setAttribute('data-review-action-empty', 'true');
-        emptyRow.innerHTML = '<td colspan="7" class="empty">No review actions match the current filters.</td>';
+        emptyRow.innerHTML = '<td colspan="7" class="empty">沒有符合目前篩選條件的審查動作。</td>';
         function selectedValue(control) {{
           return control.value || 'all';
         }}
@@ -326,7 +326,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
               visible += 1;
             }}
           }});
-          countLabel.textContent = `Showing ${{visible}} of ${{rows.length}} actions`;
+          countLabel.textContent = `顯示 ${{visible}} / ${{rows.length}} 個動作`;
           if (visible === 0 && rows.length > 0) {{
             if (!emptyRow.parentElement) {{
               tbody.appendChild(emptyRow);
@@ -378,11 +378,11 @@ def render_dashboard_html(items: DashboardItems) -> str:
                 const label = button.dataset.reviewActionCommand || 'command';
                 const row = button.closest('[data-review-action-row="true"]');
                 const stockId = row ? row.dataset.stockId : '';
-                copyStatus.textContent = `Copied ${{label}} command${{stockId ? ` for ${{stockId}}` : ''}}`;
+                copyStatus.textContent = `已複製 ${{label}} 指令${{stockId ? `：${{stockId}}` : ''}}`;
               }}
             }} catch (error) {{
               if (copyStatus) {{
-                copyStatus.textContent = 'Copy failed. Use the visible command text.';
+                copyStatus.textContent = '複製失敗，請使用畫面上的指令文字。';
               }}
             }}
           }});
@@ -494,7 +494,7 @@ def _universe_review_section(summary: dict[str, Any]) -> str:
 
     return (
         '<div class="tool">'
-        "<h3>Universe Review</h3>"
+        "<h3>研究池檢視</h3>"
         f'<p class="status-line">{_universe_count_badges(counts)}</p>'
         '<p class="status-line">'
         f'<span class="badge">category counts: {_count_pairs(category_counts)}</span>'
@@ -564,14 +564,14 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
-            '<p class="status-line"><span class="badge" data-review-action-copy-status="true">Copy a command to update state</span></p>'
-            "<table><thead><tr><th>stock_id</th><th>priority</th><th>status</th><th>severity</th><th>category</th><th>action</th><th>commands</th></tr></thead>"
+            '<p class="status-line"><span class="badge" data-review-action-copy-status="true">複製指令以更新狀態</span></p>'
+            "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>動作</th><th>指令</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"
         )
     if not sections:
         return ""
-    return f"<section><h2>Review Actions</h2>{''.join(sections)}</section>"
+    return f"<section><h2>審查動作</h2>{''.join(sections)}</section>"
 
 
 def _review_action_row_count(action_queue: list[Any]) -> int:
@@ -621,7 +621,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f"<td>{_review_action_command_cell(state_path, stock_id, action_id)}</td>"
                 "</tr>"
             )
-    return "".join(rows) or _empty_row(7, "No review actions")
+    return "".join(rows) or _empty_row(7, "沒有審查動作")
 
 
 def _universe_count_badges(counts: dict[str, Any]) -> str:
@@ -762,15 +762,15 @@ def _review_filter_select(label: str, name: str, options: tuple[str, ...]) -> st
 def _review_action_filter_bar(total_rows: int) -> str:
     return (
         '<div class="review-action-filters" data-review-filter-bar="true">'
-        f'{_review_filter_select("Severity", "severity", REVIEW_ACTION_SEVERITIES)}'
-        f'{_review_filter_select("Category", "category", REVIEW_ACTION_CATEGORIES)}'
-        f'{_review_filter_select("Priority", "priority", REVIEW_ACTION_PRIORITIES)}'
-        f'{_review_filter_select("Status", "status", REVIEW_ACTION_STATUSES)}'
-        '<label class="filter-field"><span>Search</span>'
-        '<input data-review-filter="search" type="search" placeholder="stock, category, action">'
+        f'{_review_filter_select("嚴重度", "severity", REVIEW_ACTION_SEVERITIES)}'
+        f'{_review_filter_select("類別", "category", REVIEW_ACTION_CATEGORIES)}'
+        f'{_review_filter_select("優先度", "priority", REVIEW_ACTION_PRIORITIES)}'
+        f'{_review_filter_select("狀態", "status", REVIEW_ACTION_STATUSES)}'
+        '<label class="filter-field"><span>搜尋</span>'
+        '<input data-review-filter="search" type="search" placeholder="股票、類別、動作">'
         "</label>"
-        '<button type="button" data-review-filter-reset="true">Reset</button>'
-        f'<span class="filter-count" data-review-action-count="true">Showing {total_rows} of {total_rows} actions</span>'
+        '<button type="button" data-review-filter-reset="true">重設</button>'
+        f'<span class="filter-count" data-review-action-count="true">顯示 {total_rows} / {total_rows} 個動作</span>'
         "</div>"
     )
 
@@ -1031,7 +1031,7 @@ def _workflow_source_audit_section(workflow_summaries: list[dict[str, Any]]) -> 
         )
     if not sections:
         return ""
-    return f"<section><h2>Source Audit</h2>{''.join(sections)}</section>"
+    return f"<section><h2>來源稽核</h2>{''.join(sections)}</section>"
 
 
 def _source_audit_item_rows(items: list[Any]) -> str:

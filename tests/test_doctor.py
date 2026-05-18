@@ -88,7 +88,7 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual([], result.failures)
         self.assertIn(f"output directory {output_dir}", result.messages)
         self.assertIn("required files present", result.messages)
-        self.assertIn("dashboard includes Review Actions", result.messages)
+        self.assertIn("dashboard includes review-action section", result.messages)
 
     def test_format_demo_doctor_result_reports_success(self):
         output_dir = Path(".tmp-doctor-test/demo-format-pass")
@@ -155,7 +155,7 @@ class DoctorTests(unittest.TestCase):
         result = check_demo_readiness(output_dir)
 
         self.assertFalse(result.ok)
-        self.assertIn(f"dashboard missing Review Actions: {output_dir / 'dashboard.html'}", result.failures)
+        self.assertIn(f"dashboard missing review-action section: {output_dir / 'dashboard.html'}", result.failures)
 
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
@@ -198,7 +198,10 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "memos").mkdir(parents=True, exist_ok=True)
     (output_dir / "packs").mkdir(parents=True, exist_ok=True)
     (output_dir / "comparison").mkdir(parents=True, exist_ok=True)
-    (output_dir / "dashboard.html").write_text("<html><body>Review Actions</body></html>", encoding="utf-8")
+    (output_dir / "dashboard.html").write_text(
+        '<html><body><div data-review-actions-section="true"></div></body></html>',
+        encoding="utf-8",
+    )
     (output_dir / "workflow_summary.json").write_text(
         json.dumps({"successful_stock_ids": ["2330"]}),
         encoding="utf-8",

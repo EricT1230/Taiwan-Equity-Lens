@@ -101,8 +101,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
         except OSError as exc:
             failures.append(f"could not read {dashboard_path}: {exc}")
         else:
-            if "Review Actions" not in dashboard_text:
-                failures.append(f"dashboard missing Review Actions: {dashboard_path}")
+            if 'data-review-actions-section="true"' not in dashboard_text:
+                failures.append(f"dashboard missing review-action section: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")
@@ -120,7 +120,7 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
 
     if not failures:
         messages.append("required files present")
-        messages.append("dashboard includes Review Actions")
+        messages.append("dashboard includes review-action section")
 
     return DemoDoctorResult(
         ok=not failures,

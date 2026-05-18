@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.27.0"])
+            exit_code = main(["doctor", "release", "--version", "0.28.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -1341,7 +1341,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "packs" / "pack_summary.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
-        self.assertIn("Review Actions", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
+        self.assertIn("審查動作", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
 
     def test_main_demo_quickstart_runs_bundled_offline_demo(self):
         output_dir = Path(".tmp-cli-test/demo-quickstart-dist")

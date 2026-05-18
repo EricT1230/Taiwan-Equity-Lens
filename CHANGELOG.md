@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.28.0 - 2026-05-18
+
+Dashboard Traditional Chinese Labels release.
+
+### Added
+
+- v0.28.0 release notes.
+
+### Changed
+
+- Dashboard main visible labels now use Traditional Chinese for research memos, research packs, universe review, review actions, source audit, workflow summary, and review-action filters.
+- `doctor demo` now verifies the stable review-action section marker instead of the English `Review Actions` heading.
+- README and usage workflow release doctor examples now target `0.28.0`.
+- Package version is now `0.28.0`.
+
+### Quality
+
+- Updated dashboard, demo doctor, and CLI tests for the Traditional Chinese dashboard labels.
+- Verified the v0.28.0 quickstart dashboard and demo readiness JSON output.
+
 ## v0.27.0 - 2026-05-18
 
 Demo Doctor Open release.

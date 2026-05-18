@@ -198,7 +198,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Source Audit", html)
+        self.assertIn("來源稽核", html)
         self.assertIn("manual_review", html)
         self.assertIn("2330", html)
 
@@ -468,7 +468,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Universe Review", html)
+        self.assertIn("研究池檢視", html)
         self.assertIn("high priority attention", html)
         self.assertIn("Semiconductor: 2", html)
         self.assertIn("Uncategorized: 1", html)
@@ -515,7 +515,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Review Actions", html)
+        self.assertIn("審查動作", html)
         self.assertIn('data-review-actions-section="true"', html)
         self.assertIn('data-review-filter="severity"', html)
         self.assertIn('data-review-filter="category"', html)
@@ -524,7 +524,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-filter="search"', html)
         self.assertIn('data-review-filter-reset="true"', html)
         self.assertIn('data-review-action-count="true"', html)
-        self.assertIn("Showing 1 of 1 actions", html)
+        self.assertIn("顯示 1 / 1 個動作", html)
         self.assertIn("total open: 2", html)
         self.assertIn("state health: open: 1 done: 0 deferred: 0 ignored: 0", html)
         self.assertIn("stale state: 0", html)
@@ -540,7 +540,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-severity="manual_review"', html)
         self.assertIn('data-category="source_audit"', html)
         self.assertIn('data-search-text="2330 high open manual_review source_audit review source audit fixture source"', html)
-        self.assertIn("<th>commands</th>", html)
+        self.assertIn("<th>指令</th>", html)
         self.assertIn('data-review-action-command="done"', html)
         self.assertIn('data-review-action-command="deferred"', html)
         self.assertIn('data-review-action-command="ignored"', html)
@@ -701,8 +701,8 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("<th>status</th>", html)
-        self.assertIn("<th>commands</th>", html)
+        self.assertIn("<th>狀態</th>", html)
+        self.assertIn("<th>指令</th>", html)
         self.assertIn('data-status="done"', html)
         self.assertIn("state health: open: 0 done: 1 deferred: 0 ignored: 0", html)
         self.assertIn("stale state: 1", html)
@@ -813,7 +813,6 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertNotIn("Review Actions", html)
         self.assertNotIn('data-review-actions-section="true"', html)
         self.assertNotIn('data-review-filter="severity"', html)
 
@@ -853,7 +852,7 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("function initReviewActionFilters()", html)
-        self.assertIn("No review actions match the current filters.", html)
+        self.assertIn("沒有符合目前篩選條件的審查動作。", html)
         self.assertIn("data-review-action-empty", html)
         self.assertIn("data-review-filter-reset", html)
         self.assertIn("row.dataset.status", html)
@@ -862,7 +861,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("navigator.clipboard.writeText", html)
         self.assertIn("document.execCommand('copy')", html)
         self.assertIn('data-review-action-copy-status="true"', html)
-        self.assertIn("Copy failed. Use the visible command text.", html)
+        self.assertIn("複製失敗，請使用畫面上的指令文字。", html)
 
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
         html = render_dashboard_html(
@@ -892,7 +891,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("workflow-dist/workflow_summary.json", html)
         self.assertIn("research-dist/research_summary.json", html)
         self.assertIn("total research items: 0", html)
-        self.assertNotIn("Universe Review", html)
+        self.assertNotIn("研究池檢視", html)
 
     def test_render_dashboard_html_shows_research_empty_state(self):
         html = render_dashboard_html(
@@ -941,7 +940,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Research Memos", html)
+        self.assertIn("研究備忘錄", html)
         self.assertIn("2330_memo.md", html)
         self.assertIn("2330_memo.html", html)
         self.assertIn("memo_summary.json", html)
@@ -965,7 +964,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Research Packs", html)
+        self.assertIn("研究包", html)
         self.assertIn("research-pack.md", html)
         self.assertIn("research-pack.html", html)
         self.assertIn("pack_summary.json", html)
