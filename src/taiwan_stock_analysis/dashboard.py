@@ -143,7 +143,7 @@ def _discover_pack_outputs(directory: Path, items: DashboardItems) -> None:
     )
 
 
-def render_dashboard_html(items: DashboardItems) -> str:
+def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = False) -> str:
     report_count = len(items.get("reports", []))
     comparison_count = len(items.get("comparisons", []))
     batch_results = _batch_results(items)
@@ -154,6 +154,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     memo_outputs = items.get("memo_outputs", [])
     pack_outputs = items.get("pack_outputs", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
+    action_api_flag = "true" if action_api_enabled else "false"
 
     return f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -285,6 +286,7 @@ def render_dashboard_html(items: DashboardItems) -> str:
     const compareCommandOutput = document.getElementById('compareCommandOutput');
     const batchPathInput = document.getElementById('batchPathInput');
     const batchCommandOutput = document.getElementById('batchCommandOutput');
+    const reviewActionApiEnabled = {action_api_flag};
     function initReviewActionFilters() {{
       const sectionSelector = '[data-review-actions-' + 'section="true"]';
       const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
@@ -356,6 +358,10 @@ def render_dashboard_html(items: DashboardItems) -> str:
         const copyStatus = section.querySelector('[data-review-action-copy-status="true"]');
         section.querySelectorAll('[data-command]').forEach((button) => {{
           button.addEventListener('click', async () => {{
+            if (reviewActionApiEnabled) {{
+              await updateReviewActionState(button, copyStatus);
+              return;
+            }}
             const command = button.dataset.command || '';
             if (!command) {{
               return;
@@ -388,6 +394,53 @@ def render_dashboard_html(items: DashboardItems) -> str:
           }});
         }});
       }});
+    }}
+    async function updateReviewActionState(button, copyStatus) {{
+      const payload = {{
+        state_path: button.dataset.statePath || '',
+        stock_id: button.dataset.stockId || '',
+        action_id: button.dataset.actionId || '',
+        status: button.dataset.statusValue || '',
+      }};
+      if (!payload.state_path || !payload.stock_id || !payload.action_id || !payload.status) {{
+        if (copyStatus) {{
+          copyStatus.textContent = '狀態更新失敗：缺少必要資料。';
+        }}
+        return;
+      }}
+      button.disabled = true;
+      if (copyStatus) {{
+        copyStatus.textContent = '正在更新狀態...';
+      }}
+      try {{
+        const response = await fetch('/api/review-actions/set', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify(payload),
+        }});
+        const result = await response.json();
+        if (!response.ok || !result.ok) {{
+          throw new Error(result.error || `HTTP ${{response.status}}`);
+        }}
+        const row = button.closest('[data-review-action-row="true"]');
+        if (row) {{
+          row.dataset.status = result.status || payload.status;
+          const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
+          if (statusCell) {{
+            statusCell.textContent = result.status || payload.status;
+          }}
+        }}
+        if (copyStatus) {{
+          const backupText = result.backup_path ? `，備份：${{result.backup_path}}` : '';
+          copyStatus.textContent = `已更新 ${{payload.stock_id}} / ${{payload.action_id}} 為 ${{result.status || payload.status}}${{backupText}}`;
+        }}
+      }} catch (error) {{
+        if (copyStatus) {{
+          copyStatus.textContent = `狀態更新失敗：${{error.message}}`;
+        }}
+      }} finally {{
+        button.disabled = false;
+      }}
     }}
     function updateCommand() {{
       const stock = stockInput.value || '2330';
@@ -614,7 +667,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f' data-search-text="{escape(search_text)}">'
                 f"<td>{escape(stock_id)}</td>"
                 f"<td>{escape(priority)}</td>"
-                f"<td>{escape(status)}</td>"
+                f'<td data-review-action-status-cell="true">{escape(status)}</td>'
                 f"<td>{escape(severity)}</td>"
                 f"<td>{escape(category)}</td>"
                 f"<td>{escape(message)}{_review_action_state_metadata(action)}</td>"
@@ -832,6 +885,10 @@ def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) 
         buttons.append(
             '<button type="button" class="review-action-command"'
             f' data-review-action-command="{escape(label)}"'
+            f' data-state-path="{escape(state_path)}"'
+            f' data-stock-id="{escape(stock_id)}"'
+            f' data-action-id="{escape(action_id)}"'
+            f' data-status-value="{escape(status)}"'
             f' data-command="{escape(command)}">'
             f"{escape(label)}"
             "</button>"
@@ -1145,11 +1202,11 @@ def _yes_no(value: bool) -> str:
     return "有" if value else "無"
 
 
-def write_dashboard_index(search_dirs: list[Path], output_path: Path) -> Path:
+def write_dashboard_index(search_dirs: list[Path], output_path: Path, *, action_api_enabled: bool = False) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     items = discover_dashboard_items(search_dirs)
     _make_links_relative(items, output_path.parent)
-    output_path.write_text(render_dashboard_html(items), encoding="utf-8")
+    output_path.write_text(render_dashboard_html(items, action_api_enabled=action_api_enabled), encoding="utf-8")
     return output_path
 
 

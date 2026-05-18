@@ -259,6 +259,10 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a static dashboard index.")
     dashboard_parser.add_argument("--scan-dir", action="append", default=[], type=Path, help="Directory to scan for generated reports.")
     dashboard_parser.add_argument("--output", default=Path("dashboard-index.html"), type=Path, help="Output HTML path.")
+    dashboard_parser.add_argument("--serve", action="store_true", help="Serve an interactive local dashboard API.")
+    dashboard_parser.add_argument("--host", default="127.0.0.1", help="Dashboard server host.")
+    dashboard_parser.add_argument("--port", default=8765, type=int, help="Dashboard server port.")
+    dashboard_parser.add_argument("--open", action="store_true", help="Open the local dashboard server in a browser.")
 
     price_template_parser = subparsers.add_parser("price-template", help="Generate a valuation CSV template.")
     price_template_parser.add_argument("stock_ids", nargs="+", help="Stock IDs to include in the template.")
@@ -500,6 +504,12 @@ def main(argv: list[str] | None = None) -> int:
             Path("batch-dist"),
             Path("workflow-dist"),
         ]
+        if args.serve:
+            from taiwan_stock_analysis.dashboard_server import serve_dashboard
+
+            print(f"Serving dashboard at http://{args.host}:{args.port}/")
+            serve_dashboard(scan_dirs, host=args.host, port=args.port, open_browser=args.open)
+            return 0
         output_path = write_dashboard_index(scan_dirs, args.output)
         print(f"Wrote {output_path}")
         return 0

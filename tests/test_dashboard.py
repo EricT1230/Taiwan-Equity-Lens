@@ -516,6 +516,7 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("審查動作", html)
+        self.assertIn("const reviewActionApiEnabled = false;", html)
         self.assertIn('data-review-actions-section="true"', html)
         self.assertIn('data-review-filter="severity"', html)
         self.assertIn('data-review-filter="category"', html)
@@ -542,6 +543,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-search-text="2330 high open manual_review source_audit review source audit fixture source"', html)
         self.assertIn("<th>指令</th>", html)
         self.assertIn('data-review-action-command="done"', html)
+        self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
+        self.assertIn('data-action-id="source-audit-manual-review"', html)
+        self.assertIn('data-status-value="done"', html)
+        self.assertIn('data-review-action-status-cell="true"', html)
         self.assertIn('data-review-action-command="deferred"', html)
         self.assertIn('data-review-action-command="ignored"', html)
         self.assertIn('data-review-action-command="reopen"', html)
@@ -596,6 +601,42 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("Review <source>", html)
         self.assertNotIn('data-stock-id="2330<script>"', html)
         self.assertNotIn('data-search-text="2330<script>', html)
+
+    def test_render_dashboard_html_can_enable_review_action_api(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {"total_open": 1},
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "workflow-error",
+                                        "category": "workflow",
+                                        "severity": "error",
+                                        "message": "Fix workflow.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            action_api_enabled=True,
+        )
+
+        self.assertIn("const reviewActionApiEnabled = true;", html)
+        self.assertIn("fetch('/api/review-actions/set'", html)
+        self.assertIn("updateReviewActionState(button, copyStatus)", html)
 
     def test_discover_dashboard_items_loads_review_action_state(self):
         root = Path(".tmp-cli-test/dashboard-review-action-state")

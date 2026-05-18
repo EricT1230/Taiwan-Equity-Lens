@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.29.0 - 2026-05-19
+
+Dashboard API Actions release.
+
+### Added
+
+- `dashboard --serve` for running an interactive localhost dashboard.
+- Review-action API endpoint for updating `review_action_state.json` from dashboard buttons.
+- API-enabled dashboard buttons that write status updates and show the result in the page.
+- v0.29.0 release notes.
+
+### Changed
+
+- Static dashboards keep the original command-copy fallback.
+- Served dashboards call the local API instead of requiring users to paste CLI commands.
+- README and usage workflow release doctor examples now target `0.29.0`.
+- Package version is now `0.29.0`.
+
+### Quality
+
+- Added dashboard server tests for state writes, invalid statuses, and path safety.
+- Added CLI coverage for `dashboard --serve`.
+
 ## v0.28.0 - 2026-05-18
 
 Dashboard Traditional Chinese Labels release.

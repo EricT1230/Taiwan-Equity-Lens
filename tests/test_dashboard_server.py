@@ -1,0 +1,64 @@
+import json
+import unittest
+from pathlib import Path
+
+from taiwan_stock_analysis.dashboard_server import set_review_action_status_from_payload
+
+
+class DashboardServerTests(unittest.TestCase):
+    def test_set_review_action_status_from_payload_writes_state(self):
+        root = Path(".tmp-cli-test/dashboard-server-api")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+
+        result = set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+            },
+            allowed_roots=[root],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("done", result["status"])
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        action = payload["actions"]["2330:source-audit-manual-review"]
+        self.assertEqual("2330", action["stock_id"])
+        self.assertEqual("source-audit-manual-review", action["action_id"])
+        self.assertEqual("done", action["status"])
+
+    def test_set_review_action_status_from_payload_rejects_outside_state_path(self):
+        root = Path(".tmp-cli-test/dashboard-server-api-safe")
+        root.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaisesRegex(ValueError, "outside the served dashboard directories"):
+            set_review_action_status_from_payload(
+                {
+                    "state_path": "../outside.json",
+                    "stock_id": "2330",
+                    "action_id": "source-audit-manual-review",
+                    "status": "done",
+                },
+                allowed_roots=[root],
+            )
+
+    def test_set_review_action_status_from_payload_rejects_invalid_status(self):
+        root = Path(".tmp-cli-test/dashboard-server-api-invalid")
+        root.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaisesRegex(ValueError, "invalid review action status"):
+            set_review_action_status_from_payload(
+                {
+                    "state_path": "review_action_state.json",
+                    "stock_id": "2330",
+                    "action_id": "source-audit-manual-review",
+                    "status": "bad",
+                },
+                allowed_roots=[root],
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

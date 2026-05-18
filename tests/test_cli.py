@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.28.0"])
+            exit_code = main(["doctor", "release", "--version", "0.29.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -318,6 +318,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("台股基本面儀表板", output_path.read_text(encoding="utf-8"))
         self.assertIn("2330_analysis.html", output_path.read_text(encoding="utf-8"))
+
+    def test_main_dashboard_serve_starts_local_server(self):
+        output = StringIO()
+
+        with patch("taiwan_stock_analysis.dashboard_server.serve_dashboard") as serve_dashboard:
+            with redirect_stdout(output):
+                exit_code = main([
+                    "dashboard",
+                    "--scan-dir",
+                    ".tmp-cli-test/offline-demo-dist",
+                    "--serve",
+                    "--port",
+                    "8799",
+                    "--open",
+                ])
+
+        self.assertEqual(exit_code, 0)
+        serve_dashboard.assert_called_once()
+        args, kwargs = serve_dashboard.call_args
+        self.assertEqual([Path(".tmp-cli-test/offline-demo-dist")], args[0])
+        self.assertEqual("127.0.0.1", kwargs["host"])
+        self.assertEqual(8799, kwargs["port"])
+        self.assertTrue(kwargs["open_browser"])
+        self.assertIn("Serving dashboard at http://127.0.0.1:8799/", output.getvalue())
 
     def test_main_dashboard_default_scan_includes_workflow_dist(self):
         cwd = Path.cwd()

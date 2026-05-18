@@ -407,6 +407,8 @@ From v0.27.0 onward, pass `--open` to `doctor demo` to open `dashboard.html` onl
 
 From v0.28.0 onward, the generated dashboard uses Traditional Chinese labels for the main visible dashboard sections and review-action controls. Automation-facing identifiers, JSON keys, and review-action state values remain stable.
 
+From v0.29.0 onward, run `dashboard --serve` to use localhost API buttons for review-action state updates. Static dashboard files still copy the equivalent CLI command; served dashboards call `/api/review-actions/set`, write `review_action_state.json`, and show the result in the page.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -421,13 +423,19 @@ To include a one-shot workflow run manually:
 python -m taiwan_stock_analysis.cli dashboard --scan-dir workflow-dist --scan-dir workflow-dist/reports --scan-dir workflow-dist/valuation-reports --scan-dir workflow-dist/comparison --output dashboard-index.html
 ```
 
+For clickable review-action updates, serve the dashboard locally:
+
+```powershell
+python -m taiwan_stock_analysis.cli dashboard --scan-dir workflow-dist --serve --port 8765 --open
+```
+
 Open `dashboard-index.html` in a browser. It lists generated reports, comparison outputs, batch status, and command builders.
 When no `--scan-dir` is provided, the dashboard command also scans `workflow-dist` by default.
 
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.28.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.29.0
 python -m unittest discover -s tests -v
 ```
 
