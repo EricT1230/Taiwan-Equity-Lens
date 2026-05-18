@@ -10,6 +10,23 @@ class DashboardServerTests(unittest.TestCase):
         root = Path(".tmp-cli-test/dashboard-server-api")
         root.mkdir(parents=True, exist_ok=True)
         state_path = root / "review_action_state.json"
+        (root / "research_summary.json").write_text(
+            json.dumps(
+                {
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "priority": "high",
+                            "actions": [
+                                {"id": "source-audit-manual-review", "status": "open"},
+                                {"id": "reliability-warning", "status": "open"},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
 
         result = set_review_action_status_from_payload(
             {
@@ -23,6 +40,9 @@ class DashboardServerTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual("done", result["status"])
+        self.assertEqual({"open": 1, "done": 1, "deferred": 0, "ignored": 0}, result["by_status"])
+        self.assertEqual(0, result["stale_count"])
+        self.assertNotEqual("-", result["last_updated"])
         payload = json.loads(state_path.read_text(encoding="utf-8"))
         action = payload["actions"]["2330:source-audit-manual-review"]
         self.assertEqual("2330", action["stock_id"])

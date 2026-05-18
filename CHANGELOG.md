@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.30.0 - 2026-05-19
+
+Dashboard API Results release.
+
+### Added
+
+- Served dashboard review-action updates now render a full API result JSON block after each button click.
+- API responses now include `by_status`, `stale_count`, and `last_updated`.
+- v0.30.0 release notes.
+
+### Changed
+
+- Served dashboard status updates now refresh the visible row status, state-health badge, stale-state badge, and last-updated badge.
+- README and usage workflow release doctor examples now target `0.30.0`.
+- Package version is now `0.30.0`.
+
+### Quality
+
+- Added dashboard coverage for API result rendering hooks and refreshed state summary markers.
+- Added dashboard server coverage for returned state summary fields.
+
 ## v0.29.0 - 2026-05-19
 
 Dashboard API Actions release.

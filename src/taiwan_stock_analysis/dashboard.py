@@ -191,6 +191,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .review-action-command {{ padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; font-size: 12px; }}
     .review-action-command:hover {{ background: #eef4fb; }}
     .review-action-command-fallback {{ margin-top: 6px; padding: 8px; font-size: 12px; white-space: pre-wrap; }}
+    .review-action-api-output {{ display: none; margin: 0 0 12px; padding: 12px; background: #0f172a; color: #e5e7eb; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }}
     .review-action-state-meta {{ color: #64748b; font-size: 12px; margin-top: 6px; }}
     .badge {{ display: inline-block; border-radius: 999px; padding: 4px 10px; background: #eef4fb; color: #12355b; font-size: 13px; }}
     .badge.error {{ background: #fee2e2; color: #991b1b; }}
@@ -430,6 +431,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
             statusCell.textContent = result.status || payload.status;
           }}
         }}
+        updateReviewActionSummary(button, result);
+        showReviewActionApiResult(button, result);
         if (copyStatus) {{
           const backupText = result.backup_path ? `，備份：${{result.backup_path}}` : '';
           copyStatus.textContent = `已更新 ${{payload.stock_id}} / ${{payload.action_id}} 為 ${{result.status || payload.status}}${{backupText}}`;
@@ -441,6 +444,34 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }} finally {{
         button.disabled = false;
       }}
+    }}
+    function updateReviewActionSummary(button, result) {{
+      const section = button.closest('[data-review-actions-section="true"]');
+      if (!section) {{
+        return;
+      }}
+      const byStatus = result.by_status || {{}};
+      const stateHealth = section.querySelector('[data-review-action-state-health="true"]');
+      if (stateHealth) {{
+        stateHealth.textContent = `state health: open: ${{byStatus.open || 0}} done: ${{byStatus.done || 0}} deferred: ${{byStatus.deferred || 0}} ignored: ${{byStatus.ignored || 0}}`;
+      }}
+      const staleState = section.querySelector('[data-review-action-stale-count="true"]');
+      if (staleState) {{
+        staleState.textContent = `stale state: ${{result.stale_count ?? 0}}`;
+      }}
+      const lastUpdated = section.querySelector('[data-review-action-last-updated="true"]');
+      if (lastUpdated) {{
+        lastUpdated.textContent = `last updated: ${{result.last_updated || '-'}}`;
+      }}
+    }}
+    function showReviewActionApiResult(button, result) {{
+      const section = button.closest('[data-review-actions-section="true"]');
+      const output = section ? section.querySelector('[data-review-action-api-output="true"]') : null;
+      if (!output) {{
+        return;
+      }}
+      output.style.display = 'block';
+      output.textContent = JSON.stringify(result, null, 2);
     }}
     function updateCommand() {{
       const stock = stockInput.value || '2330';
@@ -611,13 +642,14 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             f'<span class="badge">total open: {escape(str(action_summary.get("total_open", 0)))}</span>'
             f'<span class="badge">severity: {_count_pairs(_dict_value(action_summary.get("by_severity")))}</span>'
             f'<span class="badge">category: {_count_pairs(_dict_value(action_summary.get("by_category")))}</span>'
-            f'<span class="badge">state health: {_review_action_status_pairs(_dict_value(state_report.get("by_status")))}</span>'
-            f'<span class="badge">stale state: {escape(str(state_report.get("stale_count", 0)))}</span>'
-            f'<span class="badge">last updated: {escape(str(state_report.get("last_updated", "-")))}</span>'
+            f'<span class="badge" data-review-action-state-health="true">state health: {_review_action_status_pairs(_dict_value(state_report.get("by_status")))}</span>'
+            f'<span class="badge" data-review-action-stale-count="true">stale state: {escape(str(state_report.get("stale_count", 0)))}</span>'
+            f'<span class="badge" data-review-action-last-updated="true">last updated: {escape(str(state_report.get("last_updated", "-")))}</span>'
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
             '<p class="status-line"><span class="badge" data-review-action-copy-status="true">複製指令以更新狀態</span></p>'
+            '<pre class="review-action-api-output" data-review-action-api-output="true" aria-live="polite"></pre>'
             "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>動作</th><th>指令</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"

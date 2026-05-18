@@ -528,6 +528,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("顯示 1 / 1 個動作", html)
         self.assertIn("total open: 2", html)
         self.assertIn("state health: open: 1 done: 0 deferred: 0 ignored: 0", html)
+        self.assertIn('data-review-action-state-health="true"', html)
+        self.assertIn('data-review-action-stale-count="true"', html)
+        self.assertIn('data-review-action-last-updated="true"', html)
         self.assertIn("stale state: 0", html)
         self.assertIn("last updated: -", html)
         self.assertIn("manual_review", html)
@@ -547,6 +550,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-action-id="source-audit-manual-review"', html)
         self.assertIn('data-status-value="done"', html)
         self.assertIn('data-review-action-status-cell="true"', html)
+        self.assertIn('data-review-action-api-output="true"', html)
         self.assertIn('data-review-action-command="deferred"', html)
         self.assertIn('data-review-action-command="ignored"', html)
         self.assertIn('data-review-action-command="reopen"', html)
@@ -637,6 +641,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("const reviewActionApiEnabled = true;", html)
         self.assertIn("fetch('/api/review-actions/set'", html)
         self.assertIn("updateReviewActionState(button, copyStatus)", html)
+        self.assertIn("showReviewActionApiResult(button, result)", html)
+        self.assertIn("updateReviewActionSummary(button, result)", html)
 
     def test_discover_dashboard_items_loads_review_action_state(self):
         root = Path(".tmp-cli-test/dashboard-review-action-state")
@@ -854,7 +860,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertNotIn('data-review-actions-section="true"', html)
+        self.assertNotIn('<div data-review-actions-section="true">', html)
         self.assertNotIn('data-review-filter="severity"', html)
 
     def test_render_dashboard_html_includes_review_action_filter_script(self):

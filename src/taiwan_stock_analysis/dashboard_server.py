@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
-from taiwan_stock_analysis.review_action_state import set_review_action_state
+from taiwan_stock_analysis.review_action_state import (
+    build_review_action_state_report,
+    load_review_action_state,
+    set_review_action_state,
+)
 
 DashboardOpener = Callable[[str], object]
 
@@ -31,12 +35,16 @@ def set_review_action_status_from_payload(
         status,
         note=note,
     )
+    report = _state_report_for_path(output_path)
     return {
         "action_id": action_id,
         "backup_path": str(backup_path) if backup_path else "",
+        "by_status": report.get("by_status", {}),
+        "last_updated": report.get("last_updated", "-"),
         "ok": True,
         "state_path": str(output_path),
         "status": status,
+        "stale_count": report.get("stale_count", 0),
         "stock_id": stock_id,
     }
 
@@ -133,6 +141,21 @@ def _allowed_state_path(raw_path: str, allowed_roots: list[Path]) -> Path:
         if any(_is_relative_to(candidate, root) for root in roots):
             return candidate
     raise ValueError("state_path is outside the served dashboard directories")
+
+
+def _state_report_for_path(state_path: Path) -> dict[str, Any]:
+    research_summary = state_path.with_name("research_summary.json")
+    if not research_summary.exists():
+        return {"by_status": {}, "last_updated": "-", "stale_count": 0}
+    try:
+        payload = json.loads(research_summary.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"by_status": {}, "last_updated": "-", "stale_count": 0}
+    queue = payload.get("review_action_queue", []) if isinstance(payload, dict) else []
+    state, warning = load_review_action_state(state_path)
+    if warning:
+        return {"by_status": {}, "last_updated": "-", "stale_count": 0}
+    return build_review_action_state_report(queue if isinstance(queue, list) else [], state)
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
