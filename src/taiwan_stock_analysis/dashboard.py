@@ -187,11 +187,17 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .filter-count {{ color: #4b5563; font-size: 13px; padding: 8px 0; }}
     button[data-review-filter-reset] {{ padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     button[data-review-filter-reset]:hover {{ background: #eef4fb; }}
-    .review-action-commands {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }}
-    .review-action-command {{ padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; font-size: 12px; }}
+    .review-action-commands {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }}
+    .review-action-command {{ padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; font-size: 13px; min-width: 52px; }}
+    .review-action-command[data-review-action-command="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
     .review-action-command:hover {{ background: #eef4fb; }}
+    .review-action-command[data-review-action-command="done"]:hover {{ background: #bbf7d0; }}
     .review-action-command-fallback {{ margin-top: 6px; padding: 8px; font-size: 12px; white-space: pre-wrap; }}
-    .review-action-api-output {{ display: none; margin: 0 0 12px; padding: 12px; background: #0f172a; color: #e5e7eb; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }}
+    .review-action-detail {{ margin-top: 8px; color: #475569; font-size: 13px; }}
+    .review-action-detail summary {{ cursor: pointer; color: #0f5aa8; }}
+    .review-action-api-result {{ display: none; margin: 0 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }}
+    .review-action-api-result summary {{ cursor: pointer; padding: 10px 12px; color: #12355b; font-weight: 600; }}
+    .review-action-api-output {{ margin: 0; padding: 12px; background: #0f172a; color: #e5e7eb; border-radius: 0 0 8px 8px; overflow-x: auto; white-space: pre-wrap; }}
     .review-action-state-meta {{ color: #64748b; font-size: 12px; margin-top: 6px; }}
     .badge {{ display: inline-block; border-radius: 999px; padding: 4px 10px; background: #eef4fb; color: #12355b; font-size: 13px; }}
     .badge.error {{ background: #fee2e2; color: #991b1b; }}
@@ -434,8 +440,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         updateReviewActionSummary(button, result);
         showReviewActionApiResult(button, result);
         if (copyStatus) {{
-          const backupText = result.backup_path ? `，備份：${{result.backup_path}}` : '';
-          copyStatus.textContent = `已更新 ${{payload.stock_id}} / ${{payload.action_id}} 為 ${{result.status || payload.status}}${{backupText}}`;
+          const backupText = result.backup_path ? `，已建立備份` : '';
+          copyStatus.textContent = `已更新：${{payload.stock_id}} 的 ${{payload.action_id}} 已標記為 ${{result.status || payload.status}}${{backupText}}`;
         }}
       }} catch (error) {{
         if (copyStatus) {{
@@ -466,11 +472,13 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     }}
     function showReviewActionApiResult(button, result) {{
       const section = button.closest('[data-review-actions-section="true"]');
-      const output = section ? section.querySelector('[data-review-action-api-output="true"]') : null;
+      const detail = section ? section.querySelector('[data-review-action-api-result="true"]') : null;
+      const output = detail ? detail.querySelector('[data-review-action-api-output="true"]') : null;
       if (!output) {{
         return;
       }}
-      output.style.display = 'block';
+      detail.style.display = 'block';
+      detail.open = true;
       output.textContent = JSON.stringify(result, null, 2);
     }}
     function updateCommand() {{
@@ -648,9 +656,12 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
-            '<p class="status-line"><span class="badge" data-review-action-copy-status="true">複製指令以更新狀態</span></p>'
-            '<pre class="review-action-api-output" data-review-action-api-output="true" aria-live="polite"></pre>'
-            "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>動作</th><th>指令</th></tr></thead>"
+            '<p class="status-line"><span class="badge" data-review-action-copy-status="true">請選擇每筆事項的處理結果</span></p>'
+            '<details class="review-action-api-result" data-review-action-api-result="true" aria-live="polite">'
+            '<summary>更新結果</summary>'
+            '<pre class="review-action-api-output" data-review-action-api-output="true"></pre>'
+            '</details>'
+            "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>待處理事項</th><th>操作</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             "</div>"
         )
@@ -904,30 +915,33 @@ def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) 
     if not action_id:
         return "-"
     commands = [
-        ("done", "done"),
-        ("deferred", "deferred"),
-        ("ignored", "ignored"),
-        ("reopen", "open"),
+        ("done", "done", "完成"),
+        ("deferred", "deferred", "延後"),
+        ("ignored", "ignored", "忽略"),
+        ("reopen", "open", "重開"),
     ]
     buttons = []
     fallback_lines = []
-    for label, status in commands:
+    for action_name, status, display_label in commands:
         command = _review_action_state_command(state_path, stock_id, action_id, status)
         fallback_lines.append(command)
         buttons.append(
             '<button type="button" class="review-action-command"'
-            f' data-review-action-command="{escape(label)}"'
+            f' data-review-action-command="{escape(action_name)}"'
             f' data-state-path="{escape(state_path)}"'
             f' data-stock-id="{escape(stock_id)}"'
             f' data-action-id="{escape(action_id)}"'
             f' data-status-value="{escape(status)}"'
             f' data-command="{escape(command)}">'
-            f"{escape(label)}"
+            f"{escape(display_label)}"
             "</button>"
         )
     return (
         f'<div class="review-action-commands">{"".join(buttons)}</div>'
+        '<details class="review-action-detail">'
+        '<summary>指令 / API 詳細資訊</summary>'
         f'<code class="review-action-command-fallback">{escape(os.linesep.join(fallback_lines))}</code>'
+        '</details>'
     )
 
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.31.0 - 2026-05-19
+
+Review Actions UX Cleanup release.
+
+### Changed
+
+- Review-action table columns now present the work as `待處理事項` and `操作`.
+- Dashboard review-action buttons now use `完成`, `延後`, `忽略`, and `重開` while preserving stable machine-facing command values.
+- CLI/API fallback details are collapsed under `指令 / API 詳細資訊`.
+- API result JSON is collapsed under `更新結果` and opens automatically after a served dashboard update.
+- README and usage workflow release doctor examples now target `0.31.0`.
+- Package version is now `0.31.0`.
+
+### Quality
+
+- Updated dashboard coverage for the simplified review-action operation labels and collapsed detail/result panels.
+
 ## v0.30.0 - 2026-05-19
 
 Dashboard API Results release.

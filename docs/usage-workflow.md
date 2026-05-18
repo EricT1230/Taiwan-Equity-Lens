@@ -411,6 +411,8 @@ From v0.29.0 onward, run `dashboard --serve` to use localhost API buttons for re
 
 From v0.30.0 onward, served dashboard updates also display the full API result JSON and refresh the visible state-health, stale-state, and last-updated badges after a button click.
 
+From v0.31.0 onward, review-action buttons use user-facing Traditional Chinese labels, the command/API details are collapsed by default, and the JSON update result opens only after a served dashboard button click.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -437,7 +439,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.30.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.31.0
 python -m unittest discover -s tests -v
 ```
 
