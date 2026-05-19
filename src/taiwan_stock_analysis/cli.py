@@ -14,9 +14,11 @@ from taiwan_stock_analysis.dashboard import write_dashboard_index
 from taiwan_stock_analysis.diagnostics import build_diagnostics
 from taiwan_stock_analysis.doctor import (
     check_demo_readiness,
+    check_handoff_readiness,
     check_release_readiness,
     format_demo_doctor_result,
     format_doctor_result,
+    format_handoff_doctor_result,
 )
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
@@ -298,6 +300,11 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_demo.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
     doctor_demo.add_argument("--json", action="store_true", help="Print demo readiness as JSON.")
     doctor_demo.add_argument("--open", action="store_true", help="Open dashboard.html when demo readiness passes.")
+    doctor_handoff = doctor_subparsers.add_parser("handoff", help="Check research handoff quality gate.")
+    doctor_handoff.add_argument("research_summary", type=Path)
+    doctor_handoff.add_argument("--state", type=Path, help="Path to review_action_state.json.")
+    doctor_handoff.add_argument("--blocker-limit", type=int, default=3)
+    doctor_handoff.add_argument("--json", action="store_true", help="Print handoff readiness as JSON.")
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
@@ -616,6 +623,17 @@ def main(argv: list[str] | None = None) -> int:
                 if open_error:
                     print(f"Warning: {open_error}")
                     return 1
+            return 0 if result.ok else 1
+        if args.doctor_command == "handoff":
+            result = check_handoff_readiness(
+                args.research_summary,
+                state_path=args.state,
+                blocker_limit=args.blocker_limit,
+            )
+            if args.json:
+                print(json.dumps(asdict(result), ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(format_handoff_doctor_result(result))
             return 0 if result.ok else 1
         build_command_arg_parser().error("doctor command is required")
 

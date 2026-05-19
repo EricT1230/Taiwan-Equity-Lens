@@ -6,6 +6,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from taiwan_stock_analysis.handoff import build_handoff_quality_gate
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
@@ -441,21 +442,39 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       const rows = reviewActionRows(section);
       const openRows = rows.filter((row) => (row.dataset.status || 'open') === 'open');
+      const staleNode = section.querySelector('[data-review-action-stale-count="true"]');
+      const staleCount = Number(staleNode ? staleNode.dataset.reviewActionStaleCountValue || '0' : '0');
+      const missingGateCount = Number(consoleBlock.dataset.expertConsoleMissingGateCount || '0');
+      const blocked = openRows.length > 0 || staleCount > 0 || missingGateCount > 0;
       const readiness = consoleBlock.querySelector('[data-expert-console-readiness="true"]');
       if (readiness) {{
-        readiness.classList.toggle('blocked', openRows.length > 0);
-        readiness.classList.toggle('ready', openRows.length === 0);
-        readiness.textContent = openRows.length > 0
-          ? `交接狀態：尚未可交接，原因：仍有 ${{openRows.length}} 件待處理審查事項`
+        readiness.classList.toggle('blocked', blocked);
+        readiness.classList.toggle('ready', !blocked);
+        readiness.textContent = blocked
+          ? `交接狀態：尚未可交接，原因：Handoff Gate 有 ${{openRows.length + staleCount + missingGateCount}} 件阻塞`
           : '交接狀態：可進入人工交付審查';
       }}
       const nextStep = consoleBlock.querySelector('[data-expert-console-next-step="true"]');
       if (nextStep) {{
-        nextStep.textContent = openRows.length > 0
-          ? '下一步：先處理右側「優先處理的 3 件待查事項」，再回到審查動作表確認剩餘事項。'
-          : '下一步：打開研究摘要與 memo，進行人工閱讀與簽核。';
+        if (missingGateCount > 0) {{
+          nextStep.textContent = '下一步：先重新產生 research_summary.json，避免靜默遺漏 handoff gate。';
+        }} else if (openRows.length > 0) {{
+          nextStep.textContent = '下一步：先處理 Top 3 阻塞事項，再回到審查動作表確認剩餘事項。';
+        }} else if (staleCount > 0) {{
+          nextStep.textContent = '下一步：先 prune stale review-action state，再重新執行 handoff gate。';
+        }} else {{
+          nextStep.textContent = '下一步：打開研究摘要、memo 與 pack，進行人工閱讀與簽核。';
+        }}
       }}
-      renderExpertConsoleActions(consoleBlock, openRows.slice(0, 3));
+      if (openRows.length > 0) {{
+        renderExpertConsoleActions(consoleBlock, openRows.slice(0, 3));
+      }} else if (staleCount > 0) {{
+        renderExpertConsoleSystemBlocker(consoleBlock, `review_action_state.json 有 ${{staleCount}} 筆過期狀態，請先 prune stale state。`);
+      }} else if (missingGateCount > 0) {{
+        renderExpertConsoleSystemBlocker(consoleBlock, `Handoff Gate 有 ${{missingGateCount}} 筆結構阻塞，請重新產生 research_summary.json。`);
+      }} else {{
+        renderExpertConsoleActions(consoleBlock, []);
+      }}
     }}
     function renderExpertConsoleActions(consoleBlock, openRows) {{
       const existing = consoleBlock.querySelector('[data-expert-console-top-actions="true"]');
@@ -474,6 +493,30 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       list.className = 'expert-console-actions';
       list.dataset.expertConsoleTopActions = 'true';
       openRows.forEach((row) => list.appendChild(buildExpertConsoleAction(row, consoleBlock.dataset.expertConsoleSourcePath || '')));
+      existing.replaceWith(list);
+    }}
+    function renderExpertConsoleSystemBlocker(consoleBlock, message) {{
+      const existing = consoleBlock.querySelector('[data-expert-console-top-actions="true"]');
+      if (!existing) {{
+        return;
+      }}
+      const list = document.createElement('ol');
+      list.className = 'expert-console-actions';
+      list.dataset.expertConsoleTopActions = 'true';
+      const item = document.createElement('li');
+      item.className = 'expert-console-action';
+      const meta = document.createElement('div');
+      meta.className = 'expert-console-meta';
+      appendExpertBadge(meta, '狀態一致性專家');
+      appendExpertBadge(meta, '需注意');
+      item.appendChild(meta);
+      const title = document.createElement('strong');
+      title.textContent = 'Handoff Gate';
+      item.appendChild(title);
+      const detail = document.createElement('p');
+      detail.textContent = message;
+      item.appendChild(detail);
+      list.appendChild(item);
       existing.replaceWith(list);
     }}
     function appendExpertBadge(parent, text) {{
@@ -813,6 +856,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       const staleState = section.querySelector('[data-review-action-stale-count="true"]');
       if (staleState) {{
+        staleState.dataset.reviewActionStaleCountValue = String(result.stale_count ?? 0);
         staleState.textContent = `過期狀態 ${{result.stale_count ?? 0}}`;
       }}
       const lastUpdated = section.querySelector('[data-review-action-last-updated="true"]');
@@ -901,41 +945,46 @@ def _expert_agent_console_section(research_summaries: list[dict[str, Any]], *, a
 
 
 def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled: bool = False) -> str:
-    source_queue = summary.get("review_action_queue", [])
-    queue = source_queue if isinstance(source_queue, list) else []
     state = _dict_value(summary.get("review_action_state"))
-    overlaid_queue = apply_review_action_state(queue, state)
-    open_actions = _expert_console_open_actions(overlaid_queue)
-    total_actions = _review_action_row_count(overlaid_queue)
-    readiness_class = "blocked" if open_actions else "ready"
+    gate = build_handoff_quality_gate(summary, state, blocker_limit=3)
+    blockers = gate.get("top_blockers", [])
+    top_blockers = blockers if isinstance(blockers, list) else []
+    total_actions = int(gate.get("total_actions") or 0)
+    ready = bool(gate.get("ready"))
+    blocker_count = int(gate.get("blocker_count") or 0)
+    open_count = int(gate.get("open_count") or 0)
+    stale_count = int(gate.get("stale_state_count") or 0)
+    missing_gate_count = int(gate.get("missing_gate_action_count") or 0)
+    readiness_class = "ready" if ready else "blocked"
     readiness_text = (
-        f"\u4ea4\u63a5\u72c0\u614b\uff1a\u5c1a\u672a\u53ef\u4ea4\u63a5\uff0c\u539f\u56e0\uff1a\u4ecd\u6709 {len(open_actions)} \u4ef6\u5f85\u8655\u7406\u5be9\u67e5\u4e8b\u9805"
-        if open_actions
-        else "\u4ea4\u63a5\u72c0\u614b\uff1a\u53ef\u9032\u5165\u4eba\u5de5\u4ea4\u4ed8\u5be9\u67e5"
+        "\u4ea4\u63a5\u72c0\u614b\uff1a\u53ef\u9032\u5165\u4eba\u5de5\u4ea4\u4ed8\u5be9\u67e5"
+        if ready
+        else f"\u4ea4\u63a5\u72c0\u614b\uff1a\u5c1a\u672a\u53ef\u4ea4\u63a5\uff0c\u539f\u56e0\uff1aHandoff Gate \u6709 {blocker_count} \u4ef6\u963b\u585e"
     )
     source_path = str(summary.get("path") or "")
     source_link = _link(source_path, Path(source_path).name or "research_summary.json")
-    next_step = (
-        "\u4e0b\u4e00\u6b65\uff1a\u5148\u8655\u7406\u53f3\u5074\u300c\u512a\u5148\u8655\u7406\u7684 3 \u4ef6\u5f85\u67e5\u4e8b\u9805\u300d\uff0c\u518d\u56de\u5230\u5be9\u67e5\u52d5\u4f5c\u8868\u78ba\u8a8d\u5269\u9918\u4e8b\u9805\u3002"
-        if open_actions
-        else "\u4e0b\u4e00\u6b65\uff1a\u6253\u958b\u7814\u7a76\u6458\u8981\u8207 memo\uff0c\u9032\u884c\u4eba\u5de5\u9605\u8b80\u8207\u7c3d\u6838\u3002"
-    )
-    sync_note = _expert_console_sync_note(open_actions, action_api_enabled)
+    next_step = str(gate.get("next_step") or "")
+    sync_note = _expert_console_sync_note(top_blockers, action_api_enabled)
     escaped_source_path = escape(source_path)
     return (
-        f'<div class="expert-console-grid" data-expert-console-source-path="{escaped_source_path}">'
+        f'<div class="expert-console-grid" data-expert-console-source-path="{escaped_source_path}"'
+        f' data-expert-console-handoff-status="{escape(str(gate.get("status") or ""))}"'
+        f' data-expert-console-open-count="{escape(str(open_count))}"'
+        f' data-expert-console-stale-count="{escape(str(stale_count))}"'
+        f' data-expert-console-missing-gate-count="{escape(str(missing_gate_count))}">'
         '<div class="expert-console-panel">'
         "<h3>\u7814\u7a76\u4ea4\u4ed8\u72c0\u614b</h3>"
         f'<p><span class="expert-console-readiness {readiness_class}" '
         f'data-expert-console-readiness="true">{escape(readiness_text)}</span></p>'
         f'<p class="status-line"><span class="badge">\u4f86\u6e90\uff1a{source_link}</span>'
-        f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span></p>'
+        f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span>'
+        f'<span class="badge">Gate \u963b\u585e\uff1a{escape(str(blocker_count))}</span></p>'
         f'<p data-expert-console-next-step="true">{escape(next_step)}</p>'
         f"{sync_note}"
         "</div>"
         '<div class="expert-console-panel">'
         "<h3>\u512a\u5148\u8655\u7406\u7684 3 \u4ef6\u5f85\u67e5\u4e8b\u9805</h3>"
-        f"{_expert_console_action_list(open_actions[:3], source_path)}"
+        f"{_expert_console_action_list(top_blockers, source_path)}"
         "</div>"
         "</div>"
     )
@@ -1013,27 +1062,39 @@ def _expert_console_action_item(action: dict[str, str], source_path: str) -> str
     category = action.get("category", "")
     severity = action.get("severity", "")
     priority = action.get("priority", "")
+    action_id = action.get("action_id", "")
+    focus_available = action.get("focus_available", "true") == "true" and bool(action_id)
     focus_search = _expert_console_focus_search(action)
     title = stock_id if not company_name else f"{stock_id} {company_name}"
+    next_copy = (
+        "\u4e0b\u4e00\u6b65\uff1a\u6309\u4e0b\u6309\u9215\u5b9a\u4f4d\u5230\u5be9\u67e5\u5217\uff0c"
+        "\u518d\u9078\u64c7\u300c\u6a19\u8a18\u5b8c\u6210\u300d\u6216\u300c\u7a0d\u5f8c\u8655\u7406\u300d\u3002"
+        if focus_available
+        else action.get("next_step", "請執行 handoff doctor 後重新產生 dashboard。")
+    )
+    focus_control = (
+        '<button type="button" class="expert-console-next"'
+        f' data-expert-console-source-path="{escape(source_path)}"'
+        f' data-expert-console-stock-id="{escape(stock_id)}"'
+        f' data-expert-console-action-id="{escape(action_id)}"'
+        f' data-expert-console-focus-category="{escape(category)}"'
+        f' data-expert-console-focus-search="{escape(focus_search)}">'
+        "\u524d\u5f80\u9019\u500b\u963b\u585e"
+        "</button>"
+        if focus_available
+        else ""
+    )
     return (
         '<li class="expert-console-action">'
         '<div class="expert-console-meta">'
-        f'<span class="badge">{escape(_expert_agent_label(category))}</span>'
+        f'<span class="badge">{escape(action.get("expert_label") or _expert_agent_label(category))}</span>'
         f'<span class="badge">{escape(_review_label(severity, REVIEW_ACTION_SEVERITY_LABELS))}</span>'
         f'<span class="badge">{escape(_review_label(priority, REVIEW_ACTION_PRIORITY_LABELS))}</span>'
         "</div>"
         f"<strong>{escape(title)}</strong>"
         f"<p>{escape(action.get('message', ''))}</p>"
-        '<p class="empty">\u4e0b\u4e00\u6b65\uff1a\u6309\u4e0b\u6309\u9215\u5b9a\u4f4d\u5230\u5be9\u67e5\u5217\uff0c'
-        "\u518d\u9078\u64c7\u300c\u6a19\u8a18\u5b8c\u6210\u300d\u6216\u300c\u7a0d\u5f8c\u8655\u7406\u300d\u3002</p>"
-        '<button type="button" class="expert-console-next"'
-        f' data-expert-console-source-path="{escape(source_path)}"'
-        f' data-expert-console-stock-id="{escape(stock_id)}"'
-        f' data-expert-console-action-id="{escape(action.get("action_id", ""))}"'
-        f' data-expert-console-focus-category="{escape(category)}"'
-        f' data-expert-console-focus-search="{escape(focus_search)}">'
-        "\u524d\u5f80\u9019\u500b\u963b\u585e"
-        "</button>"
+        f'<p class="empty" data-expert-console-next-copy="true">{escape(next_copy)}</p>'
+        f"{focus_control}"
         "</li>"
     )
 
@@ -1191,7 +1252,7 @@ def _review_actions_section(research_summaries: list[dict[str, Any]], *, action_
             f'<span class="badge">重要性：{_count_pairs(_dict_value(action_summary.get("by_severity")), REVIEW_ACTION_SEVERITY_LABELS)}</span>'
             f'<span class="badge">類別：{_count_pairs(_dict_value(action_summary.get("by_category")), REVIEW_ACTION_CATEGORY_LABELS)}</span>'
             f'<span class="badge" data-review-action-state-health="true">{_review_action_status_pairs(by_status)}</span>'
-            f'<span class="badge" data-review-action-stale-count="true">過期狀態 {escape(str(state_report.get("stale_count", 0)))}</span>'
+            f'<span class="badge" data-review-action-stale-count="true" data-review-action-stale-count-value="{escape(str(state_report.get("stale_count", 0)))}">過期狀態 {escape(str(state_report.get("stale_count", 0)))}</span>'
             f'<span class="badge" data-review-action-last-updated="true">最後更新：{escape(str(state_report.get("last_updated", "-")))}</span>'
             "</p>"
             f"{_review_action_state_warning(state_warning)}"

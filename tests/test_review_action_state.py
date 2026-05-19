@@ -41,6 +41,29 @@ class ReviewActionStateTests(unittest.TestCase):
         self.assertEqual(state, {"version": 1, "actions": {}})
         self.assertIn("Could not read review action state", warning)
 
+    def test_load_state_accepts_utf8_bom(self):
+        path = Path(".tmp-cli-test/review-action-state-bom.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "actions": {
+                        "2330:workflow-error": {
+                            "stock_id": "2330",
+                            "action_id": "workflow-error",
+                            "status": "done",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8-sig",
+        )
+
+        state, warning = load_review_action_state(path)
+
+        self.assertEqual(warning, "")
+        self.assertEqual(state["actions"]["2330:workflow-error"]["status"], "done")
+
     def test_load_state_normalizes_and_ignores_malformed_entries(self):
         path = Path(".tmp-cli-test/review-action-state-normalized.json")
         path.parent.mkdir(parents=True, exist_ok=True)

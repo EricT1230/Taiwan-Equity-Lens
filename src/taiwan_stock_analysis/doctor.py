@@ -5,7 +5,10 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
+
+from taiwan_stock_analysis.handoff import build_handoff_quality_gate
+from taiwan_stock_analysis.review_action_state import load_review_action_state
 
 try:
     import tomllib
@@ -31,6 +34,16 @@ class DemoDoctorResult:
     messages: list[str]
     failures: list[str]
     repair_command: str
+
+
+@dataclass(frozen=True)
+class HandoffDoctorResult:
+    ok: bool
+    messages: list[str]
+    failures: list[str]
+    research_summary_path: str
+    state_path: str
+    gate: dict[str, Any]
 
 
 DEMO_REQUIRED_FILES = (
@@ -130,6 +143,45 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
     )
 
 
+def check_handoff_readiness(
+    research_summary_path: Path,
+    *,
+    state_path: Path | None = None,
+    blocker_limit: int = 3,
+) -> HandoffDoctorResult:
+    failures: list[str] = []
+    messages: list[str] = [f"research summary {research_summary_path}"]
+    resolved_state_path = state_path or (research_summary_path.parent / "review_action_state.json")
+    messages.append(f"state path {resolved_state_path}")
+
+    if not research_summary_path.exists():
+        failures.append(f"missing research summary: {research_summary_path}")
+    payload = _read_json(research_summary_path, failures)
+    state, warning = load_review_action_state(resolved_state_path)
+    if warning:
+        failures.append(f"state warning: {warning}")
+
+    gate: dict[str, Any] = {}
+    if isinstance(payload, dict):
+        gate = build_handoff_quality_gate(payload, state, blocker_limit=blocker_limit)
+        messages.extend(str(message) for message in gate.get("messages", []))
+        if not gate.get("ready"):
+            failures.append("handoff gate blocked")
+        for failure in gate.get("failures", []):
+            failures.append(str(failure))
+    elif payload is not None:
+        failures.append(f"research summary root must be an object: {research_summary_path}")
+
+    return HandoffDoctorResult(
+        ok=not failures,
+        messages=messages,
+        failures=failures,
+        research_summary_path=str(research_summary_path),
+        state_path=str(resolved_state_path),
+        gate=gate,
+    )
+
+
 def find_local_markdown_links(source_path: Path, text: str) -> list[tuple[str, str]]:
     links: list[tuple[str, str]] = []
     for match in MARKDOWN_LINK_RE.finditer(text):
@@ -162,6 +214,48 @@ def format_demo_doctor_result(result: DemoDoctorResult) -> str:
     lines.append("")
     lines.append("Repair:")
     lines.append(result.repair_command)
+    return "\n".join(lines)
+
+
+def format_handoff_doctor_result(result: HandoffDoctorResult) -> str:
+    lines = ["Handoff readiness OK:" if result.ok else "Handoff readiness failed:"]
+    if result.ok:
+        lines.extend(f"- {message}" for message in result.messages)
+    else:
+        lines.extend(f"- {failure}" for failure in result.failures)
+    gate = result.gate
+    if gate:
+        lines.append("")
+        lines.append("Gate summary:")
+        lines.append(f"- status: {gate.get('status', '-')}")
+        lines.append(f"- open review actions: {gate.get('open_count', 0)}")
+        lines.append(f"- stale state entries: {gate.get('stale_state_count', 0)}")
+        lines.append(f"- missing gate actions: {gate.get('missing_gate_action_count', 0)}")
+        lines.append(f"- next step: {gate.get('next_step', '-')}")
+        blockers = gate.get("top_blockers", [])
+        if isinstance(blockers, list) and blockers:
+            lines.append("")
+            lines.append("Top blockers:")
+            lines.append("stock_id\tpriority\tseverity\tcategory\taction_id\tmessage")
+            for blocker in blockers:
+                if not isinstance(blocker, dict):
+                    continue
+                lines.append(
+                    "\t".join(
+                        [
+                            str(blocker.get("stock_id", "")),
+                            str(blocker.get("priority", "")),
+                            str(blocker.get("severity", "")),
+                            str(blocker.get("category", "")),
+                            str(blocker.get("action_id", "")),
+                            str(blocker.get("message", "")),
+                        ]
+                    )
+                )
+        notice = gate.get("non_advice_notice")
+        if notice:
+            lines.append("")
+            lines.append(f"Notice: {notice}")
     return "\n".join(lines)
 
 

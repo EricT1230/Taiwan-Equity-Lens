@@ -423,6 +423,8 @@ From v0.35.0 onward, dashboards include an Expert Agent Console before the detai
 
 From v0.36.0 onward, served dashboards resync the Expert Agent Console immediately after review-action API updates. Marking a blocker done, deferred, ignored, or reopened updates the readiness verdict, next-step copy, and Top 3 list from the same review-action rows instead of requiring a manual refresh. Static dashboards keep the refresh/regenerate notice because their buttons copy CLI commands only.
 
+From v0.37.0 onward, handoff readiness is checked by the same Handoff Quality Gate in the CLI and dashboard. The gate blocks handoff when state-overlaid review actions are still open, when `review_action_state.json` contains stale entries, or when the summary has source, workflow, reliability, valuation, fundamental-review, or research-state signals that should have produced review actions but did not. Run `doctor handoff` before treating a pack as ready for human review.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -449,13 +451,14 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.36.0
+python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
+python -m taiwan_stock_analysis.cli doctor release --version 0.37.0
 python -m unittest discover -s tests -v
 ```
 
-The release doctor checks version metadata, release notes, README badge, CHANGELOG entry, and local documentation links before tagging.
+The handoff doctor checks whether the current research summary is ready for human review. It returns a nonzero exit code with the top blockers when handoff is not ready. The release doctor checks version metadata, release notes, README badge, CHANGELOG entry, and local documentation links before tagging.
 
-Expected: the release doctor reports `Release readiness OK` and all tests pass.
+Expected: the handoff doctor reports `Handoff readiness OK` only after all gate blockers are handled; the release doctor reports `Release readiness OK`; and all tests pass.
 
 ## Guardrails
 

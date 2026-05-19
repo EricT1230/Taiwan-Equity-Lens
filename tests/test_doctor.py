@@ -4,9 +4,11 @@ from pathlib import Path
 
 from taiwan_stock_analysis.doctor import (
     check_demo_readiness,
+    check_handoff_readiness,
     check_release_readiness,
     find_local_markdown_links,
     format_demo_doctor_result,
+    format_handoff_doctor_result,
 )
 
 
@@ -169,6 +171,62 @@ class DoctorTests(unittest.TestCase):
             text,
         )
 
+    def test_check_handoff_readiness_reports_open_blockers(self):
+        root = Path(".tmp-doctor-test/handoff-open")
+        write_handoff_fixture(root)
+
+        result = check_handoff_readiness(root / "research_summary.json")
+
+        self.assertFalse(result.ok)
+        self.assertIn("handoff gate blocked", result.failures)
+        self.assertEqual("blocked", result.gate["status"])
+        self.assertEqual(1, result.gate["open_count"])
+        self.assertEqual("reliability-warning", result.gate["top_blockers"][0]["action_id"])
+
+    def test_check_handoff_readiness_reports_missing_summary(self):
+        result = check_handoff_readiness(Path(".tmp-doctor-test/missing/research_summary.json"))
+
+        self.assertFalse(result.ok)
+        self.assertIn("missing research summary", result.failures[0])
+        self.assertEqual({}, result.gate)
+
+    def test_format_handoff_doctor_result_includes_top_blockers_and_notice(self):
+        root = Path(".tmp-doctor-test/handoff-format")
+        write_handoff_fixture(root)
+
+        text = format_handoff_doctor_result(check_handoff_readiness(root / "research_summary.json"))
+
+        self.assertIn("Handoff readiness failed:", text)
+        self.assertIn("Top blockers:", text)
+        self.assertIn("reliability-warning", text)
+        self.assertIn("不構成投資建議", text)
+
+    def test_check_handoff_readiness_passes_when_state_handles_required_action(self):
+        root = Path(".tmp-doctor-test/handoff-pass")
+        write_handoff_fixture(root)
+        (root / "review_action_state.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "actions": {
+                        "2330:reliability-warning": {
+                            "stock_id": "2330",
+                            "action_id": "reliability-warning",
+                            "status": "done",
+                            "updated_at": "2026-05-20T01:00:00Z",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = check_handoff_readiness(root / "research_summary.json")
+
+        self.assertTrue(result.ok)
+        self.assertEqual("ready", result.gate["status"])
+        self.assertEqual(0, result.gate["blocker_count"])
+
 
 def write_release_fixture(
     root: Path,
@@ -215,3 +273,44 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "comparison" / "comparison.html").write_text("<html></html>", encoding="utf-8")
     (output_dir / "comparison" / "comparison.json").write_text("{}", encoding="utf-8")
     (output_dir / "valuation.csv").write_text("stock_id\n2330\n", encoding="utf-8")
+
+
+def write_handoff_fixture(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "research_summary.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "priority": "high",
+                        "research_state": "watching",
+                        "thesis": "Leading foundry scale",
+                        "follow_up_questions": "Are assumptions current?",
+                        "workflow_status": "ok",
+                        "reliability_status": "warning",
+                        "source_audit_status": "fresh",
+                        "attention_reasons": ["data reliability is warning"],
+                    }
+                ],
+                "review_action_queue": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "priority": "high",
+                        "actions": [
+                            {
+                                "id": "reliability-warning",
+                                "category": "reliability",
+                                "severity": "warning",
+                                "message": "Inspect data reliability warning before handoff.",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )

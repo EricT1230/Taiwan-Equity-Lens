@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.36.0"])
+            exit_code = main(["doctor", "release", "--version", "0.37.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -64,6 +64,58 @@ class CliTests(unittest.TestCase):
         self.assertIn("Demo readiness failed", stdout)
         self.assertIn("Repair:", stdout)
         self.assertIn(f"python -m taiwan_stock_analysis.cli demo quickstart --output-dir {output_dir}", stdout)
+
+    def test_main_doctor_handoff_reports_blockers(self):
+        root = Path(".tmp-cli-test/doctor-handoff-blocked")
+        root.mkdir(parents=True, exist_ok=True)
+        research_summary = root / "research_summary.json"
+        research_summary.write_text(
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "stock_id": "2330",
+                            "company_name": "TSMC",
+                            "priority": "high",
+                            "research_state": "watching",
+                            "thesis": "Leading foundry scale",
+                            "follow_up_questions": "Are assumptions current?",
+                            "workflow_status": "ok",
+                            "reliability_status": "warning",
+                            "source_audit_status": "fresh",
+                            "attention_reasons": ["data reliability is warning"],
+                        }
+                    ],
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "company_name": "TSMC",
+                            "priority": "high",
+                            "actions": [
+                                {
+                                    "id": "reliability-warning",
+                                    "category": "reliability",
+                                    "severity": "warning",
+                                    "message": "Inspect data reliability warning before handoff.",
+                                    "status": "open",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "handoff", str(research_summary)])
+
+        self.assertEqual(exit_code, 1)
+        stdout = output.getvalue()
+        self.assertIn("Handoff readiness failed", stdout)
+        self.assertIn("reliability-warning", stdout)
+        self.assertIn("不構成投資建議", stdout)
 
     def test_main_doctor_demo_json_returns_machine_readable_payload(self):
         output_dir = Path(".tmp-cli-test/doctor-demo-json-pass")

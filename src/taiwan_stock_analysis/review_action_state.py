@@ -20,7 +20,7 @@ def load_review_action_state(path: Path | None) -> tuple[dict[str, Any], str]:
     if path is None or not path.exists():
         return empty_state, ""
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         return empty_state, f"Could not read review action state: {exc}"
     if not isinstance(payload, dict):

@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.37.0 - 2026-05-20
+
+Handoff Quality Gate / Win Condition Contract release.
+
+### Added
+
+- Reusable Handoff Quality Gate for deciding whether a research summary can move into human handoff review.
+- `doctor handoff` CLI command with text and JSON output for top blockers, gate status, next step, and the non-investment-advice notice.
+- Expert Agent Console now uses the Handoff Quality Gate instead of only counting open review-action rows.
+- Project win-condition document that records what this project is optimizing for and how the premortem risks are mitigated.
+- v0.37.0 release notes.
+
+### Changed
+
+- Dashboard handoff status now blocks on open review actions, stale review-action state entries, and missing required gate actions.
+- README and usage workflow release doctor examples now target `0.37.0`.
+- Package version is now `0.37.0`.
+
+### Quality
+
+- Added focused unit coverage for Handoff Quality Gate ready, open-blocker, stale-state, and missing-action paths.
+- Added doctor and dashboard coverage for handoff blockers and stale state surfaced in the Expert Agent Console.
+- Review-action state loading now tolerates UTF-8 BOM files produced by some Windows tooling.
+- Added a v0.37.0 design note for the Handoff Quality Gate contract.
+
 ## v0.36.0 - 2026-05-20
 
 Expert Console State Sync release.
