@@ -537,6 +537,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-bulk-status="done"', html)
         self.assertIn('data-review-action-bulk-status="deferred"', html)
         self.assertIn('data-review-action-bulk-count="true"', html)
+        self.assertIn('data-review-action-mode-notice="true"', html)
+        self.assertIn("目前是靜態模式", html)
         self.assertIn("顯示待處理 / 全部 2 件", html)
         self.assertIn("批次標記完成", html)
         self.assertIn("批次稍後處理", html)
@@ -588,6 +590,196 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-command="reopen"', html)
         self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done", html)
         self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status open", html)
+
+    def test_render_dashboard_html_contains_expert_agent_console_guided_flow(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_state": {
+                            "version": 1,
+                            "actions": {
+                                "2330:source-audit-manual-review": {
+                                    "status": "done",
+                                    "updated_at": "2026-05-20T01:00:00Z",
+                                }
+                            },
+                        },
+                        "review_action_summary": {
+                            "total_open": 4,
+                            "by_category": {
+                                "source_audit": 1,
+                                "fundamental_review": 1,
+                                "reliability": 1,
+                                "valuation": 1,
+                            },
+                            "by_severity": {"manual_review": 1, "warning": 3},
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "source-audit-manual-review",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review source audit: fixture source",
+                                        "status": "open",
+                                    },
+                                    {
+                                        "id": "fundamental-review-low-quality",
+                                        "category": "fundamental_review",
+                                        "severity": "warning",
+                                        "message": "Review weak expert fundamental checks before handoff.",
+                                        "status": "open",
+                                    },
+                                    {
+                                        "id": "reliability-warning",
+                                        "category": "reliability",
+                                        "severity": "warning",
+                                        "message": "Inspect data reliability warning before handoff.",
+                                        "status": "open",
+                                    },
+                                    {
+                                        "id": "valuation-unavailable",
+                                        "category": "valuation",
+                                        "severity": "warning",
+                                        "message": "Complete or verify valuation output before handoff.",
+                                        "status": "open",
+                                    },
+                                ],
+                            }
+                        ],
+                        "items": [],
+                    }
+                ],
+                "memo_outputs": [],
+                "pack_outputs": [],
+            }
+        )
+
+        self.assertIn('data-expert-agent-console="true"', html)
+        self.assertIn('data-expert-console-source-path="research-dist/research_summary.json"', html)
+        self.assertIn('data-review-actions-source-path="research-dist/research_summary.json"', html)
+        self.assertIn("專家 Agent Console", html)
+        self.assertIn("交接狀態：尚未可交接", html)
+        self.assertIn("仍有 3 件待處理審查事項", html)
+        self.assertIn("優先處理的 3 件待查事項", html)
+        self.assertIn("基本面專家審查", html)
+        self.assertIn("資料可信度專家", html)
+        self.assertIn("估值假設專家", html)
+        self.assertIn("前往這個阻塞", html)
+        self.assertIn('data-expert-console-refresh-note="true"', html)
+        self.assertIn("重新整理頁面或重新產生 dashboard", html)
+        self.assertEqual(html.count('data-expert-console-focus-category="'), 3)
+        self.assertIn('data-expert-console-focus-category="fundamental_review"', html)
+        self.assertIn('data-expert-console-stock-id="2330"', html)
+        self.assertIn('data-expert-console-action-id="fundamental-review-low-quality"', html)
+        self.assertIn('data-action-id="fundamental-review-low-quality"', html)
+        self.assertNotIn('data-expert-console-focus-category="source_audit"', html)
+        self.assertIn('data-expert-console-focus-search="2330"', html)
+        self.assertIn('data-expert-console-non-advice="true"', html)
+        self.assertIn("不構成投資建議、買賣建議或持倉建議", html)
+        self.assertIn("initExpertConsoleFocus()", html)
+        self.assertIn("reviewActionsSourcePath", html)
+        self.assertIn("targetActionId", html)
+        self.assertIn("firstAction.focus()", html)
+
+    def test_render_dashboard_html_expert_console_targets_same_category_action_id(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {"total_open": 2},
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "fundamental-review-thesis-breakers",
+                                        "category": "fundamental_review",
+                                        "severity": "manual_review",
+                                        "message": "Review thesis breakers.",
+                                        "status": "open",
+                                    },
+                                    {
+                                        "id": "fundamental-review-manual-check",
+                                        "category": "fundamental_review",
+                                        "severity": "info",
+                                        "message": "Review manual questions.",
+                                        "status": "open",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-expert-console-action-id="fundamental-review-thesis-breakers"', html)
+        self.assertIn('data-expert-console-action-id="fundamental-review-manual-check"', html)
+        self.assertIn('data-action-id="fundamental-review-thesis-breakers"', html)
+        self.assertIn('data-action-id="fundamental-review-manual-check"', html)
+        self.assertIn("(row.dataset.actionId || '') === targetActionId", html)
+
+    def test_render_dashboard_html_expert_console_ready_when_all_actions_handled(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_summary": {"total_open": 1},
+                        "review_action_state": {
+                            "version": 1,
+                            "actions": {
+                                "2330:workflow-error": {
+                                    "status": "done",
+                                    "updated_at": "2026-05-20T01:00:00Z",
+                                }
+                            },
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "workflow-error",
+                                        "category": "workflow",
+                                        "severity": "error",
+                                        "message": "Resolve workflow failure before handoff.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("交接狀態：可進入人工交付審查", html)
+        self.assertIn("目前沒有開啟的阻塞事項", html)
+        self.assertNotIn('data-expert-console-focus-category="workflow"', html)
 
     def test_render_dashboard_html_escapes_review_actions(self):
         html = render_dashboard_html(
@@ -675,6 +867,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("updateReviewActionState(button, copyStatus)", html)
         self.assertIn("showReviewActionApiResult(button, result)", html)
         self.assertIn("updateReviewActionSummary(button, result)", html)
+        self.assertIn("目前是 API 模式", html)
 
     def test_discover_dashboard_items_loads_review_action_state(self):
         root = Path(".tmp-cli-test/dashboard-review-action-state")

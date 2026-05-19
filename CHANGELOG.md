@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.35.0 - 2026-05-20
+
+Expert Agent Console / Guided Flow release.
+
+### Added
+
+- Dashboard Expert Agent Console before the research and review-action tables.
+- Handoff readiness verdict that uses the full state-overlaid review-action queue.
+- Top 3 guided blocker list with expert lens labels, severity, stock context, and `前往這個阻塞` buttons.
+- Console focus controls that filter and scroll the existing review-action queue instead of creating a second state system.
+- Persistent non-investment-advice notice for the guided console.
+- Mode notice that distinguishes served API updates from static-dashboard CLI command copying.
+- v0.35.0 release notes.
+
+### Changed
+
+- README and usage workflow release doctor examples now target `0.35.0`.
+- Package version is now `0.35.0`.
+
+### Quality
+
+- Added dashboard coverage for guided console blocked/ready states, top-3 state-overlay behavior, mode notices, non-advice copy, and focus wiring.
+
 ## v0.34.0 - 2026-05-19
 
 Fundamental Expert Review release.

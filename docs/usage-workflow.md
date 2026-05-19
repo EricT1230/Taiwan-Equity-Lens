@@ -419,6 +419,8 @@ From v0.33.0 onward, review-action queues support visible-row selection plus bat
 
 From v0.34.0 onward, research summaries include a deterministic `fundamental_review` expert layer. It checks Buffett-style moat evidence, fundamental quality, bear-case risk, and valuation margin-of-safety inputs, then creates review-action tasks when the expert review is incomplete or needs manual follow-up. These outputs are research workflow checks only and are not investment advice.
 
+From v0.35.0 onward, dashboards include an Expert Agent Console before the detailed tables. It summarizes whether the research can be handed off, the top 3 open blockers after review-action state is applied, which expert lens raised each blocker, and a `前往這個阻塞` button that filters the existing review-action queue. The console is a guided triage surface only; it does not create investment advice, buy/sell/hold guidance, or a separate state system.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -445,7 +447,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.34.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.35.0
 python -m unittest discover -s tests -v
 ```
 
