@@ -80,6 +80,38 @@ class ReviewActionTests(unittest.TestCase):
         self.assertEqual(actions[1]["severity"], "error")
         self.assertIn("workflow failed at batch: fixture missing", actions[1]["message"])
 
+    def test_build_review_actions_from_fundamental_review(self):
+        item = {
+            "stock_id": "2330",
+            "priority": "high",
+            "research_state": "watching",
+            "workflow_status": "ok",
+            "reliability_status": "ok",
+            "source_audit_status": "fresh",
+            "attention_reasons": [],
+            "thesis": "Leading foundry scale",
+            "follow_up_questions": "What drives margin expansion?",
+            "fundamental_review": {
+                "verdict": "needs_work",
+                "score": 55,
+                "questions": ["Add watch triggers."],
+                "thesis_breakers": ["Bear case is missing from the research row."],
+            },
+        }
+
+        actions = build_review_actions(item)
+
+        self.assertEqual(
+            [action["id"] for action in actions],
+            [
+                "fundamental-review-thesis-breakers",
+                "fundamental-review-low-quality",
+                "fundamental-review-manual-check",
+            ],
+        )
+        self.assertEqual(actions[0]["category"], "fundamental_review")
+        self.assertEqual(actions[0]["severity"], "manual_review")
+
     def test_build_review_actions_dedupes_and_ignores_invalid_values(self):
         item = {
             "stock_id": "2303",

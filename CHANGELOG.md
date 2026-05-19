@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.34.0 - 2026-05-19
+
+Fundamental Expert Review release.
+
+### Added
+
+- `fundamental_review` expert layer for research summaries.
+- Buffett-style moat, fundamental quality, bear-case risk, and valuation margin-of-safety checks.
+- Non-advice notice on expert review outputs.
+- `fundamental_review` review-action category.
+- Review actions for incomplete, low-quality, thesis-breaker, and manual-check expert review states.
+- Dashboard category label and filter support for fundamental expert review actions.
+- v0.34.0 release notes.
+
+### Changed
+
+- Research summaries now prefer valuation-aware raw analysis JSON, then fall back to base report JSON when building expert review outputs.
+- README and usage workflow release doctor examples now target `0.34.0`.
+- Package version is now `0.34.0`.
+
+### Quality
+
+- Added coverage for deterministic expert review scoring, research-summary integration, review-action generation, and dashboard category rendering.
+
 ## v0.33.0 - 2026-05-19
 
 Review Actions Bulk Controls release.

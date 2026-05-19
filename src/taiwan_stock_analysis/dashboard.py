@@ -16,7 +16,14 @@ from taiwan_stock_analysis.review_action_state import (
 
 DashboardItems = dict[str, list[dict[str, Any]]]
 REVIEW_ACTION_SEVERITIES = ("error", "stale", "unknown", "manual_review", "warning", "info")
-REVIEW_ACTION_CATEGORIES = ("source_audit", "workflow", "reliability", "valuation", "research_quality")
+REVIEW_ACTION_CATEGORIES = (
+    "source_audit",
+    "workflow",
+    "reliability",
+    "valuation",
+    "research_quality",
+    "fundamental_review",
+)
 REVIEW_ACTION_PRIORITIES = ("high", "medium", "low")
 REVIEW_ACTION_STATUSES = ACTION_STATUSES
 REVIEW_ACTION_STATUS_LABELS = {
@@ -40,6 +47,7 @@ REVIEW_ACTION_CATEGORY_LABELS = {
     "valuation": "估值",
     "research_quality": "研究品質",
 }
+REVIEW_ACTION_CATEGORY_LABELS["fundamental_review"] = "\u57fa\u672c\u9762\u5c08\u5bb6\u5be9\u67e5"
 REVIEW_ACTION_PRIORITY_LABELS = {
     "high": "高",
     "medium": "中",

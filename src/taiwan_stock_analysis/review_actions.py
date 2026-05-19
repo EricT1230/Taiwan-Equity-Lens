@@ -4,7 +4,14 @@ from collections import Counter
 from typing import Any
 
 
-ACTION_CATEGORIES = ("source_audit", "workflow", "reliability", "valuation", "research_quality")
+ACTION_CATEGORIES = (
+    "source_audit",
+    "workflow",
+    "reliability",
+    "valuation",
+    "research_quality",
+    "fundamental_review",
+)
 ACTION_SEVERITIES = ("error", "stale", "unknown", "manual_review", "warning", "info")
 SEVERITY_RANK = {"error": 0, "stale": 1, "unknown": 2, "manual_review": 3, "warning": 4, "info": 5}
 PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -16,6 +23,8 @@ def build_review_actions(item: dict[str, Any]) -> list[dict[str, str]]:
     _append_action(actions, _workflow_action(item))
     _append_action(actions, _reliability_action(item))
     _append_action(actions, _valuation_action(item))
+    for action in _fundamental_review_actions(item):
+        _append_action(actions, action)
     for action in _research_quality_actions(item):
         _append_action(actions, action)
     return sorted(actions, key=_action_sort_key)
@@ -142,6 +151,57 @@ def _research_quality_actions(item: dict[str, Any]) -> list[dict[str, str]]:
                 "research_quality",
                 "warning",
                 "Add follow-up questions for this high-priority item.",
+            )
+        )
+    return actions
+
+
+def _fundamental_review_actions(item: dict[str, Any]) -> list[dict[str, str]]:
+    review = item.get("fundamental_review")
+    if not isinstance(review, dict):
+        return []
+
+    actions: list[dict[str, str]] = []
+    verdict = _clean_string(review.get("verdict"))
+    score = review.get("score")
+    thesis_breakers = _clean_string_list(review.get("thesis_breakers"))
+    questions = _clean_string_list(review.get("questions"))
+
+    if verdict == "incomplete":
+        actions.append(
+            _action(
+                "fundamental-review-incomplete",
+                "fundamental_review",
+                "warning",
+                "請先補齊基本面專家審查輸入，再交付研究。",
+            )
+        )
+        return actions
+    if isinstance(score, int) and score < 60:
+        actions.append(
+            _action(
+                "fundamental-review-low-quality",
+                "fundamental_review",
+                "warning",
+                "基本面專家檢查分數偏弱，請人工確認品質與假設。",
+            )
+        )
+    if thesis_breakers:
+        actions.append(
+            _action(
+                "fundamental-review-thesis-breakers",
+                "fundamental_review",
+                "manual_review",
+                "請確認基本面專家提出的 thesis breaker：" + "; ".join(thesis_breakers),
+            )
+        )
+    if questions:
+        actions.append(
+            _action(
+                "fundamental-review-manual-check",
+                "fundamental_review",
+                "info",
+                "請回覆基本面專家審查問題，再進入最終交付。",
             )
         )
     return actions

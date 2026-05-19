@@ -487,8 +487,8 @@ class DashboardTests(unittest.TestCase):
                         "path": "research-dist/research_summary.json",
                         "review_action_summary": {
                             "total_open": 2,
-                            "by_category": {"source_audit": 1, "valuation": 1},
-                            "by_severity": {"manual_review": 1, "warning": 1},
+                            "by_category": {"fundamental_review": 1, "source_audit": 1, "valuation": 1},
+                            "by_severity": {"manual_review": 1, "warning": 2},
                         },
                         "review_action_queue": [
                             {
@@ -501,6 +501,13 @@ class DashboardTests(unittest.TestCase):
                                         "category": "source_audit",
                                         "severity": "manual_review",
                                         "message": "Review source audit: fixture source",
+                                        "status": "open",
+                                    },
+                                    {
+                                        "id": "fundamental-review-low-quality",
+                                        "category": "fundamental_review",
+                                        "severity": "warning",
+                                        "message": "Review weak expert fundamental checks before handoff.",
                                         "status": "open",
                                     }
                                 ],
@@ -530,11 +537,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-bulk-status="done"', html)
         self.assertIn('data-review-action-bulk-status="deferred"', html)
         self.assertIn('data-review-action-bulk-count="true"', html)
-        self.assertIn("顯示待處理 / 全部 1 件", html)
+        self.assertIn("顯示待處理 / 全部 2 件", html)
         self.assertIn("批次標記完成", html)
         self.assertIn("批次稍後處理", html)
         self.assertIn("已選取 0 筆", html)
-        self.assertIn("待處理 1 / 全部 1", html)
+        self.assertIn("待處理 2 / 全部 2", html)
         self.assertIn("已完成 0 / 稍後處理 0 / 不處理 0", html)
         self.assertIn('data-review-action-open-total="true"', html)
         self.assertIn('data-review-action-state-health="true"', html)
@@ -552,6 +559,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-status="open"', html)
         self.assertIn('data-severity="manual_review"', html)
         self.assertIn('data-category="source_audit"', html)
+        self.assertIn('data-category="fundamental_review"', html)
+        self.assertIn('data-category-label="基本面專家審查"', html)
+        self.assertIn("fundamental-review-low-quality", html)
         self.assertIn('data-category-label="來源檢查"', html)
         self.assertIn("data-search-text=", html)
         self.assertIn("待處理 manual_review 需人工確認 source_audit 來源檢查", html)

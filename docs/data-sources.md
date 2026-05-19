@@ -55,6 +55,12 @@ Valuation inputs can be provided or edited through CSV:
 
 These values are assumptions. The tool uses them to produce valuation scenarios, not predictions.
 
+## Fundamental Expert Review
+
+From v0.34.0 onward, `research_summary.json` can include a `fundamental_review` object for each research item. This layer is deterministic and uses existing generated raw analysis JSON, research CSV fields, valuation scenarios, source audit status, and reliability status.
+
+The review checks moat evidence, fundamental quality, bear-case risk, and valuation margin-of-safety inputs. It creates workflow review tasks when data is incomplete or a manual check is needed. These checks are research workflow support only and do not constitute investment advice, buy/sell/hold advice, target-price promises, or position-sizing guidance.
+
 ## Data Quality Rules
 
 - Missing source data remains `None` or blank.

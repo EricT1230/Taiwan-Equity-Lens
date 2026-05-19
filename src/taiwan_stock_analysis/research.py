@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from taiwan_stock_analysis.fundamental_review import build_fundamental_review
 from taiwan_stock_analysis.review_actions import (
     build_review_action_queue,
     build_review_action_summary,
@@ -135,6 +136,7 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
     reliability_status = _aggregate_reliability_status(workflow_payload)
     source_audit = _workflow_source_audit(workflow_payload)
     source_audit_by_stock = _source_audit_by_stock(source_audit)
+    analysis_payloads = _analysis_payloads_by_stock(workflow_dir)
 
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -164,6 +166,14 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             ),
             "source_audit_reasons": _source_audit_reasons(stock_source_audit),
         }
+        analysis_payload, analysis_source_status = analysis_payloads.get(stock_id, (None, "missing"))
+        item["fundamental_review"] = build_fundamental_review(
+            stock_id=stock_id,
+            research_row=row,
+            analysis_payload=analysis_payload,
+            source_status=analysis_source_status,
+            reliability_status=reliability_status,
+        )
         item["review_actions"] = build_review_actions(item)
         items.append(item)
 
@@ -294,6 +304,33 @@ def _load_workflow_summary(path: Path | None) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _analysis_payloads_by_stock(workflow_dir: Path | None) -> dict[str, tuple[dict[str, Any] | None, str]]:
+    if workflow_dir is None:
+        return {}
+    output: dict[str, tuple[dict[str, Any] | None, str]] = {}
+    for directory_name in ("valuation-reports", "reports"):
+        directory = workflow_dir / directory_name
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*_raw_data.json")):
+            stock_id = path.name.removesuffix("_raw_data.json")
+            if stock_id in output:
+                continue
+            payload = _load_analysis_payload(path)
+            if payload is None and directory_name == "valuation-reports":
+                continue
+            output[stock_id] = (payload, "available" if payload is not None else "invalid")
+    return output
+
+
+def _load_analysis_payload(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _workflow_failures_by_stock(workflow_payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:

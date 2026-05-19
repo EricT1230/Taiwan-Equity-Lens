@@ -417,6 +417,8 @@ From v0.32.0 onward, the review-action dashboard behaves more like a task queue:
 
 From v0.33.0 onward, review-action queues support visible-row selection plus batch `標記完成` and `稍後處理` controls. In served dashboards the buttons write state through the local API; in static dashboards they copy the matching CLI commands.
 
+From v0.34.0 onward, research summaries include a deterministic `fundamental_review` expert layer. It checks Buffett-style moat evidence, fundamental quality, bear-case risk, and valuation margin-of-safety inputs, then creates review-action tasks when the expert review is incomplete or needs manual follow-up. These outputs are research workflow checks only and are not investment advice.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -443,7 +445,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.33.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.34.0
 python -m unittest discover -s tests -v
 ```
 

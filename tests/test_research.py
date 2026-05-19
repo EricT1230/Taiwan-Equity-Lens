@@ -271,6 +271,120 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual("manual_review", item["source_audit_status"])
         self.assertEqual(["fixture source"], item["source_audit_reasons"])
 
+    def test_build_research_summary_adds_fundamental_review_from_analysis_payload(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-fundamental-review.csv"
+        workflow_dir = root / "fundamental-review-workflow"
+        valuation_reports = workflow_dir / "valuation-reports"
+        valuation_reports.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions\n"
+            "2330,TSMC,Semiconductor,high,watching,,Leading foundry scale with durable customer relationships.,Cycle risk,Monthly revenue trend,What drives margin?\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330"],
+                    "data_reliability": {"overall_status": "ok"},
+                    "step_statuses": {"valuation": {"status": "ok"}},
+                    "paths": {"valuation_batch_summary": "workflow/valuation-reports/batch_summary.json"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (valuation_reports / "2330_raw_data.json").write_text(
+            json.dumps(
+                {
+                    "years": ["2025", "2024", "2023"],
+                    "metrics_by_year": {
+                        "2025": {
+                            "roe": 30.0,
+                            "gross_margin": 50.0,
+                            "net_margin": 25.0,
+                            "debt_ratio": 35.0,
+                            "debt_to_equity": 55.0,
+                            "operating_cash_flow": 320.0,
+                            "net_income": 250.0,
+                            "operating_cash_flow_to_net_income": 128.0,
+                            "free_cash_flow_margin": 18.0,
+                        }
+                    },
+                    "valuation": {
+                        "scenario_summary": {
+                            "margin_of_safety_percent": 20.0,
+                            "fair_value_range": {"low": 80.0, "base": 120.0, "high": 170.0},
+                            "valuation_confidence": {"score": 85, "label": "high"},
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        review = summary["items"][0]["fundamental_review"]
+        self.assertEqual(review["style"], "buffett_value_review")
+        self.assertEqual(review["source_status"], "available")
+        self.assertEqual(review["verdict"], "ready_for_manual_review")
+        self.assertIn("buffett_moat", review["agents"])
+        self.assertIn("not investment advice", review["non_advice_notice"])
+
+    def test_build_research_summary_falls_back_to_base_analysis_when_valuation_json_invalid(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-fundamental-review-fallback.csv"
+        workflow_dir = root / "fundamental-review-fallback-workflow"
+        reports = workflow_dir / "reports"
+        valuation_reports = workflow_dir / "valuation-reports"
+        reports.mkdir(parents=True, exist_ok=True)
+        valuation_reports.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions\n"
+            "2330,TSMC,Semiconductor,high,watching,,Leading foundry scale with durable customer relationships.,Cycle risk,Monthly revenue trend,What drives margin?\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330"],
+                    "data_reliability": {"overall_status": "ok"},
+                    "step_statuses": {"valuation": {"status": "warning"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (valuation_reports / "2330_raw_data.json").write_text("[1, 2]", encoding="utf-8")
+        (reports / "2330_raw_data.json").write_text(
+            json.dumps(
+                {
+                    "years": ["2025", "2024", "2023"],
+                    "metrics_by_year": {
+                        "2025": {
+                            "roe": 30.0,
+                            "gross_margin": 50.0,
+                            "net_margin": 25.0,
+                            "debt_ratio": 35.0,
+                            "debt_to_equity": 55.0,
+                            "operating_cash_flow": 320.0,
+                            "net_income": 250.0,
+                            "operating_cash_flow_to_net_income": 128.0,
+                            "free_cash_flow_margin": 18.0,
+                        }
+                    },
+                    "valuation": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        review = summary["items"][0]["fundamental_review"]
+        self.assertEqual(review["source_status"], "available")
+        self.assertNotEqual(review["verdict"], "incomplete")
+        self.assertIn("buffett_moat", review["agents"])
+
     def test_build_research_summary_adds_review_actions_and_queue(self):
         root = Path(".tmp-research-test")
         research = root / "summary-review-actions.csv"
@@ -311,7 +425,8 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("source-audit-manual-review", item_2330_action_ids)
         self.assertIn("research-quality-missing-thesis", item_2330_action_ids)
         self.assertIn("research-quality-missing-follow-up", item_2330_action_ids)
-        self.assertEqual(summary["review_action_summary"]["total_open"], 9)
+        self.assertEqual(summary["review_action_summary"]["total_open"], 11)
+        self.assertEqual(summary["review_action_summary"]["by_category"]["fundamental_review"], 2)
         self.assertEqual(summary["review_action_summary"]["by_category"]["source_audit"], 2)
         self.assertEqual(summary["review_action_summary"]["by_severity"]["unknown"], 1)
         self.assertEqual(summary["review_action_queue"][0]["stock_id"], "2303")
@@ -332,11 +447,12 @@ class ResearchTests(unittest.TestCase):
         )
 
         actions = summary["items"][0]["review_actions"]
-        self.assertEqual(actions[0]["id"], "valuation-unavailable")
-        self.assertEqual(actions[1]["id"], "workflow-skipped")
-        self.assertEqual(actions[1]["category"], "workflow")
-        self.assertEqual(actions[1]["severity"], "info")
-        self.assertEqual(summary["review_action_summary"]["total_open"], 2)
+        self.assertEqual(actions[0]["id"], "fundamental-review-incomplete")
+        self.assertEqual(actions[1]["id"], "valuation-unavailable")
+        self.assertEqual(actions[2]["id"], "workflow-skipped")
+        self.assertEqual(actions[2]["category"], "workflow")
+        self.assertEqual(actions[2]["severity"], "info")
+        self.assertEqual(summary["review_action_summary"]["total_open"], 3)
 
     def test_build_research_summary_includes_universe_review_counts_and_buckets(self):
         root = Path(".tmp-research-test")
