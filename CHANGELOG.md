@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.33.0 - 2026-05-19
+
+Review Actions Bulk Controls release.
+
+### Added
+
+- Review-action queues now include row checkboxes and a `選取目前顯示` control.
+- Bulk controls can mark selected visible actions as `標記完成` or `稍後處理`.
+- Served dashboards apply bulk updates through the local review-action API.
+- Static dashboards copy the selected bulk CLI commands to the clipboard.
+- Bulk selection count updates as rows are selected, filtered, or cleared.
+- v0.33.0 release notes.
+
+### Changed
+
+- Review-action empty rows now span the new selection column.
+- README and usage workflow release doctor examples now target `0.33.0`.
+- Package version is now `0.33.0`.
+
+### Quality
+
+- Added dashboard coverage for bulk-control hooks, visible-row selection, and bulk status wiring.
+
 ## v0.32.0 - 2026-05-19
 
 Review Actions Task Queue UX release.

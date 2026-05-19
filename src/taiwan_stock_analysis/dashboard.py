@@ -208,6 +208,13 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .summary span {{ color: #4b5563; }}
     .status-line {{ display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; }}
     .review-action-filters {{ display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
+    .review-action-bulk-tools {{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
+    .review-action-bulk-tools label {{ display: inline-flex; align-items: center; gap: 6px; color: #4b5563; font-size: 13px; }}
+    .review-action-bulk-tools button {{ padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
+    .review-action-bulk-tools button:hover {{ background: #eef4fb; }}
+    .review-action-bulk-tools button[data-review-action-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
+    .review-action-bulk-count {{ color: #4b5563; font-size: 13px; }}
+    .review-action-select-cell {{ width: 36px; text-align: center; }}
     .filter-field {{ display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4b5563; }}
     .filter-field select, .filter-field input {{ margin: 0; min-width: 150px; }}
     .filter-count {{ color: #4b5563; font-size: 13px; padding: 8px 0; }}
@@ -359,7 +366,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         const rows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
         const emptyRow = document.createElement('tr');
         emptyRow.setAttribute('data-review-action-empty', 'true');
-        emptyRow.innerHTML = '<td colspan="7" class="empty">沒有符合目前篩選條件的審查動作。</td>';
+        emptyRow.innerHTML = '<td colspan="8" class="empty">沒有符合目前篩選條件的審查動作。</td>';
         function selectedValue(control) {{
           return control.value || 'all';
         }}
@@ -390,6 +397,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           }} else if (emptyRow.parentElement) {{
             emptyRow.remove();
           }}
+          updateReviewActionBulkSelection(section);
         }}
         section.reviewActionApplyFilters = applyFilters;
         [severityFilter, categoryFilter, priorityFilter, statusFilter].forEach((control) => {{
@@ -451,7 +459,114 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         }});
       }});
     }}
-    async function updateReviewActionState(button, copyStatus) {{
+    function reviewActionVisibleRows(section) {{
+      return Array.from(section.querySelectorAll('[data-review-action-row="true"]')).filter((row) => row.style.display !== 'none');
+    }}
+    function reviewActionSelectedRows(section) {{
+      return reviewActionVisibleRows(section).filter((row) => {{
+        const checkbox = row.querySelector('[data-review-action-select-row="true"]');
+        return checkbox && checkbox.checked;
+      }});
+    }}
+    function updateReviewActionBulkSelection(section) {{
+      const selected = reviewActionSelectedRows(section);
+      const countLabel = section.querySelector('[data-review-action-bulk-count="true"]');
+      if (countLabel) {{
+        countLabel.textContent = `已選取 ${{selected.length}} 筆`;
+      }}
+      const selectVisible = section.querySelector('[data-review-action-select-visible="true"]');
+      if (selectVisible) {{
+        const visibleRows = reviewActionVisibleRows(section);
+        selectVisible.checked = visibleRows.length > 0 && selected.length === visibleRows.length;
+        selectVisible.indeterminate = selected.length > 0 && selected.length < visibleRows.length;
+      }}
+    }}
+    async function copyText(text) {{
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        await navigator.clipboard.writeText(text);
+        return;
+      }}
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }}
+    function initReviewActionBulkControls() {{
+      document.querySelectorAll('[data-review-actions-section="true"]').forEach((section) => {{
+        const copyStatus = section.querySelector('[data-review-action-copy-status="true"]');
+        const selectVisible = section.querySelector('[data-review-action-select-visible="true"]');
+        if (selectVisible) {{
+          selectVisible.addEventListener('change', () => {{
+            reviewActionVisibleRows(section).forEach((row) => {{
+              const checkbox = row.querySelector('[data-review-action-select-row="true"]');
+              if (checkbox) {{
+                checkbox.checked = selectVisible.checked;
+              }}
+            }});
+            updateReviewActionBulkSelection(section);
+          }});
+        }}
+        section.querySelectorAll('[data-review-action-select-row="true"]').forEach((checkbox) => {{
+          checkbox.addEventListener('change', () => updateReviewActionBulkSelection(section));
+        }});
+        section.querySelectorAll('[data-review-action-bulk-status]').forEach((button) => {{
+          button.addEventListener('click', async () => {{
+            const status = button.dataset.reviewActionBulkStatus || '';
+            const selectedRows = reviewActionSelectedRows(section);
+            if (selectedRows.length === 0) {{
+              if (copyStatus) {{
+                copyStatus.textContent = '請先勾選要批次處理的事項。';
+              }}
+              return;
+            }}
+            const actionButtons = selectedRows
+              .map((row) => row.querySelector(`[data-status-value="${{status}}"]`))
+              .filter(Boolean);
+            if (reviewActionApiEnabled) {{
+              button.disabled = true;
+              if (copyStatus) {{
+                copyStatus.textContent = `正在批次更新 ${{actionButtons.length}} 筆...`;
+              }}
+              try {{
+                for (const actionButton of actionButtons) {{
+                  await updateReviewActionState(actionButton, copyStatus, {{ bulk: true }});
+                  const row = actionButton.closest('[data-review-action-row="true"]');
+                  const checkbox = row ? row.querySelector('[data-review-action-select-row="true"]') : null;
+                  if (checkbox) {{
+                    checkbox.checked = false;
+                  }}
+                }}
+                if (copyStatus) {{
+                  copyStatus.textContent = `已批次更新 ${{actionButtons.length}} 筆為${{reviewActionStatusLabel(status)}}。`;
+                }}
+              }} finally {{
+                button.disabled = false;
+                updateReviewActionBulkSelection(section);
+              }}
+              return;
+            }}
+            const commands = actionButtons.map((actionButton) => actionButton.dataset.command || '').filter(Boolean);
+            try {{
+              await copyText(commands.join('\\n'));
+              if (copyStatus) {{
+                copyStatus.textContent = `已複製 ${{commands.length}} 筆${{reviewActionStatusLabel(status)}}指令。`;
+              }}
+            }} catch (error) {{
+              if (copyStatus) {{
+                copyStatus.textContent = '批次複製失敗，請使用各列的指令文字。';
+              }}
+            }}
+          }});
+        }});
+        updateReviewActionBulkSelection(section);
+      }});
+    }}
+    async function updateReviewActionState(button, copyStatus, options = {{}}) {{
       const payload = {{
         state_path: button.dataset.statePath || '',
         stock_id: button.dataset.stockId || '',
@@ -490,12 +605,14 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           }}
         }}
         updateReviewActionSummary(button, result);
-        showReviewActionApiResult(button, result);
+        if (!options.bulk) {{
+          showReviewActionApiResult(button, result);
+        }}
         const section = button.closest('[data-review-actions-section="true"]');
         if (section && section.reviewActionApplyFilters) {{
           section.reviewActionApplyFilters();
         }}
-        if (copyStatus) {{
+        if (copyStatus && !options.bulk) {{
           const backupText = result.backup_path ? `，已建立備份` : '';
           const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || payload.action_id : payload.action_id;
           copyStatus.textContent = `已更新：${{payload.stock_id}} 的 ${{categoryLabel}}已標記為${{reviewActionStatusLabel(result.status || payload.status)}}${{backupText}}`;
@@ -572,6 +689,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     }}
     initReviewActionFilters();
     initReviewActionCommandCopy();
+    initReviewActionBulkControls();
   </script>
 </body>
 </html>
@@ -727,6 +845,7 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             "</p>"
             f"{_review_action_state_warning(state_warning)}"
             f"{_review_action_filter_bar(total_rows)}"
+            f"{_review_action_bulk_tools()}"
             '<p class="status-line"><span class="badge" data-review-action-copy-status="true">請選擇每筆事項的處理結果</span></p>'
             '<details class="review-action-api-result" data-review-action-api-result="true" aria-live="polite">'
             '<summary>更新結果</summary>'
@@ -735,7 +854,7 @@ def _review_actions_section(research_summaries: list[dict[str, Any]]) -> str:
             '<pre class="review-action-api-output" data-review-action-api-output="true"></pre>'
             '</details>'
             '</details>'
-            "<table><thead><tr><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>待處理事項</th><th>操作</th></tr></thead>"
+            '<table><thead><tr><th class="review-action-select-cell">選取</th><th>股票代號</th><th>優先度</th><th>狀態</th><th>嚴重度</th><th>類別</th><th>待處理事項</th><th>操作</th></tr></thead>'
             f"<tbody>{rows}</tbody></table>"
             "</div>"
         )
@@ -800,6 +919,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f' data-category="{escape(category)}"'
                 f' data-category-label="{escape(category_label)}"'
                 f' data-search-text="{escape(search_text)}">'
+                '<td class="review-action-select-cell"><input type="checkbox" data-review-action-select-row="true" aria-label="選取審查動作"></td>'
                 f"<td>{escape(stock_id)}</td>"
                 f"<td>{escape(priority_label)}</td>"
                 f'<td><span class="review-action-status" data-review-action-status-cell="true">{escape(status_label)}</span></td>'
@@ -809,7 +929,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f"<td>{_review_action_command_cell(state_path, stock_id, action_id)}</td>"
                 "</tr>"
             )
-    return "".join(rows) or _empty_row(7, "沒有審查動作")
+    return "".join(rows) or _empty_row(8, "沒有審查動作")
 
 
 def _universe_count_badges(counts: dict[str, Any]) -> str:
@@ -979,6 +1099,17 @@ def _review_action_filter_bar(total_rows: int) -> str:
         "</label>"
         '<button type="button" data-review-filter-reset="true">重設</button>'
         f'<span class="filter-count" data-review-action-count="true">顯示待處理 / 全部 {total_rows} 件</span>'
+        "</div>"
+    )
+
+
+def _review_action_bulk_tools() -> str:
+    return (
+        '<div class="review-action-bulk-tools" data-review-action-bulk-tools="true">'
+        '<label><input type="checkbox" data-review-action-select-visible="true">選取目前顯示</label>'
+        '<button type="button" data-review-action-bulk-status="done">批次標記完成</button>'
+        '<button type="button" data-review-action-bulk-status="deferred">批次稍後處理</button>'
+        '<span class="review-action-bulk-count" data-review-action-bulk-count="true">已選取 0 筆</span>'
         "</div>"
     )
 
