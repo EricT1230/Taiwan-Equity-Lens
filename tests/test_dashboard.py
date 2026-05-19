@@ -563,8 +563,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-category="source_audit"', html)
         self.assertIn('data-category="fundamental_review"', html)
         self.assertIn('data-category-label="基本面專家審查"', html)
+        self.assertIn('data-expert-label="基本面專家審查"', html)
         self.assertIn("fundamental-review-low-quality", html)
         self.assertIn('data-category-label="來源檢查"', html)
+        self.assertIn('data-expert-label="資料來源專家"', html)
         self.assertIn("data-search-text=", html)
         self.assertIn("待處理 manual_review 需人工確認 source_audit 來源檢查", html)
         self.assertIn("<th>待處理事項</th>", html)
@@ -668,6 +670,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-expert-agent-console="true"', html)
         self.assertIn('data-expert-console-source-path="research-dist/research_summary.json"', html)
         self.assertIn('data-review-actions-source-path="research-dist/research_summary.json"', html)
+        self.assertIn('data-expert-console-next-step="true"', html)
         self.assertIn("專家 Agent Console", html)
         self.assertIn("交接狀態：尚未可交接", html)
         self.assertIn("仍有 3 件待處理審查事項", html)
@@ -683,10 +686,18 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-expert-console-stock-id="2330"', html)
         self.assertIn('data-expert-console-action-id="fundamental-review-low-quality"', html)
         self.assertIn('data-action-id="fundamental-review-low-quality"', html)
+        self.assertIn('data-company-name="TSMC"', html)
+        self.assertIn('data-action-message="Review weak expert fundamental checks before handoff."', html)
+        self.assertIn('data-expert-label="基本面專家審查"', html)
+        self.assertIn('data-priority-label=', html)
+        self.assertIn('data-severity-label=', html)
         self.assertNotIn('data-expert-console-focus-category="source_audit"', html)
         self.assertIn('data-expert-console-focus-search="2330"', html)
         self.assertIn('data-expert-console-non-advice="true"', html)
         self.assertIn("不構成投資建議、買賣建議或持倉建議", html)
+        self.assertIn("attachExpertConsoleFocus(button)", html)
+        self.assertIn("syncExpertConsole(section)", html)
+        self.assertIn("renderExpertConsoleActions(consoleBlock", html)
         self.assertIn("initExpertConsoleFocus()", html)
         self.assertIn("reviewActionsSourcePath", html)
         self.assertIn("targetActionId", html)
@@ -799,6 +810,7 @@ class DashboardTests(unittest.TestCase):
                         "review_action_queue": [
                             {
                                 "stock_id": "2330<script>",
+                                "company_name": "Co <Name>",
                                 "priority": "high",
                                 "actions": [
                                     {
@@ -823,11 +835,18 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2330&lt;script&gt;", html)
         self.assertIn("Review &lt;source&gt;", html)
         self.assertIn('data-stock-id="2330&lt;script&gt;"', html)
+        self.assertIn('data-company-name="Co &lt;Name&gt;"', html)
+        self.assertIn('data-action-message="Review &lt;source&gt;"', html)
+        self.assertIn('data-expert-label="資料來源專家"', html)
         self.assertIn('data-status="open"', html)
         self.assertIn('data-search-text="2330&lt;script&gt; high 高 open 待處理 manual_review 需人工確認 source_audit 來源檢查 review &lt;source&gt;', html)
         self.assertNotIn("2330<script>", html)
+        self.assertNotIn("Co <Name>", html)
         self.assertNotIn("Review <source>", html)
         self.assertNotIn('data-stock-id="2330<script>"', html)
+        self.assertNotIn('data-company-name="Co <Name>"', html)
+        self.assertNotIn('data-action-message="Review <source>"', html)
+        self.assertNotIn('data-expert-label="資料來源專家<script>"', html)
         self.assertNotIn('data-search-text="2330<script>', html)
 
     def test_render_dashboard_html_can_enable_review_action_api(self):
@@ -867,6 +886,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("updateReviewActionState(button, copyStatus)", html)
         self.assertIn("showReviewActionApiResult(button, result)", html)
         self.assertIn("updateReviewActionSummary(button, result)", html)
+        self.assertIn('data-expert-console-sync-note="true"', html)
+        self.assertNotIn('data-expert-console-refresh-note="true"', html)
+        self.assertIn("syncExpertConsole(section)", html)
+        self.assertIn("buildExpertConsoleAction(row", html)
+        self.assertIn("row.dataset.expertLabel", html)
         self.assertIn("目前是 API 模式", html)
 
     def test_discover_dashboard_items_loads_review_action_state(self):

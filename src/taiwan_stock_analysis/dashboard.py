@@ -305,7 +305,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       <div id="summaryBatchErrors"><strong>{batch_error_count}</strong><span>失敗筆數</span></div>
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>工作流程摘要</span></div>
     </section>
-    {_expert_agent_console_section(research_summaries)}
+    {_expert_agent_console_section(research_summaries, action_api_enabled=action_api_enabled)}
     {_research_summary_section(research_summaries)}
     {_review_actions_section(research_summaries, action_api_enabled=action_api_enabled)}
     <section>
@@ -380,8 +380,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function reviewActionStatusLabel(status) {{
       return reviewActionStatusLabels[status] || status || '-';
     }}
-    function initExpertConsoleFocus() {{
-      document.querySelectorAll('[data-expert-console-focus-category]').forEach((button) => {{
+    function attachExpertConsoleFocus(button) {{
         button.addEventListener('click', () => {{
           const sourcePath = button.dataset.expertConsoleSourcePath || '';
           const sections = Array.from(document.querySelectorAll('[data-review-actions-section="true"]'));
@@ -421,7 +420,100 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
             window.setTimeout(() => firstVisible.classList.remove('review-action-highlight'), 1600);
           }}
         }});
+    }}
+    function initExpertConsoleFocus() {{
+      document.querySelectorAll('[data-expert-console-focus-category]').forEach((button) => {{
+        attachExpertConsoleFocus(button);
       }});
+    }}
+    function expertConsoleForSection(section) {{
+      const sourcePath = section.dataset.reviewActionsSourcePath || '';
+      return Array.from(document.querySelectorAll('[data-expert-console-source-path]'))
+        .find((block) => (block.dataset.expertConsoleSourcePath || '') === sourcePath);
+    }}
+    function reviewActionRows(section) {{
+      return Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
+    }}
+    function syncExpertConsole(section) {{
+      const consoleBlock = expertConsoleForSection(section);
+      if (!consoleBlock) {{
+        return;
+      }}
+      const rows = reviewActionRows(section);
+      const openRows = rows.filter((row) => (row.dataset.status || 'open') === 'open');
+      const readiness = consoleBlock.querySelector('[data-expert-console-readiness="true"]');
+      if (readiness) {{
+        readiness.classList.toggle('blocked', openRows.length > 0);
+        readiness.classList.toggle('ready', openRows.length === 0);
+        readiness.textContent = openRows.length > 0
+          ? `交接狀態：尚未可交接，原因：仍有 ${{openRows.length}} 件待處理審查事項`
+          : '交接狀態：可進入人工交付審查';
+      }}
+      const nextStep = consoleBlock.querySelector('[data-expert-console-next-step="true"]');
+      if (nextStep) {{
+        nextStep.textContent = openRows.length > 0
+          ? '下一步：先處理右側「優先處理的 3 件待查事項」，再回到審查動作表確認剩餘事項。'
+          : '下一步：打開研究摘要與 memo，進行人工閱讀與簽核。';
+      }}
+      renderExpertConsoleActions(consoleBlock, openRows.slice(0, 3));
+    }}
+    function renderExpertConsoleActions(consoleBlock, openRows) {{
+      const existing = consoleBlock.querySelector('[data-expert-console-top-actions="true"]');
+      if (!existing) {{
+        return;
+      }}
+      if (openRows.length === 0) {{
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.dataset.expertConsoleTopActions = 'true';
+        empty.textContent = '目前沒有開啟的阻塞事項；下一步是進行人工閱讀與簽核。';
+        existing.replaceWith(empty);
+        return;
+      }}
+      const list = document.createElement('ol');
+      list.className = 'expert-console-actions';
+      list.dataset.expertConsoleTopActions = 'true';
+      openRows.forEach((row) => list.appendChild(buildExpertConsoleAction(row, consoleBlock.dataset.expertConsoleSourcePath || '')));
+      existing.replaceWith(list);
+    }}
+    function appendExpertBadge(parent, text) {{
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = text || '-';
+      parent.appendChild(badge);
+    }}
+    function buildExpertConsoleAction(row, sourcePath) {{
+      const item = document.createElement('li');
+      item.className = 'expert-console-action';
+      const meta = document.createElement('div');
+      meta.className = 'expert-console-meta';
+      appendExpertBadge(meta, row.dataset.expertLabel || row.dataset.categoryLabel || row.dataset.category || '-');
+      appendExpertBadge(meta, row.dataset.severityLabel || row.dataset.severity || '-');
+      appendExpertBadge(meta, row.dataset.priorityLabel || row.dataset.priority || '-');
+      item.appendChild(meta);
+      const title = document.createElement('strong');
+      const companyName = row.dataset.companyName || '';
+      title.textContent = companyName ? `${{row.dataset.stockId || '-'}} ${{companyName}}` : (row.dataset.stockId || '-');
+      item.appendChild(title);
+      const message = document.createElement('p');
+      message.textContent = row.dataset.actionMessage || '';
+      item.appendChild(message);
+      const next = document.createElement('p');
+      next.className = 'empty';
+      next.textContent = '下一步：按下按鈕定位到審查列，再選擇「標記完成」或「稍後處理」。';
+      item.appendChild(next);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'expert-console-next';
+      button.dataset.expertConsoleSourcePath = sourcePath;
+      button.dataset.expertConsoleStockId = row.dataset.stockId || '';
+      button.dataset.expertConsoleActionId = row.dataset.actionId || '';
+      button.dataset.expertConsoleFocusCategory = row.dataset.category || 'all';
+      button.dataset.expertConsoleFocusSearch = (row.dataset.stockId || row.dataset.companyName || '').toLowerCase();
+      button.textContent = '前往這個阻塞';
+      attachExpertConsoleFocus(button);
+      item.appendChild(button);
+      return item;
     }}
     function initReviewActionFilters() {{
       const sectionSelector = '[data-review-actions-' + 'section="true"]';
@@ -687,6 +779,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         if (section && section.reviewActionApplyFilters) {{
           section.reviewActionApplyFilters();
         }}
+        if (section) {{
+          syncExpertConsole(section);
+        }}
         if (copyStatus && !options.bulk) {{
           const backupText = result.backup_path ? `，已建立備份` : '';
           const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || payload.action_id : payload.action_id;
@@ -781,7 +876,7 @@ def _batch_results(items: DashboardItems) -> list[dict[str, Any]]:
     ]
 
 
-def _expert_agent_console_section(research_summaries: list[dict[str, Any]]) -> str:
+def _expert_agent_console_section(research_summaries: list[dict[str, Any]], *, action_api_enabled: bool = False) -> str:
     if not research_summaries:
         return ""
 
@@ -789,7 +884,7 @@ def _expert_agent_console_section(research_summaries: list[dict[str, Any]]) -> s
     for summary in research_summaries:
         if not isinstance(summary, dict) or summary.get("error"):
             continue
-        blocks.append(_expert_console_summary_block(summary))
+        blocks.append(_expert_console_summary_block(summary, action_api_enabled=action_api_enabled))
 
     if not blocks:
         return ""
@@ -805,7 +900,7 @@ def _expert_agent_console_section(research_summaries: list[dict[str, Any]]) -> s
     )
 
 
-def _expert_console_summary_block(summary: dict[str, Any]) -> str:
+def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled: bool = False) -> str:
     source_queue = summary.get("review_action_queue", [])
     queue = source_queue if isinstance(source_queue, list) else []
     state = _dict_value(summary.get("review_action_state"))
@@ -825,14 +920,7 @@ def _expert_console_summary_block(summary: dict[str, Any]) -> str:
         if open_actions
         else "\u4e0b\u4e00\u6b65\uff1a\u6253\u958b\u7814\u7a76\u6458\u8981\u8207 memo\uff0c\u9032\u884c\u4eba\u5de5\u9605\u8b80\u8207\u7c3d\u6838\u3002"
     )
-    refresh_note = (
-        '<p class="empty" data-expert-console-refresh-note="true">'
-        "\u5b8c\u6210\u6216\u7a0d\u5f8c\u8655\u7406\u5be9\u67e5\u52d5\u4f5c\u5f8c\uff0c"
-        "\u8acb\u91cd\u65b0\u6574\u7406\u9801\u9762\u6216\u91cd\u65b0\u7522\u751f dashboard \u4ee5\u91cd\u7b97\u4ea4\u63a5\u72c0\u614b\u8207 Top 3\u3002"
-        "</p>"
-        if open_actions
-        else ""
-    )
+    sync_note = _expert_console_sync_note(open_actions, action_api_enabled)
     escaped_source_path = escape(source_path)
     return (
         f'<div class="expert-console-grid" data-expert-console-source-path="{escaped_source_path}">'
@@ -842,8 +930,8 @@ def _expert_console_summary_block(summary: dict[str, Any]) -> str:
         f'data-expert-console-readiness="true">{escape(readiness_text)}</span></p>'
         f'<p class="status-line"><span class="badge">\u4f86\u6e90\uff1a{source_link}</span>'
         f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span></p>'
-        f"<p>{escape(next_step)}</p>"
-        f"{refresh_note}"
+        f'<p data-expert-console-next-step="true">{escape(next_step)}</p>'
+        f"{sync_note}"
         "</div>"
         '<div class="expert-console-panel">'
         "<h3>\u512a\u5148\u8655\u7406\u7684 3 \u4ef6\u5f85\u67e5\u4e8b\u9805</h3>"
@@ -886,6 +974,23 @@ def _expert_console_open_actions(action_queue: list[Any]) -> list[dict[str, str]
                 }
             )
     return actions
+
+
+def _expert_console_sync_note(open_actions: list[dict[str, str]], action_api_enabled: bool) -> str:
+    if not open_actions:
+        return ""
+    if action_api_enabled:
+        message = (
+            "\u76ee\u524d\u662f API \u6a21\u5f0f\uff1a\u6a19\u8a18\u5b8c\u6210\u6216\u7a0d\u5f8c\u8655\u7406\u5f8c\uff0c"
+            "Console \u6703\u5373\u6642\u91cd\u7b97\u4ea4\u63a5\u72c0\u614b\u8207 Top 3\u3002"
+        )
+        return f'<p class="empty" data-expert-console-sync-note="true">{escape(message)}</p>'
+    return (
+        '<p class="empty" data-expert-console-refresh-note="true">'
+        "\u5b8c\u6210\u6216\u7a0d\u5f8c\u8655\u7406\u5be9\u67e5\u52d5\u4f5c\u5f8c\uff0c"
+        "\u8acb\u91cd\u65b0\u6574\u7406\u9801\u9762\u6216\u91cd\u65b0\u7522\u751f dashboard \u4ee5\u91cd\u7b97\u4ea4\u63a5\u72c0\u614b\u8207 Top 3\u3002"
+        "</p>"
+    )
 
 
 def _expert_console_action_list(actions: list[dict[str, str]], source_path: str) -> str:
@@ -1127,6 +1232,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
         if not isinstance(item, dict):
             continue
         stock_id = str(item.get("stock_id") or "-")
+        company_name = str(item.get("company_name") or "")
         priority = str(item.get("priority") or "-")
         actions = item.get("actions", [])
         if not isinstance(actions, list):
@@ -1143,6 +1249,7 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
             status_label = _review_label(status, REVIEW_ACTION_STATUS_LABELS)
             severity_label = _review_label(severity, REVIEW_ACTION_SEVERITY_LABELS)
             category_label = _review_label(category, REVIEW_ACTION_CATEGORY_LABELS)
+            expert_label = _expert_agent_label(category)
             user_message = _review_action_user_message(action, message)
             search_text = _review_metadata_text(
                 stock_id,
@@ -1160,12 +1267,17 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
             rows.append(
                 '<tr data-review-action-row="true"'
                 f' data-stock-id="{escape(stock_id)}"'
+                f' data-company-name="{escape(company_name)}"'
                 f' data-priority="{escape(priority)}"'
+                f' data-priority-label="{escape(priority_label)}"'
                 f' data-status="{escape(status)}"'
                 f' data-severity="{escape(severity)}"'
+                f' data-severity-label="{escape(severity_label)}"'
                 f' data-category="{escape(category)}"'
                 f' data-category-label="{escape(category_label)}"'
+                f' data-expert-label="{escape(expert_label)}"'
                 f' data-action-id="{escape(action_id)}"'
+                f' data-action-message="{escape(user_message)}"'
                 f' data-search-text="{escape(search_text)}">'
                 '<td class="review-action-select-cell"><input type="checkbox" data-review-action-select-row="true" aria-label="選取審查動作"></td>'
                 f"<td>{escape(stock_id)}</td>"

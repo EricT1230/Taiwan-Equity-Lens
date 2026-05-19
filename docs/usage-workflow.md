@@ -421,6 +421,8 @@ From v0.34.0 onward, research summaries include a deterministic `fundamental_rev
 
 From v0.35.0 onward, dashboards include an Expert Agent Console before the detailed tables. It summarizes whether the research can be handed off, the top 3 open blockers after review-action state is applied, which expert lens raised each blocker, and a `前往這個阻塞` button that filters the existing review-action queue. The console is a guided triage surface only; it does not create investment advice, buy/sell/hold guidance, or a separate state system.
 
+From v0.36.0 onward, served dashboards resync the Expert Agent Console immediately after review-action API updates. Marking a blocker done, deferred, ignored, or reopened updates the readiness verdict, next-step copy, and Top 3 list from the same review-action rows instead of requiring a manual refresh. Static dashboards keep the refresh/regenerate notice because their buttons copy CLI commands only.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -447,7 +449,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 ## 11. Verify
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.35.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.36.0
 python -m unittest discover -s tests -v
 ```
 

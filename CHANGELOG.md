@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.36.0 - 2026-05-20
+
+Expert Console State Sync release.
+
+### Added
+
+- Served dashboard Expert Agent Console now recalculates readiness, next-step copy, and the Top 3 blockers after review-action API updates.
+- API-mode console notice that explains button clicks update the console immediately.
+- Stable row metadata for console resync, including company name, priority label, severity label, and user-facing action message.
+- v0.36.0 release notes.
+
+### Changed
+
+- Static dashboards keep the refresh/regenerate notice because their buttons copy CLI commands instead of writing state directly.
+- README and usage workflow release doctor examples now target `0.36.0`.
+- Package version is now `0.36.0`.
+
+### Quality
+
+- Added dashboard coverage for API-mode console sync hooks and escaped row metadata used by the resync path.
+- Added a v0.36.0 design note for the Expert Console state-sync contract.
+
 ## v0.35.0 - 2026-05-20
 
 Expert Agent Console / Guided Flow release.
