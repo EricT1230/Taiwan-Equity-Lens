@@ -229,6 +229,7 @@ def format_handoff_doctor_result(result: HandoffDoctorResult) -> str:
         lines.append("Gate summary:")
         lines.append(f"- status: {gate.get('status', '-')}")
         lines.append(f"- open review actions: {gate.get('open_count', 0)}")
+        lines.append(f"- evidence-required gaps: {gate.get('evidence_missing_count', 0)}")
         lines.append(f"- stale state entries: {gate.get('stale_state_count', 0)}")
         lines.append(f"- missing gate actions: {gate.get('missing_gate_action_count', 0)}")
         lines.append(f"- next step: {gate.get('next_step', '-')}")

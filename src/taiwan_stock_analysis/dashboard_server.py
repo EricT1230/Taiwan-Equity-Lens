@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
+from taiwan_stock_analysis.handoff import build_handoff_quality_gate
 from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
     load_review_action_state,
@@ -27,6 +28,8 @@ def set_review_action_status_from_payload(
     action_id = _required_text(payload, "action_id")
     status = _required_text(payload, "status")
     note = str(payload.get("note") or "")
+    reviewer = str(payload.get("reviewer") or "")
+    evidence_url = str(payload.get("evidence_url") or "")
 
     output_path, backup_path = set_review_action_state(
         state_path,
@@ -34,6 +37,8 @@ def set_review_action_status_from_payload(
         action_id,
         status,
         note=note,
+        reviewer=reviewer,
+        evidence_url=evidence_url,
     )
     report = _state_report_for_path(output_path)
     return {
@@ -42,10 +47,15 @@ def set_review_action_status_from_payload(
         "by_status": report.get("by_status", {}),
         "last_updated": report.get("last_updated", "-"),
         "ok": True,
+        "note": note.strip(),
+        "reviewer": reviewer.strip(),
+        "evidence_missing_count": report.get("evidence_missing_count", 0),
+        "evidence_url": evidence_url.strip(),
         "state_path": str(output_path),
         "status": status,
         "stale_count": report.get("stale_count", 0),
         "stock_id": stock_id,
+        "updated_at": report.get("last_updated", "-"),
     }
 
 
@@ -155,7 +165,10 @@ def _state_report_for_path(state_path: Path) -> dict[str, Any]:
     state, warning = load_review_action_state(state_path)
     if warning:
         return {"by_status": {}, "last_updated": "-", "stale_count": 0}
-    return build_review_action_state_report(queue if isinstance(queue, list) else [], state)
+    report = build_review_action_state_report(queue if isinstance(queue, list) else [], state)
+    gate = build_handoff_quality_gate(payload, state) if isinstance(payload, dict) else {}
+    report["evidence_missing_count"] = gate.get("evidence_missing_count", 0)
+    return report
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

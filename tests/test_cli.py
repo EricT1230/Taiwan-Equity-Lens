@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.38.0"])
+            exit_code = main(["doctor", "release", "--version", "0.39.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -780,6 +780,10 @@ class CliTests(unittest.TestCase):
                 "done",
                 "--note",
                 "checked",
+                "--reviewer",
+                "lead",
+                "--evidence-url",
+                "evidence/workflow.md",
             ])
 
         list_output = StringIO()
@@ -797,8 +801,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(list_exit_code, 0)
         self.assertTrue(state_path.exists())
         self.assertIn("Wrote", set_output.getvalue())
-        self.assertIn("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage", list_output.getvalue())
-        self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tFix workflow.", list_output.getvalue())
+        self.assertIn(
+            "stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tnote\treviewer\tevidence_url\tupdated_at\tmessage",
+            list_output.getvalue(),
+        )
+        self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tchecked\tlead\tevidence/workflow.md\t", list_output.getvalue())
 
     def test_main_research_action_set_backs_up_existing_state_file(self):
         root = Path(".tmp-cli-test/research-action-set-backup")

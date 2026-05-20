@@ -34,6 +34,9 @@ class DashboardServerTests(unittest.TestCase):
                 "stock_id": "2330",
                 "action_id": "source-audit-manual-review",
                 "status": "done",
+                "note": "checked source filing",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source.md",
             },
             allowed_roots=[root],
         )
@@ -41,6 +44,10 @@ class DashboardServerTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual("done", result["status"])
         self.assertEqual({"open": 1, "done": 1, "deferred": 0, "ignored": 0}, result["by_status"])
+        self.assertEqual("checked source filing", result["note"])
+        self.assertEqual("source-audit-lead", result["reviewer"])
+        self.assertEqual("evidence/2330-source.md", result["evidence_url"])
+        self.assertEqual(0, result["evidence_missing_count"])
         self.assertEqual(0, result["stale_count"])
         self.assertNotEqual("-", result["last_updated"])
         payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -48,6 +55,9 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("2330", action["stock_id"])
         self.assertEqual("source-audit-manual-review", action["action_id"])
         self.assertEqual("done", action["status"])
+        self.assertEqual("checked source filing", action["note"])
+        self.assertEqual("source-audit-lead", action["reviewer"])
+        self.assertEqual("evidence/2330-source.md", action["evidence_url"])
 
     def test_set_review_action_status_from_payload_rejects_outside_state_path(self):
         root = Path(".tmp-cli-test/dashboard-server-api-safe")

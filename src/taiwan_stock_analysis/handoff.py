@@ -66,6 +66,31 @@ ACTION_CATEGORY_BY_ID = {
     "research-quality-missing-follow-up": "research_quality",
 }
 
+EVIDENCE_REQUIRED_ACTION_IDS = {
+    "source-audit-manual-review",
+    "source-audit-stale",
+    "source-audit-unknown",
+    "workflow-error",
+    "workflow-warning",
+    "reliability-error",
+    "reliability-warning",
+    "valuation-unavailable",
+    "fundamental-review-incomplete",
+    "fundamental-review-low-quality",
+    "fundamental-review-thesis-breakers",
+    "fundamental-review-manual-check",
+    "research-state-blocked",
+    "research-quality-missing-thesis",
+    "research-quality-missing-follow-up",
+}
+
+EVIDENCE_REQUIRED_STATUSES = {"done", "deferred", "ignored"}
+EVIDENCE_REQUIRED_FIELDS = ("note", "reviewer", "evidence_url", "updated_at")
+
+
+def requires_handoff_evidence(action_id: object) -> bool:
+    return _clean_string(action_id) in EVIDENCE_REQUIRED_ACTION_IDS
+
 
 def build_handoff_quality_gate(
     research_summary: dict[str, Any],
@@ -89,21 +114,25 @@ def build_handoff_quality_gate(
 
     overlaid_queue = apply_review_action_state(queue, state)
     open_blockers = _open_action_blockers(overlaid_queue)
+    evidence_blockers = _missing_evidence_blockers(overlaid_queue)
     stale_rows = stale_review_action_state_rows(queue, state if isinstance(state, dict) else None)
     stale_blockers = [_stale_state_blocker(row) for row in stale_rows]
     missing_blockers = _missing_gate_action_blockers(items, overlaid_queue)
     blockers.extend(open_blockers)
+    blockers.extend(evidence_blockers)
     blockers.extend(stale_blockers)
     blockers.extend(missing_blockers)
 
     blocker_limit = max(0, blocker_limit)
     ready = not blockers and not structural_failures
     open_count = len(open_blockers)
+    evidence_missing_count = len(evidence_blockers)
     stale_count = len(stale_rows)
     missing_gate_count = len(missing_blockers)
     messages = [
         "handoff gate ready" if ready else "handoff gate blocked",
         f"open review actions: {open_count}",
+        f"evidence-required gaps: {evidence_missing_count}",
         f"stale state entries: {stale_count}",
         f"missing gate actions: {missing_gate_count}",
     ]
@@ -116,10 +145,11 @@ def build_handoff_quality_gate(
         "top_blockers": blockers[:blocker_limit],
         "blocker_count": len(blockers),
         "open_count": open_count,
+        "evidence_missing_count": evidence_missing_count,
         "stale_state_count": stale_count,
         "missing_gate_action_count": missing_gate_count,
         "total_actions": _review_action_row_count(overlaid_queue),
-        "next_step": _next_step(open_count, stale_count, missing_gate_count),
+        "next_step": _next_step(open_count, evidence_missing_count, stale_count, missing_gate_count),
         "non_advice_notice": NON_ADVICE_NOTICE,
     }
 
@@ -159,6 +189,59 @@ def _open_action_blockers(action_queue: list[Any]) -> list[dict[str, str]]:
                 }
             )
     return blockers
+
+
+def _missing_evidence_blockers(action_queue: list[Any]) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    for item in action_queue:
+        if not isinstance(item, dict):
+            continue
+        stock_id = _clean_string(item.get("stock_id")) or "-"
+        company_name = _clean_string(item.get("company_name"))
+        priority = _clean_string(item.get("priority"))
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_id = _clean_string(action.get("id"))
+            status = _clean_string(action.get("status")) or "open"
+            if status not in EVIDENCE_REQUIRED_STATUSES or not requires_handoff_evidence(action_id):
+                continue
+            missing_fields = _missing_evidence_fields(action)
+            if not missing_fields:
+                continue
+            category = _clean_string(action.get("category")) or ACTION_CATEGORY_BY_ID.get(action_id, "")
+            missing_text = ", ".join(missing_fields)
+            blockers.append(
+                {
+                    "kind": "missing_evidence",
+                    "stock_id": stock_id,
+                    "company_name": company_name,
+                    "priority": priority,
+                    "severity": "manual_review",
+                    "category": category,
+                    "expert_label": _expert_label(category),
+                    "action_id": action_id,
+                    "message": (
+                        f"{ACTION_GATE_LABELS.get(action_id, action_id)} is marked {status} "
+                        f"but missing handoff evidence: {missing_text}."
+                    ),
+                    "next_step": "Add --note, --reviewer, and --evidence-url, then rerun doctor handoff.",
+                    "focus_available": "true",
+                    "note": _clean_string(action.get("note")),
+                    "reviewer": _clean_string(action.get("reviewer")),
+                    "evidence_url": _clean_string(action.get("evidence_url")),
+                    "updated_at": _clean_string(action.get("updated_at")),
+                    "missing_evidence_fields": missing_text,
+                }
+            )
+    return blockers
+
+
+def _missing_evidence_fields(action: dict[str, Any]) -> list[str]:
+    return [field for field in EVIDENCE_REQUIRED_FIELDS if not _clean_string(action.get(field))]
 
 
 def _missing_gate_action_blockers(items: list[Any], overlaid_queue: list[Any]) -> list[dict[str, str]]:
@@ -314,11 +397,13 @@ def _review_action_row_count(action_queue: list[Any]) -> int:
     return count
 
 
-def _next_step(open_count: int, stale_count: int, missing_gate_count: int) -> str:
+def _next_step(open_count: int, evidence_missing_count: int, stale_count: int, missing_gate_count: int) -> str:
     if missing_gate_count:
         return "下一步：先修正 review-action 產生邏輯或重新產生 research_summary.json，避免靜默遺漏 gate。"
     if open_count:
         return "下一步：先處理 Top 3 阻塞事項，再回到審查動作表確認剩餘事項。"
+    if evidence_missing_count:
+        return "下一步：補齊 blocker 的 note、reviewer、evidence URL，再重新執行 handoff gate。"
     if stale_count:
         return "下一步：先 prune stale review-action state，再重新執行 handoff gate。"
     return "下一步：打開研究摘要、memo 與 pack，進行人工閱讀與簽核。"

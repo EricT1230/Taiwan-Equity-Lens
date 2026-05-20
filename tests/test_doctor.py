@@ -213,6 +213,9 @@ class DoctorTests(unittest.TestCase):
                             "stock_id": "2330",
                             "action_id": "reliability-warning",
                             "status": "done",
+                            "note": "checked reliability warning",
+                            "reviewer": "handoff-lead",
+                            "evidence_url": "evidence/reliability.md",
                             "updated_at": "2026-05-20T01:00:00Z",
                         }
                     },

@@ -6,7 +6,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from taiwan_stock_analysis.handoff import build_handoff_quality_gate
+from taiwan_stock_analysis.handoff import build_handoff_quality_gate, requires_handoff_evidence
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
@@ -472,6 +472,19 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function reviewActionRows(section) {{
       return Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
     }}
+    function reviewActionEvidenceMissing(row) {{
+      if ((row.dataset.evidenceRequired || 'false') !== 'true') {{
+        return false;
+      }}
+      const status = row.dataset.status || 'open';
+      if (status === 'open') {{
+        return false;
+      }}
+      return !((row.dataset.note || '').trim())
+        || !((row.dataset.reviewer || '').trim())
+        || !((row.dataset.evidenceUrl || '').trim())
+        || !((row.dataset.updatedAt || '').trim());
+    }}
     function syncExpertConsole(section) {{
       const consoleBlock = expertConsoleForSection(section);
       if (!consoleBlock) {{
@@ -479,12 +492,15 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       const rows = reviewActionRows(section);
       const openRows = rows.filter((row) => (row.dataset.status || 'open') === 'open');
+      const evidenceMissingRows = rows.filter(reviewActionEvidenceMissing);
+      const evidenceMissingCount = evidenceMissingRows.length;
       const staleNode = section.querySelector('[data-review-action-stale-count="true"]');
       const staleCount = Number(staleNode ? staleNode.dataset.reviewActionStaleCountValue || '0' : '0');
       const missingGateCount = Number(consoleBlock.dataset.expertConsoleMissingGateCount || '0');
-      const blocked = openRows.length > 0 || staleCount > 0 || missingGateCount > 0;
+      const blocked = openRows.length > 0 || evidenceMissingCount > 0 || staleCount > 0 || missingGateCount > 0;
       consoleBlock.dataset.expertConsoleHandoffStatus = blocked ? 'blocked' : 'ready';
       consoleBlock.dataset.expertConsoleOpenCount = String(openRows.length);
+      consoleBlock.dataset.expertConsoleEvidenceMissingCount = String(evidenceMissingCount);
       consoleBlock.dataset.expertConsoleStaleCount = String(staleCount);
       consoleBlock.dataset.expertConsoleMissingGateCount = String(missingGateCount);
       const readiness = consoleBlock.querySelector('[data-expert-console-readiness="true"]');
@@ -492,7 +508,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         readiness.classList.toggle('blocked', blocked);
         readiness.classList.toggle('ready', !blocked);
         readiness.textContent = blocked
-          ? `交接狀態：尚未可交接，原因：Handoff Gate 有 ${{openRows.length + staleCount + missingGateCount}} 件阻塞`
+          ? `交接狀態：尚未可交接，原因：Handoff Gate 有 ${{openRows.length + evidenceMissingCount + staleCount + missingGateCount}} 件阻塞`
           : '交接狀態：可進入人工交付審查';
       }}
       const nextStep = consoleBlock.querySelector('[data-expert-console-next-step="true"]');
@@ -501,6 +517,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           nextStep.textContent = '下一步：先重新產生 research_summary.json，避免靜默遺漏 handoff gate。';
         }} else if (openRows.length > 0) {{
           nextStep.textContent = '下一步：先處理 Top 3 阻塞事項，再回到審查動作表確認剩餘事項。';
+        }} else if (evidenceMissingCount > 0) {{
+          nextStep.textContent = '下一步：補齊 Top 3 的 note、reviewer、evidence URL，再重新檢查 handoff gate。';
         }} else if (staleCount > 0) {{
           nextStep.textContent = '下一步：先 prune stale review-action state，再重新執行 handoff gate。';
         }} else {{
@@ -513,6 +531,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       if (openRows.length > 0) {{
         renderExpertConsoleActions(consoleBlock, openRows.slice(0, 3));
+      }} else if (evidenceMissingRows.length > 0) {{
+        renderExpertConsoleActions(consoleBlock, evidenceMissingRows.slice(0, 3));
       }} else if (staleCount > 0) {{
         renderExpertConsoleSystemBlocker(consoleBlock, `review_action_state.json 有 ${{staleCount}} 筆過期狀態，請先 prune stale state。`);
       }} else if (missingGateCount > 0) {{
@@ -579,6 +599,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       appendExpertBadge(meta, row.dataset.expertLabel || row.dataset.categoryLabel || row.dataset.category || '-');
       appendExpertBadge(meta, row.dataset.severityLabel || row.dataset.severity || '-');
       appendExpertBadge(meta, row.dataset.priorityLabel || row.dataset.priority || '-');
+      if ((row.dataset.evidenceRequired || 'false') === 'true') {{
+        appendExpertBadge(meta, '需要交付證據');
+      }}
       item.appendChild(meta);
       const title = document.createElement('strong');
       title.className = 'expert-console-task-title';
@@ -599,6 +622,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       next.appendChild(nextLabel);
       next.appendChild(document.createTextNode('先確認這個阻塞，處理完可直接標記完成；需要保留但不阻塞時標記稍後處理。'));
       item.appendChild(next);
+      if ((row.dataset.evidenceRequired || 'false') === 'true') {{
+        const evidence = document.createElement('p');
+        evidence.className = 'expert-console-task-copy';
+        evidence.textContent = '交付證據：標記完成、稍後處理或忽略時，需要填 note、reviewer、evidence URL。';
+        item.appendChild(evidence);
+      }}
       const controls = document.createElement('div');
       controls.className = 'expert-console-controls';
       controls.appendChild(buildExpertConsoleCommand(row, sourcePath, 'done', '標記完成'));
@@ -633,6 +662,11 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       button.dataset.stockId = row.dataset.stockId || '';
       button.dataset.actionId = row.dataset.actionId || '';
       button.dataset.statusValue = status;
+      button.dataset.evidenceRequired = row.dataset.evidenceRequired || 'false';
+      button.dataset.note = row.dataset.note || '';
+      button.dataset.reviewer = row.dataset.reviewer || '';
+      button.dataset.evidenceUrl = row.dataset.evidenceUrl || '';
+      button.dataset.updatedAt = row.dataset.updatedAt || '';
       button.dataset.expertConsoleStockId = row.dataset.stockId || '';
       button.dataset.expertConsoleActionId = row.dataset.actionId || '';
       button.dataset.command = row.querySelector(`[data-status-value="${{status}}"]`)?.dataset.command || '';
@@ -972,6 +1006,35 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         updateReviewActionBulkSelection(section);
       }});
     }}
+    function collectReviewActionEvidence(button, row) {{
+      if ((button.dataset.evidenceRequired || 'false') !== 'true') {{
+        return {{}};
+      }}
+      const status = button.dataset.statusValue || '';
+      if (status === 'open') {{
+        return {{}};
+      }}
+      const currentNote = (button.dataset.note || (row ? row.dataset.note : '') || '').trim();
+      const currentReviewer = (button.dataset.reviewer || (row ? row.dataset.reviewer : '') || '').trim();
+      const currentEvidenceUrl = (button.dataset.evidenceUrl || (row ? row.dataset.evidenceUrl : '') || '').trim();
+      const note = window.prompt('請輸入處理證據 note', currentNote);
+      if (note === null || !note.trim()) {{
+        return null;
+      }}
+      const reviewer = window.prompt('請輸入 reviewer', currentReviewer);
+      if (reviewer === null || !reviewer.trim()) {{
+        return null;
+      }}
+      const evidenceUrl = window.prompt('請輸入 evidence URL 或檔案路徑', currentEvidenceUrl);
+      if (evidenceUrl === null || !evidenceUrl.trim()) {{
+        return null;
+      }}
+      return {{
+        note: note.trim(),
+        reviewer: reviewer.trim(),
+        evidence_url: evidenceUrl.trim(),
+      }};
+    }}
     async function updateReviewActionState(button, copyStatus, options = {{}}) {{
       const payload = {{
         state_path: button.dataset.statePath || '',
@@ -991,6 +1054,18 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       const section = reviewActionSectionForButton(button);
       const row = reviewActionRowForButton(button, section);
+      const evidence = collectReviewActionEvidence(button, row);
+      if (evidence === null) {{
+        if (copyStatus) {{
+          copyStatus.textContent = '需要 note、reviewer、evidence URL 才能更新這個交付前 blocker。';
+        }}
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = '處理結果：尚未更新，缺少交付證據。';
+        }}
+        return false;
+      }}
+      Object.assign(payload, evidence);
       if (payload.status === 'ignored' && !window.confirm('確定要把這筆標記為不處理嗎？')) {{
         return false;
       }}
@@ -1010,9 +1085,30 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         }}
         if (row) {{
           row.dataset.status = result.status || payload.status;
+          row.dataset.note = result.note || payload.note || '';
+          row.dataset.reviewer = result.reviewer || payload.reviewer || '';
+          row.dataset.evidenceUrl = result.evidence_url || payload.evidence_url || '';
+          row.dataset.updatedAt = result.updated_at || result.last_updated || row.dataset.updatedAt || '';
           const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
           if (statusCell) {{
             statusCell.textContent = reviewActionStatusLabel(result.status || payload.status);
+          }}
+          const stateMeta = row.querySelector('[data-review-action-state-meta="true"]');
+          if (stateMeta) {{
+            const bits = [];
+            if (row.dataset.note) {{
+              bits.push(`note: ${{row.dataset.note}}`);
+            }}
+            if (row.dataset.reviewer) {{
+              bits.push(`reviewer: ${{row.dataset.reviewer}}`);
+            }}
+            if (row.dataset.evidenceUrl) {{
+              bits.push(`evidence: ${{row.dataset.evidenceUrl}}`);
+            }}
+            if (row.dataset.updatedAt) {{
+              bits.push(`updated: ${{row.dataset.updatedAt}}`);
+            }}
+            stateMeta.textContent = bits.join(' | ');
           }}
         }}
         updateReviewActionSummary(button, result);
@@ -1165,6 +1261,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
     ready = bool(gate.get("ready"))
     blocker_count = int(gate.get("blocker_count") or 0)
     open_count = int(gate.get("open_count") or 0)
+    evidence_missing_count = int(gate.get("evidence_missing_count") or 0)
     stale_count = int(gate.get("stale_state_count") or 0)
     missing_gate_count = int(gate.get("missing_gate_action_count") or 0)
     readiness_class = "ready" if ready else "blocked"
@@ -1185,6 +1282,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f'<div class="expert-console-grid" data-expert-console-source-path="{escaped_source_path}"'
         f' data-expert-console-handoff-status="{escape(str(gate.get("status") or ""))}"'
         f' data-expert-console-open-count="{escape(str(open_count))}"'
+        f' data-expert-console-evidence-missing-count="{escape(str(evidence_missing_count))}"'
         f' data-expert-console-stale-count="{escape(str(stale_count))}"'
         f' data-expert-console-missing-gate-count="{escape(str(missing_gate_count))}">'
         '<div class="expert-console-panel">'
@@ -1193,7 +1291,8 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f'data-expert-console-readiness="true">{escape(readiness_text)}</span></p>'
         f'<p class="status-line"><span class="badge">\u4f86\u6e90\uff1a{source_link}</span>'
         f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span>'
-        f'<span class="badge">Gate \u963b\u585e\uff1a{escape(str(blocker_count))}</span></p>'
+        f'<span class="badge">Gate \u963b\u585e\uff1a{escape(str(blocker_count))}</span>'
+        f'<span class="badge">\u7f3a\u5c11\u8b49\u64da\uff1a{escape(str(evidence_missing_count))}</span></p>'
         f'<p data-expert-console-next-step="true">{escape(next_step)}</p>'
         f"{toolbar}"
         f'<p class="expert-console-feedback" data-expert-console-feedback="true">{escape(feedback_text)}</p>'
@@ -1296,6 +1395,7 @@ def _expert_console_action_item(action: dict[str, str], source_path: str, state_
     severity = action.get("severity", "")
     priority = action.get("priority", "")
     action_id = action.get("action_id", "")
+    evidence_required = requires_handoff_evidence(action_id)
     focus_available = action.get("focus_available", "true") == "true" and bool(action_id)
     focus_search = _expert_console_focus_search(action)
     title = stock_id if not company_name else f"{stock_id} {company_name}"
@@ -1304,6 +1404,8 @@ def _expert_console_action_item(action: dict[str, str], source_path: str, state_
         if focus_available
         else action.get("next_step", "請執行 handoff doctor 後重新產生 dashboard。")
     )
+    if evidence_required and action.get("kind") == "missing_evidence":
+        next_copy = "\u88dc\u9f4a note\u3001reviewer\u3001evidence URL \u5f8c\u518d\u66f4\u65b0\u72c0\u614b\u3002"
     focus_control = (
         '<button type="button" class="expert-console-next"'
         f' data-expert-console-source-path="{escape(source_path)}"'
@@ -1325,16 +1427,20 @@ def _expert_console_action_item(action: dict[str, str], source_path: str, state_
         if focus_available
         else ""
     )
+    evidence_badge = '<span class="badge">\u9700\u8981\u4ea4\u4ed8\u8b49\u64da</span>' if evidence_required else ""
+    evidence_copy = '<p class="expert-console-task-copy">\u4ea4\u4ed8\u8b49\u64da\uff1a\u9700\u8981 note\u3001reviewer\u3001evidence URL\u3002</p>' if evidence_required else ""
     return (
         '<li class="expert-console-action" data-expert-console-task="true">'
         '<div class="expert-console-meta">'
         f'<span class="badge">{escape(action.get("expert_label") or _expert_agent_label(category))}</span>'
         f'<span class="badge">{escape(_review_label(severity, REVIEW_ACTION_SEVERITY_LABELS))}</span>'
         f'<span class="badge">{escape(_review_label(priority, REVIEW_ACTION_PRIORITY_LABELS))}</span>'
+        f"{evidence_badge}"
         "</div>"
         f'<strong class="expert-console-task-title">{escape(title)}</strong>'
         f'<p class="expert-console-task-copy"><strong>問題：</strong>{escape(action.get("message", ""))}</p>'
         f'<p class="expert-console-task-copy" data-expert-console-next-copy="true"><strong>建議處理：</strong>{escape(next_copy)}</p>'
+        f"{evidence_copy}"
         f"{task_controls}"
         '<p class="expert-console-result" data-expert-console-task-result="true">處理結果：尚未處理</p>'
         "</li>"
@@ -1350,6 +1456,7 @@ def _expert_console_action_button(
 ) -> str:
     stock_id = action.get("stock_id", "")
     action_id = action.get("action_id", "")
+    evidence_required = requires_handoff_evidence(action_id)
     command = _review_action_state_command(state_path, stock_id, action_id, status)
     return (
         '<button type="button" class="expert-console-next" data-expert-console-action-command="true"'
@@ -1359,6 +1466,11 @@ def _expert_console_action_button(
         f' data-stock-id="{escape(stock_id)}"'
         f' data-action-id="{escape(action_id)}"'
         f' data-status-value="{escape(status)}"'
+        f' data-evidence-required="{str(evidence_required).lower()}"'
+        f' data-note="{escape(action.get("note", ""))}"'
+        f' data-reviewer="{escape(action.get("reviewer", ""))}"'
+        f' data-evidence-url="{escape(action.get("evidence_url", ""))}"'
+        f' data-updated-at="{escape(action.get("updated_at", ""))}"'
         f' data-expert-console-stock-id="{escape(stock_id)}"'
         f' data-expert-console-action-id="{escape(action_id)}"'
         f' data-command="{escape(command)}">'
@@ -1574,6 +1686,11 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
             status = str(action.get("status") or "open")
             action_id = str(action.get("id") or "")
             message = str(action.get("message") or "-")
+            note = str(action.get("note") or "").strip()
+            reviewer = str(action.get("reviewer") or "").strip()
+            evidence_url = str(action.get("evidence_url") or "").strip()
+            updated_at = str(action.get("updated_at") or "").strip()
+            evidence_required = requires_handoff_evidence(action_id)
             priority_label = _review_label(priority, REVIEW_ACTION_PRIORITY_LABELS)
             status_label = _review_label(status, REVIEW_ACTION_STATUS_LABELS)
             severity_label = _review_label(severity, REVIEW_ACTION_SEVERITY_LABELS)
@@ -1592,6 +1709,11 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 category_label,
                 message,
                 user_message,
+                note,
+                reviewer,
+                evidence_url,
+                updated_at,
+                "evidence required" if evidence_required else "",
             )
             rows.append(
                 '<tr data-review-action-row="true"'
@@ -1607,6 +1729,11 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f' data-expert-label="{escape(expert_label)}"'
                 f' data-action-id="{escape(action_id)}"'
                 f' data-action-message="{escape(user_message)}"'
+                f' data-note="{escape(note)}"'
+                f' data-reviewer="{escape(reviewer)}"'
+                f' data-evidence-url="{escape(evidence_url)}"'
+                f' data-updated-at="{escape(updated_at)}"'
+                f' data-evidence-required="{str(evidence_required).lower()}"'
                 f' data-search-text="{escape(search_text)}">'
                 '<td class="review-action-select-cell"><input type="checkbox" data-review-action-select-row="true" aria-label="選取審查動作"></td>'
                 f"<td>{escape(stock_id)}</td>"
@@ -1614,8 +1741,8 @@ def _review_action_rows(action_queue: list[Any], state_path: str = "review_actio
                 f'<td><span class="review-action-status" data-review-action-status-cell="true">{escape(status_label)}</span></td>'
                 f"<td>{escape(severity_label)}</td>"
                 f"<td>{escape(category_label)}</td>"
-                f"<td>{escape(user_message)}{_review_action_state_metadata(action)}</td>"
-                f"<td>{_review_action_command_cell(state_path, stock_id, action_id)}</td>"
+                f"<td>{escape(user_message)}{_review_action_state_metadata(action, evidence_required=evidence_required)}</td>"
+                f"<td>{_review_action_command_cell(state_path, stock_id, action_id, evidence_required=evidence_required)}</td>"
                 "</tr>"
             )
     return "".join(rows) or _empty_row(8, "沒有審查動作")
@@ -1867,20 +1994,32 @@ def _review_action_state_path(summary: dict[str, Any]) -> str:
     return Path(summary_path).with_name("review_action_state.json").as_posix()
 
 
-def _review_action_state_metadata(action: dict[str, Any]) -> str:
+def _review_action_state_metadata(action: dict[str, Any], *, evidence_required: bool = False) -> str:
     details = []
     note = str(action.get("note") or "").strip()
+    reviewer = str(action.get("reviewer") or "").strip()
+    evidence_url = str(action.get("evidence_url") or "").strip()
     updated_at = str(action.get("updated_at") or "").strip()
+    if evidence_required:
+        details.append("\u9700\u8981\u4ea4\u4ed8\u8b49\u64da\uff1anote / reviewer / evidence URL")
     if note:
         details.append(f"備註：{escape(note)}")
+    if note:
+        details[-1] = f"note: {escape(note)}"
+    if reviewer:
+        details.append(f"reviewer: {escape(reviewer)}")
+    if evidence_url:
+        details.append(f"evidence: {escape(evidence_url)}")
     if updated_at:
         details.append(f"更新：{escape(updated_at)}")
+    if updated_at:
+        details[-1] = f"updated: {escape(updated_at)}"
     if not details:
         return ""
-    return f'<div class="review-action-state-meta">{" | ".join(details)}</div>'
+    return f'<div class="review-action-state-meta" data-review-action-state-meta="true">{" | ".join(details)}</div>'
 
 
-def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) -> str:
+def _review_action_command_cell(state_path: str, stock_id: str, action_id: str, *, evidence_required: bool = False) -> str:
     if not action_id:
         return "-"
     commands = [
@@ -1901,15 +2040,23 @@ def _review_action_command_cell(state_path: str, stock_id: str, action_id: str) 
             f' data-stock-id="{escape(stock_id)}"'
             f' data-action-id="{escape(action_id)}"'
             f' data-status-value="{escape(status)}"'
+            f' data-evidence-required="{str(evidence_required).lower()}"'
             f' data-command="{escape(command)}">'
             f"{escape(display_label)}"
             "</button>"
         )
+    evidence_hint = (
+        '<p class="review-action-state-meta">\u9700\u8981\u4ea4\u4ed8\u8b49\u64da\u6642\uff0cCLI \u8acb\u52a0\uff1a'
+        '--note "..." --reviewer "..." --evidence-url "..."</p>'
+        if evidence_required
+        else ""
+    )
     return (
         f'<div class="review-action-commands">{"".join(buttons)}</div>'
         '<details class="review-action-detail">'
         '<summary>指令 / API 詳細資訊</summary>'
         f'<code class="review-action-command-fallback">{escape(os.linesep.join(fallback_lines))}</code>'
+        f"{evidence_hint}"
         '</details>'
     )
 

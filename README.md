@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.38.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.39.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -28,7 +28,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Persists review-action done, deferred, and ignored states in a local sidecar state file.
 - Reports review-action state health, stale sidecar entries, and the next open actions from the CLI and dashboard.
 - Guides dashboard handoff with an Expert Agent Console that shows readiness, the top 3 blockers, expert lenses, next actions, and a non-investment-advice notice; Top 3 blocker cards can be handled directly from the console.
-- Checks handoff readiness with a reusable Handoff Quality Gate and `doctor handoff`, including open actions, stale state, and missing required gate actions.
+- Checks handoff readiness with a reusable Handoff Quality Gate and `doctor handoff`, including open actions, stale state, missing required gate actions, and missing evidence on handled high-risk blockers.
 - Prunes stale review-action state entries explicitly with a dry-run-by-default CLI command.
 - Backs up existing review-action state files before CLI writes.
 - Lists available review-action state backup files before restore.
@@ -110,7 +110,7 @@ First review-action checks:
 ```powershell
 python -m taiwan_stock_analysis.cli research action list demo-dist/research_summary.json --state demo-dist/review_action_state.json
 python -m taiwan_stock_analysis.cli research action report demo-dist/research_summary.json --state demo-dist/review_action_state.json
-python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness" --reviewer "source-audit-lead" --evidence-url "demo-dist/evidence/2330-source.md"
 python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
 ```
 
@@ -200,7 +200,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.38.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.39.0
 ```
 
 ## Example Files
@@ -306,6 +306,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.39.0 release notes](docs/releases/v0.39.0.md)
 - [v0.38.0 release notes](docs/releases/v0.38.0.md)
 - [v0.37.0 release notes](docs/releases/v0.37.0.md)
 - [v0.36.0 release notes](docs/releases/v0.36.0.md)

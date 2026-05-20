@@ -94,6 +94,8 @@ class ReviewActionStateTests(unittest.TestCase):
                         "action_id": "workflow-error",
                         "status": "done",
                         "note": "checked",
+                        "reviewer": "",
+                        "evidence_url": "",
                         "updated_at": "",
                     }
                 },
@@ -109,6 +111,8 @@ class ReviewActionStateTests(unittest.TestCase):
             "workflow-error",
             "done",
             note="checked",
+            reviewer="lead reviewer",
+            evidence_url="evidence/workflow.md",
             updated_at="2026-05-15T09:00:00Z",
         )
         write_review_action_state(
@@ -120,6 +124,8 @@ class ReviewActionStateTests(unittest.TestCase):
                         "action_id": "source-audit-stale",
                         "status": "deferred",
                         "note": "",
+                        "reviewer": "",
+                        "evidence_url": "",
                         "updated_at": "2026-05-15T09:01:00Z",
                     },
                     "2330:workflow-error": {
@@ -127,6 +133,8 @@ class ReviewActionStateTests(unittest.TestCase):
                         "action_id": "workflow-error",
                         "status": "done",
                         "note": "checked",
+                        "reviewer": "lead reviewer",
+                        "evidence_url": "evidence/workflow.md",
                         "updated_at": "2026-05-15T09:00:00Z",
                     },
                 }
@@ -137,6 +145,8 @@ class ReviewActionStateTests(unittest.TestCase):
 
         self.assertEqual(list(payload["actions"]), ["2303:source-audit-stale", "2330:workflow-error"])
         self.assertEqual(payload["actions"]["2330:workflow-error"]["status"], "done")
+        self.assertEqual(payload["actions"]["2330:workflow-error"]["reviewer"], "lead reviewer")
+        self.assertEqual(payload["actions"]["2330:workflow-error"]["evidence_url"], "evidence/workflow.md")
 
     def test_backup_review_action_state_preserves_original_bytes(self):
         path = Path(".tmp-cli-test/review-action-state-backup.json")
@@ -431,6 +441,8 @@ class ReviewActionStateTests(unittest.TestCase):
                     "action_id": "workflow-error",
                     "status": "done",
                     "note": "checked",
+                    "reviewer": "lead reviewer",
+                    "evidence_url": "evidence/workflow.md",
                     "updated_at": "2026-05-15T09:00:00Z",
                 }
             },
@@ -440,6 +452,8 @@ class ReviewActionStateTests(unittest.TestCase):
 
         self.assertEqual(overlaid[0]["actions"][0]["status"], "done")
         self.assertEqual(overlaid[0]["actions"][0]["note"], "checked")
+        self.assertEqual(overlaid[0]["actions"][0]["reviewer"], "lead reviewer")
+        self.assertEqual(overlaid[0]["actions"][0]["evidence_url"], "evidence/workflow.md")
         self.assertEqual(overlaid[0]["actions"][0]["updated_at"], "2026-05-15T09:00:00Z")
         self.assertEqual(overlaid[0]["actions"][1]["status"], "open")
         self.assertNotIn("note", queue[0]["actions"][0])
@@ -478,6 +492,10 @@ class ReviewActionStateTests(unittest.TestCase):
                     "severity": "error",
                     "category": "workflow",
                     "action_id": "workflow-error",
+                    "note": "",
+                    "reviewer": "",
+                    "evidence_url": "",
+                    "updated_at": "",
                     "message": "Fix workflow.",
                 },
                 {
@@ -487,6 +505,10 @@ class ReviewActionStateTests(unittest.TestCase):
                     "severity": "warning",
                     "category": "valuation",
                     "action_id": "valuation-unavailable",
+                    "note": "",
+                    "reviewer": "",
+                    "evidence_url": "",
+                    "updated_at": "",
                     "message": "Check valuation.",
                 },
             ],
@@ -537,6 +559,8 @@ class ReviewActionStateTests(unittest.TestCase):
                     "action_id": "old-action",
                     "status": "ignored",
                     "note": "obsolete",
+                    "reviewer": "",
+                    "evidence_url": "",
                     "updated_at": "2026-05-15T10:00:00Z",
                 }
             ],
@@ -614,6 +638,10 @@ class ReviewActionStateTests(unittest.TestCase):
                     "severity": "warning",
                     "category": "valuation",
                     "action_id": "valuation-unavailable",
+                    "note": "",
+                    "reviewer": "",
+                    "evidence_url": "",
+                    "updated_at": "",
                     "message": "Check valuation.",
                 }
             ],
@@ -721,6 +749,8 @@ class ReviewActionStateTests(unittest.TestCase):
                         "action_id": "workflow-error",
                         "status": "done",
                         "note": "checked",
+                        "reviewer": "",
+                        "evidence_url": "",
                         "updated_at": "2026-05-15T09:00:00Z",
                     }
                 },
@@ -734,6 +764,8 @@ class ReviewActionStateTests(unittest.TestCase):
                     "action_id": "old-action",
                     "status": "ignored",
                     "note": "obsolete",
+                    "reviewer": "",
+                    "evidence_url": "",
                     "updated_at": "2026-05-15T10:00:00Z",
                 }
             ],
@@ -765,6 +797,8 @@ class ReviewActionStateTests(unittest.TestCase):
                 "action_id": "workflow-error",
                 "status": "deferred",
                 "note": "later",
+                "reviewer": "",
+                "evidence_url": "",
                 "updated_at": "2026-05-15T09:00:00Z",
             },
         )

@@ -44,7 +44,7 @@ python -m taiwan_stock_analysis.cli research action report demo-dist/research_su
 Try persisting one review decision:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness" --reviewer "source-audit-lead" --evidence-url "demo-dist/evidence/2330-source.md"
 python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
 ```
 

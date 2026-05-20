@@ -95,6 +95,8 @@ def set_review_action_state(
     action_id: str,
     status: str,
     note: str = "",
+    reviewer: str = "",
+    evidence_url: str = "",
     updated_at: str | None = None,
 ) -> tuple[Path, Path | None]:
     status = _clean_string(status)
@@ -111,6 +113,8 @@ def set_review_action_state(
         "action_id": _clean_string(action_id),
         "status": status,
         "note": _clean_string(note),
+        "reviewer": _clean_string(reviewer),
+        "evidence_url": _clean_string(evidence_url),
         "updated_at": updated_at or _utc_now(),
     }
     backup_path = backup_review_action_state(path)
@@ -141,6 +145,12 @@ def apply_review_action_state(
                 note = _clean_string(state_entry.get("note"))
                 if note:
                     action["note"] = note
+                reviewer = _clean_string(state_entry.get("reviewer"))
+                if reviewer:
+                    action["reviewer"] = reviewer
+                evidence_url = _clean_string(state_entry.get("evidence_url"))
+                if evidence_url:
+                    action["evidence_url"] = evidence_url
                 updated_at = _clean_string(state_entry.get("updated_at"))
                 if updated_at:
                     action["updated_at"] = updated_at
@@ -191,6 +201,10 @@ def review_action_rows(action_queue: list[Any]) -> list[dict[str, str]]:
                     "severity": _clean_string(action.get("severity")),
                     "category": _clean_string(action.get("category")),
                     "action_id": action_id,
+                    "note": _clean_string(action.get("note")),
+                    "reviewer": _clean_string(action.get("reviewer")),
+                    "evidence_url": _clean_string(action.get("evidence_url")),
+                    "updated_at": _clean_string(action.get("updated_at")),
                     "message": _clean_string(action.get("message")),
                 }
             )
@@ -214,6 +228,8 @@ def stale_review_action_state_rows(action_queue: list[Any], state: dict[str, Any
                 "action_id": _clean_string(entry.get("action_id")),
                 "status": _clean_status(entry.get("status")) or "open",
                 "note": _clean_string(entry.get("note")),
+                "reviewer": _clean_string(entry.get("reviewer")),
+                "evidence_url": _clean_string(entry.get("evidence_url")),
                 "updated_at": _clean_string(entry.get("updated_at")),
             }
         )
@@ -277,6 +293,8 @@ def _normalize_state(payload: dict[str, Any]) -> dict[str, Any]:
             "action_id": action_id,
             "status": status,
             "note": _clean_string(raw_entry.get("note")),
+            "reviewer": _clean_string(raw_entry.get("reviewer")),
+            "evidence_url": _clean_string(raw_entry.get("evidence_url")),
             "updated_at": _clean_string(raw_entry.get("updated_at")),
         }
     return normalized

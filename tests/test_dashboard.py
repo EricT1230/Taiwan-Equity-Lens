@@ -577,6 +577,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
         self.assertIn('data-action-id="source-audit-manual-review"', html)
         self.assertIn('data-status-value="done"', html)
+        self.assertIn('data-evidence-required="true"', html)
         self.assertIn('data-review-action-status-cell="true"', html)
         self.assertIn('data-review-action-api-result="true"', html)
         self.assertIn('data-review-action-api-output="true"', html)
@@ -592,6 +593,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-review-action-command="reopen"', html)
         self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done", html)
         self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status open", html)
+        self.assertIn('--note "..." --reviewer "..." --evidence-url "..."', html)
 
     def test_render_dashboard_html_contains_expert_agent_console_guided_flow(self):
         html = render_dashboard_html(
@@ -673,12 +675,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-expert-console-next-step="true"', html)
         self.assertIn('data-expert-console-handoff-status="blocked"', html)
         self.assertIn('data-expert-console-open-count="3"', html)
+        self.assertIn('data-expert-console-evidence-missing-count="1"', html)
         self.assertIn('data-expert-console-stale-count="0"', html)
         self.assertIn('data-expert-console-missing-gate-count="0"', html)
         self.assertIn("專家 Agent Console", html)
         self.assertIn("交接狀態：尚未可交接", html)
-        self.assertIn("Handoff Gate 有 3 件阻塞", html)
-        self.assertIn("Gate 阻塞：3", html)
+        self.assertIn("Handoff Gate 有 4 件阻塞", html)
+        self.assertIn("Gate 阻塞：4", html)
         self.assertIn("優先處理的 3 件待查事項", html)
         self.assertIn('data-expert-console-bulk="true"', html)
         self.assertIn('data-expert-console-bulk-status="done"', html)
@@ -786,6 +789,9 @@ class DashboardTests(unittest.TestCase):
                             "actions": {
                                 "2330:workflow-error": {
                                     "status": "done",
+                                    "note": "resolved workflow failure",
+                                    "reviewer": "workflow-lead",
+                                    "evidence_url": "research-dist/evidence/2330-workflow.md",
                                     "updated_at": "2026-05-20T01:00:00Z",
                                 }
                             },
@@ -905,6 +911,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("const reviewActionApiEnabled = true;", html)
         self.assertIn("fetch('/api/review-actions/set'", html)
+        self.assertIn("collectReviewActionEvidence(button, row)", html)
+        self.assertIn("請輸入處理證據 note", html)
         self.assertIn("updateReviewActionState(button, copyStatus)", html)
         self.assertIn("showReviewActionApiResult(button, result)", html)
         self.assertIn("updateReviewActionSummary(button, result)", html)
@@ -913,6 +921,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("syncExpertConsole(section)", html)
         self.assertIn("consoleBlock.dataset.expertConsoleHandoffStatus", html)
         self.assertIn("consoleBlock.dataset.expertConsoleOpenCount", html)
+        self.assertIn("consoleBlock.dataset.expertConsoleEvidenceMissingCount", html)
         self.assertIn("consoleBlock.dataset.expertConsoleStaleCount", html)
         self.assertIn("buildExpertConsoleAction(row", html)
         self.assertIn("row.dataset.expertLabel", html)
@@ -1044,8 +1053,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("review_action_state.json 有過期項目：9999 / old-action。", html)
         self.assertIn("狀態一致性專家", html)
         self.assertIn('data-review-filter="status"', html)
-        self.assertIn("備註：checked", html)
-        self.assertIn("更新：2026-05-15T09:00:00Z", html)
+        self.assertIn("note: checked", html)
+        self.assertIn("updated: 2026-05-15T09:00:00Z", html)
 
     def test_render_dashboard_html_quotes_review_action_commands(self):
         html = render_dashboard_html(

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.39.0 - 2026-05-21
+
+Evidence-Required Handoff release.
+
+### Added
+
+- Handoff Quality Gate blockers for handled high-risk actions that are missing `note`, `reviewer`, `evidence_url`, or `updated_at`.
+- `--reviewer` and `--evidence-url` options for `research action set`.
+- Dashboard evidence prompts for served review-action updates before a high-risk blocker can be marked `done`, `deferred`, or `ignored`.
+- Visible evidence metadata, evidence-required badges, and static CLI flag hints in dashboard blocker tasks and review-action rows.
+- v0.39.0 release notes.
+
+### Changed
+
+- `doctor handoff` now reports `evidence-required gaps` in the gate summary.
+- Review-action list output includes note, reviewer, evidence URL, and update timestamp columns.
+- README and usage workflow release doctor examples now target `0.39.0`.
+- Package version is now `0.39.0`.
+
+### Quality
+
+- Added handoff, state, CLI, dashboard, dashboard-server, and doctor coverage for evidence-required blocker behavior.
+- Added a v0.39.0 design note for the Evidence-Required Handoff contract.
+
 ## v0.38.0 - 2026-05-20
 
 Gate Blocker Workflow release.

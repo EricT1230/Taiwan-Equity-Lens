@@ -70,7 +70,7 @@ python -m taiwan_stock_analysis.cli research action report demo-dist/research_su
 Create local review-action state and list available backups:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness" --reviewer "source-audit-lead" --evidence-url "demo-dist/evidence/2330-source.md"
 python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
 ```
 
@@ -375,7 +375,7 @@ The dashboard `Review Actions` section can filter actions by severity, category,
 From v0.16.0 onward, manual review-action decisions can be persisted in a sibling `review_action_state.json` sidecar file. This keeps generated summaries rebuildable while preserving queue decisions across reruns.
 
 ```powershell
-python -m taiwan_stock_analysis.cli research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness"
+python -m taiwan_stock_analysis.cli research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness" --reviewer "source-audit-lead" --evidence-url "research-dist/evidence/2330-source.md"
 python -m taiwan_stock_analysis.cli research action list research-dist/research_summary.json --state research-dist/review_action_state.json
 python -m taiwan_stock_analysis.cli research action report research-dist/research_summary.json --state research-dist/review_action_state.json
 python -m taiwan_stock_analysis.cli research action prune-stale research-dist/research_summary.json --state research-dist/review_action_state.json
@@ -427,6 +427,8 @@ From v0.37.0 onward, handoff readiness is checked by the same Handoff Quality Ga
 
 From v0.38.0 onward, the Expert Agent Console treats Top 3 blockers as task cards with a visible handling result. In served dashboards, `標記完成`, `稍後處理`, and the Top 3 batch buttons update the same review-action state API used by the detailed table, then resync the handoff gate. In static dashboards, the same controls copy the matching CLI commands so the workflow stays usable without a local server.
 
+From v0.39.0 onward, high-risk blockers require handoff evidence before they can clear the Handoff Quality Gate. If a source-audit, workflow, reliability, valuation, fundamental-review, blocked-state, or missing-research-quality action is marked `done`, `deferred`, or `ignored`, the state entry must include `note`, `reviewer`, `evidence_url`, and `updated_at`. Served dashboards prompt for the missing evidence before writing state; static dashboards show the extra CLI flags to add. `doctor handoff` reports `evidence-required gaps` when a handled blocker lacks those fields.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -454,7 +456,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.38.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.39.0
 python -m unittest discover -s tests -v
 ```
 

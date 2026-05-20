@@ -26,6 +26,9 @@ class HandoffGateTests(unittest.TestCase):
                     "stock_id": "2330",
                     "action_id": "reliability-warning",
                     "status": "done",
+                    "note": "checked source freshness and reliability warning",
+                    "reviewer": "fundamental-lead",
+                    "evidence_url": "research-dist/evidence/2330-reliability.md",
                     "updated_at": "2026-05-20T01:00:00Z",
                 }
             },
@@ -38,6 +41,30 @@ class HandoffGateTests(unittest.TestCase):
         self.assertEqual(0, gate["open_count"])
         self.assertEqual(0, gate["blocker_count"])
         self.assertIn("handoff gate ready", gate["messages"])
+
+    def test_handoff_gate_blocks_handled_action_without_evidence(self):
+        summary = _summary_with_reliability_warning()
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:reliability-warning": {
+                    "stock_id": "2330",
+                    "action_id": "reliability-warning",
+                    "status": "done",
+                    "note": "checked",
+                    "updated_at": "2026-05-20T01:00:00Z",
+                }
+            },
+        }
+
+        gate = build_handoff_quality_gate(summary, state)
+
+        self.assertFalse(gate["ready"])
+        self.assertEqual(0, gate["open_count"])
+        self.assertEqual(1, gate["evidence_missing_count"])
+        self.assertEqual("missing_evidence", gate["top_blockers"][0]["kind"])
+        self.assertIn("reviewer", gate["top_blockers"][0]["message"])
+        self.assertIn("evidence-required gaps: 1", gate["messages"])
 
     def test_handoff_gate_catches_missing_required_review_action(self):
         summary = _summary_with_reliability_warning()

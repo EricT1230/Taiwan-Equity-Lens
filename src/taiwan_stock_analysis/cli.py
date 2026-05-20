@@ -368,6 +368,8 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_set.add_argument("action_id")
     research_action_set.add_argument("--status", required=True, choices=ACTION_STATUSES)
     research_action_set.add_argument("--note", default="")
+    research_action_set.add_argument("--reviewer", default="")
+    research_action_set.add_argument("--evidence-url", default="")
 
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
     research_run.add_argument("research_csv", type=Path)
@@ -573,7 +575,8 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "python -m taiwan_stock_analysis.cli research action set "
                 f"{state_path} 2330 source-audit-manual-review --status done --note "
-                '"checked source freshness"'
+                '"checked source freshness" --reviewer "source-audit-lead" '
+                f'--evidence-url "{args.output_dir / "evidence" / "2330-source.md"}"'
             )
             print(f"python -m taiwan_stock_analysis.cli research action backups {state_path}")
             return 0
@@ -687,6 +690,8 @@ def main(argv: list[str] | None = None) -> int:
                         args.action_id,
                         args.status,
                         note=args.note,
+                        reviewer=args.reviewer,
+                        evidence_url=args.evidence_url,
                     )
                 except ValueError as exc:
                     print(f"Warning: {exc}")
@@ -702,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
                 if warning:
                     print(f"Warning: {warning}")
                 overlaid = apply_review_action_state(queue if isinstance(queue, list) else [], state)
-                print("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tmessage")
+                print("stock_id\tpriority\tstatus\tseverity\tcategory\taction_id\tnote\treviewer\tevidence_url\tupdated_at\tmessage")
                 for row in review_action_rows(overlaid):
                     print(
                         "\t".join(
@@ -713,6 +718,10 @@ def main(argv: list[str] | None = None) -> int:
                                 row["severity"],
                                 row["category"],
                                 row["action_id"],
+                                row["note"],
+                                row["reviewer"],
+                                row["evidence_url"],
+                                row["updated_at"],
                                 row["message"],
                             ]
                         )
