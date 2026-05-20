@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.38.0 - 2026-05-20
+
+Gate Blocker Workflow release.
+
+### Added
+
+- Expert Agent Console Top 3 blocker cards now show a task-style problem, suggested handling path, and direct action buttons.
+- Console-level `Top 3 標記完成` and `Top 3 稍後處理` controls.
+- Served dashboard console actions reuse the existing review-action API and then resync the Handoff Quality Gate.
+- Static dashboard console actions copy the matching `research action set` CLI commands.
+- Persistent console and per-task feedback copy that tells the user what happened after a direct blocker action.
+- v0.38.0 release notes.
+
+### Changed
+
+- Expert Console blocker list is now rendered as task cards instead of a sparse engineering list.
+- README and usage workflow release doctor examples now target `0.38.0`.
+- Package version is now `0.38.0`.
+
+### Quality
+
+- Added dashboard coverage for Top 3 task cards, console action commands, batch controls, and served-dashboard wiring.
+- Added a v0.38.0 design note for the Gate Blocker Workflow contract.
+
 ## v0.37.0 - 2026-05-20
 
 Handoff Quality Gate / Win Condition Contract release.

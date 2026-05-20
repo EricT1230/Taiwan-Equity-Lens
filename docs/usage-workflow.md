@@ -425,6 +425,8 @@ From v0.36.0 onward, served dashboards resync the Expert Agent Console immediate
 
 From v0.37.0 onward, handoff readiness is checked by the same Handoff Quality Gate in the CLI and dashboard. The gate blocks handoff when state-overlaid review actions are still open, when `review_action_state.json` contains stale entries, or when the summary has source, workflow, reliability, valuation, fundamental-review, or research-state signals that should have produced review actions but did not. Run `doctor handoff` before treating a pack as ready for human review.
 
+From v0.38.0 onward, the Expert Agent Console treats Top 3 blockers as task cards with a visible handling result. In served dashboards, `標記完成`, `稍後處理`, and the Top 3 batch buttons update the same review-action state API used by the detailed table, then resync the handoff gate. In static dashboards, the same controls copy the matching CLI commands so the workflow stays usable without a local server.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -452,7 +454,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.37.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.38.0
 python -m unittest discover -s tests -v
 ```
 

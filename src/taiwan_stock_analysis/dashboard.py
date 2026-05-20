@@ -229,13 +229,19 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .expert-console-panel h3 {{ margin-bottom: 8px; }}
     .expert-console-readiness {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 700; background: #dcfce7; color: #166534; }}
     .expert-console-readiness.blocked {{ background: #fee2e2; color: #991b1b; }}
-    .expert-console-actions {{ display: grid; gap: 10px; margin: 0; padding-left: 20px; }}
-    .expert-console-action {{ padding: 10px 0; border-bottom: 1px solid #d8dee8; }}
-    .expert-console-action:last-child {{ border-bottom: 0; }}
+    .expert-console-actions {{ display: grid; gap: 10px; margin: 0; padding-left: 0; list-style: none; }}
+    .expert-console-action {{ padding: 12px; border: 1px solid #d8dee8; border-radius: 8px; background: white; }}
     .expert-console-action p {{ margin: 6px 0; }}
     .expert-console-meta {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; }}
-    .expert-console-next {{ display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
+    .expert-console-task-title {{ display: block; margin: 4px 0 8px; color: #172033; }}
+    .expert-console-task-copy strong {{ color: #12355b; }}
+    .expert-console-controls, .expert-console-toolbar {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
+    .expert-console-feedback {{ margin: 10px 0 0; padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #12355b; }}
+    .expert-console-result {{ margin: 8px 0 0; color: #166534; font-size: 0.9rem; }}
+    .expert-console-next {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     .expert-console-next:hover {{ background: #eef4fb; }}
+    .expert-console-next[data-status-value="done"], .expert-console-next[data-expert-console-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
+    .expert-console-next[data-status-value="done"]:hover, .expert-console-next[data-expert-console-bulk-status="done"]:hover {{ background: #bbf7d0; }}
     .expert-console-non-advice {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .review-action-highlight {{ outline: 3px solid #facc15; outline-offset: -3px; }}
     .review-action-filters {{ display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
@@ -432,6 +438,37 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       return Array.from(document.querySelectorAll('[data-expert-console-source-path]'))
         .find((block) => (block.dataset.expertConsoleSourcePath || '') === sourcePath);
     }}
+    function reviewActionSectionForButton(button) {{
+      const directSection = button.closest('[data-review-actions-section="true"]');
+      if (directSection) {{
+        return directSection;
+      }}
+      const sourcePath = button.dataset.reviewActionsSourcePath || button.dataset.expertConsoleSourcePath || '';
+      const sections = Array.from(document.querySelectorAll('[data-review-actions-section="true"]'));
+      return sections.find((section) => (section.dataset.reviewActionsSourcePath || '') === sourcePath) || sections[0] || null;
+    }}
+    function reviewActionRowForButton(button, section) {{
+      const directRow = button.closest('[data-review-action-row="true"]');
+      if (directRow) {{
+        return directRow;
+      }}
+      if (!section) {{
+        return null;
+      }}
+      const stockId = button.dataset.stockId || button.dataset.expertConsoleStockId || '';
+      const actionId = button.dataset.actionId || button.dataset.expertConsoleActionId || '';
+      return Array.from(section.querySelectorAll('[data-review-action-row="true"]')).find((row) =>
+        (row.dataset.stockId || '') === stockId && (row.dataset.actionId || '') === actionId
+      ) || null;
+    }}
+    function expertConsoleFeedbackForButton(button) {{
+      const consoleBlock = button.closest('[data-expert-console-source-path]');
+      return consoleBlock ? consoleBlock.querySelector('[data-expert-console-feedback="true"]') : null;
+    }}
+    function expertConsoleTaskResultForButton(button) {{
+      const task = button.closest('[data-expert-console-task="true"]');
+      return task ? task.querySelector('[data-expert-console-task-result="true"]') : null;
+    }}
     function reviewActionRows(section) {{
       return Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
     }}
@@ -446,6 +483,10 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       const staleCount = Number(staleNode ? staleNode.dataset.reviewActionStaleCountValue || '0' : '0');
       const missingGateCount = Number(consoleBlock.dataset.expertConsoleMissingGateCount || '0');
       const blocked = openRows.length > 0 || staleCount > 0 || missingGateCount > 0;
+      consoleBlock.dataset.expertConsoleHandoffStatus = blocked ? 'blocked' : 'ready';
+      consoleBlock.dataset.expertConsoleOpenCount = String(openRows.length);
+      consoleBlock.dataset.expertConsoleStaleCount = String(staleCount);
+      consoleBlock.dataset.expertConsoleMissingGateCount = String(missingGateCount);
       const readiness = consoleBlock.querySelector('[data-expert-console-readiness="true"]');
       if (readiness) {{
         readiness.classList.toggle('blocked', blocked);
@@ -465,6 +506,10 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         }} else {{
           nextStep.textContent = '下一步：打開研究摘要、memo 與 pack，進行人工閱讀與簽核。';
         }}
+      }}
+      const toolbar = consoleBlock.querySelector('[data-expert-console-bulk="true"]');
+      if (toolbar) {{
+        toolbar.style.display = openRows.length > 0 ? 'flex' : 'none';
       }}
       if (openRows.length > 0) {{
         renderExpertConsoleActions(consoleBlock, openRows.slice(0, 3));
@@ -528,6 +573,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function buildExpertConsoleAction(row, sourcePath) {{
       const item = document.createElement('li');
       item.className = 'expert-console-action';
+      item.dataset.expertConsoleTask = 'true';
       const meta = document.createElement('div');
       meta.className = 'expert-console-meta';
       appendExpertBadge(meta, row.dataset.expertLabel || row.dataset.categoryLabel || row.dataset.category || '-');
@@ -535,16 +581,28 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       appendExpertBadge(meta, row.dataset.priorityLabel || row.dataset.priority || '-');
       item.appendChild(meta);
       const title = document.createElement('strong');
+      title.className = 'expert-console-task-title';
       const companyName = row.dataset.companyName || '';
       title.textContent = companyName ? `${{row.dataset.stockId || '-'}} ${{companyName}}` : (row.dataset.stockId || '-');
       item.appendChild(title);
       const message = document.createElement('p');
-      message.textContent = row.dataset.actionMessage || '';
+      message.className = 'expert-console-task-copy';
+      const messageLabel = document.createElement('strong');
+      messageLabel.textContent = '問題：';
+      message.appendChild(messageLabel);
+      message.appendChild(document.createTextNode(row.dataset.actionMessage || ''));
       item.appendChild(message);
       const next = document.createElement('p');
-      next.className = 'empty';
-      next.textContent = '下一步：按下按鈕定位到審查列，再選擇「標記完成」或「稍後處理」。';
+      next.className = 'expert-console-task-copy';
+      const nextLabel = document.createElement('strong');
+      nextLabel.textContent = '建議處理：';
+      next.appendChild(nextLabel);
+      next.appendChild(document.createTextNode('先確認這個阻塞，處理完可直接標記完成；需要保留但不阻塞時標記稍後處理。'));
       item.appendChild(next);
+      const controls = document.createElement('div');
+      controls.className = 'expert-console-controls';
+      controls.appendChild(buildExpertConsoleCommand(row, sourcePath, 'done', '標記完成'));
+      controls.appendChild(buildExpertConsoleCommand(row, sourcePath, 'deferred', '稍後處理'));
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'expert-console-next';
@@ -555,8 +613,140 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       button.dataset.expertConsoleFocusSearch = (row.dataset.stockId || row.dataset.companyName || '').toLowerCase();
       button.textContent = '前往這個阻塞';
       attachExpertConsoleFocus(button);
-      item.appendChild(button);
+      controls.appendChild(button);
+      item.appendChild(controls);
+      const result = document.createElement('p');
+      result.className = 'expert-console-result';
+      result.dataset.expertConsoleTaskResult = 'true';
+      result.textContent = '處理結果：尚未處理';
+      item.appendChild(result);
       return item;
+    }}
+    function buildExpertConsoleCommand(row, sourcePath, status, label) {{
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'expert-console-next';
+      button.dataset.expertConsoleActionCommand = 'true';
+      button.dataset.expertConsoleSourcePath = sourcePath;
+      button.dataset.reviewActionsSourcePath = sourcePath;
+      button.dataset.statePath = row.dataset.statePath || '';
+      button.dataset.stockId = row.dataset.stockId || '';
+      button.dataset.actionId = row.dataset.actionId || '';
+      button.dataset.statusValue = status;
+      button.dataset.expertConsoleStockId = row.dataset.stockId || '';
+      button.dataset.expertConsoleActionId = row.dataset.actionId || '';
+      button.dataset.command = row.querySelector(`[data-status-value="${{status}}"]`)?.dataset.command || '';
+      button.textContent = label;
+      attachExpertConsoleCommand(button);
+      return button;
+    }}
+    function attachExpertConsoleCommand(button) {{
+      button.addEventListener('click', async () => {{
+        const feedback = expertConsoleFeedbackForButton(button);
+        if (reviewActionApiEnabled) {{
+          await updateReviewActionState(button, feedback);
+          return;
+        }}
+        const command = button.dataset.command || '';
+        if (!command) {{
+          if (feedback) {{
+            feedback.textContent = '找不到可複製的處理指令，請前往審查列處理。';
+          }}
+          const taskResult = expertConsoleTaskResultForButton(button);
+          if (taskResult) {{
+            taskResult.textContent = '處理結果：找不到可複製的處理指令。';
+          }}
+          return;
+        }}
+        try {{
+          await copyText(command);
+          if (feedback) {{
+            feedback.textContent = `已複製 ${{button.textContent}} 指令；執行後請重新整理或重新產生 dashboard。`;
+          }}
+          const taskResult = expertConsoleTaskResultForButton(button);
+          if (taskResult) {{
+            taskResult.textContent = `處理結果：已複製標記為${{reviewActionStatusLabel(button.dataset.statusValue || '')}}的指令。`;
+          }}
+        }} catch (error) {{
+          if (feedback) {{
+            feedback.textContent = '複製失敗，請前往審查列使用畫面上的指令文字。';
+          }}
+          const taskResult = expertConsoleTaskResultForButton(button);
+          if (taskResult) {{
+            taskResult.textContent = '處理結果：複製失敗。';
+          }}
+        }}
+      }});
+    }}
+    function initExpertConsoleActionControls() {{
+      document.querySelectorAll('[data-expert-console-action-command="true"]').forEach((button) => {{
+        attachExpertConsoleCommand(button);
+      }});
+    }}
+    function initExpertConsoleBulkControls() {{
+      document.querySelectorAll('[data-expert-console-bulk-status]').forEach((button) => {{
+        button.addEventListener('click', async () => {{
+          const consoleBlock = button.closest('[data-expert-console-source-path]');
+          if (!consoleBlock) {{
+            return;
+          }}
+          const feedback = consoleBlock.querySelector('[data-expert-console-feedback="true"]');
+          const status = button.dataset.expertConsoleBulkStatus || '';
+          const actionButtons = Array.from(consoleBlock.querySelectorAll(`[data-expert-console-action-command="true"][data-status-value="${{status}}"]`));
+          if (actionButtons.length === 0) {{
+            if (feedback) {{
+              feedback.textContent = '目前 Top 3 沒有可直接處理的審查列，請先查看 Gate 提示。';
+            }}
+            return;
+          }}
+          if (reviewActionApiEnabled) {{
+            button.disabled = true;
+            if (feedback) {{
+              feedback.textContent = `正在處理 Top 3：${{reviewActionStatusLabel(status)}}...`;
+            }}
+            try {{
+              let succeeded = 0;
+              for (const actionButton of actionButtons) {{
+                const updated = await updateReviewActionState(actionButton, feedback, {{ bulk: true }});
+                if (updated) {{
+                  succeeded += 1;
+                }}
+              }}
+              if (feedback) {{
+                feedback.textContent = succeeded === actionButtons.length
+                  ? `Top 3 已處理 ${{succeeded}} 筆為${{reviewActionStatusLabel(status)}}。`
+                  : `Top 3 僅處理 ${{succeeded}} / ${{actionButtons.length}} 筆，請查看各任務處理結果。`;
+              }}
+            }} finally {{
+              button.disabled = false;
+            }}
+            return;
+          }}
+          const commands = actionButtons.map((actionButton) => actionButton.dataset.command || '').filter(Boolean);
+          try {{
+            await copyText(commands.join('\\n'));
+            if (feedback) {{
+              feedback.textContent = `已複製 Top 3 的 ${{commands.length}} 筆${{reviewActionStatusLabel(status)}}指令。`;
+            }}
+            actionButtons.forEach((actionButton) => {{
+              const taskResult = expertConsoleTaskResultForButton(actionButton);
+              if (taskResult) {{
+                taskResult.textContent = `處理結果：已複製標記為${{reviewActionStatusLabel(status)}}的指令。`;
+              }}
+            }});
+          }} catch (error) {{
+            if (feedback) {{
+              feedback.textContent = 'Top 3 指令複製失敗，請前往審查列使用各列指令。';
+            }}
+            actionButtons.forEach((actionButton) => {{
+              const taskResult = expertConsoleTaskResultForButton(actionButton);
+              if (taskResult) {{
+                taskResult.textContent = '處理結果：Top 3 指令複製失敗。';
+              }}
+            }});
+          }}
+        }});
+      }});
     }}
     function initReviewActionFilters() {{
       const sectionSelector = '[data-review-actions-' + 'section="true"]';
@@ -743,8 +933,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
                 copyStatus.textContent = `正在批次更新 ${{actionButtons.length}} 筆...`;
               }}
               try {{
+                let succeeded = 0;
                 for (const actionButton of actionButtons) {{
-                  await updateReviewActionState(actionButton, copyStatus, {{ bulk: true }});
+                  const updated = await updateReviewActionState(actionButton, copyStatus, {{ bulk: true }});
+                  if (updated) {{
+                    succeeded += 1;
+                  }}
                   const row = actionButton.closest('[data-review-action-row="true"]');
                   const checkbox = row ? row.querySelector('[data-review-action-select-row="true"]') : null;
                   if (checkbox) {{
@@ -752,7 +946,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
                   }}
                 }}
                 if (copyStatus) {{
-                  copyStatus.textContent = `已批次更新 ${{actionButtons.length}} 筆為${{reviewActionStatusLabel(status)}}。`;
+                  copyStatus.textContent = succeeded === actionButtons.length
+                    ? `已批次更新 ${{succeeded}} 筆為${{reviewActionStatusLabel(status)}}。`
+                    : `僅批次更新 ${{succeeded}} / ${{actionButtons.length}} 筆，請查看失敗列。`;
                 }}
               }} finally {{
                 button.disabled = false;
@@ -787,10 +983,16 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         if (copyStatus) {{
           copyStatus.textContent = '狀態更新失敗：缺少必要資料。';
         }}
-        return;
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = '處理結果：缺少必要資料，未更新。';
+        }}
+        return false;
       }}
+      const section = reviewActionSectionForButton(button);
+      const row = reviewActionRowForButton(button, section);
       if (payload.status === 'ignored' && !window.confirm('確定要把這筆標記為不處理嗎？')) {{
-        return;
+        return false;
       }}
       button.disabled = true;
       if (copyStatus) {{
@@ -806,7 +1008,6 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         if (!response.ok || !result.ok) {{
           throw new Error(result.error || `HTTP ${{response.status}}`);
         }}
-        const row = button.closest('[data-review-action-row="true"]');
         if (row) {{
           row.dataset.status = result.status || payload.status;
           const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
@@ -815,10 +1016,13 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           }}
         }}
         updateReviewActionSummary(button, result);
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = `處理結果：已標記為${{reviewActionStatusLabel(result.status || payload.status)}}。`;
+        }}
         if (!options.bulk) {{
           showReviewActionApiResult(button, result);
         }}
-        const section = button.closest('[data-review-actions-section="true"]');
         if (section && section.reviewActionApplyFilters) {{
           section.reviewActionApplyFilters();
         }}
@@ -830,16 +1034,22 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
           const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || payload.action_id : payload.action_id;
           copyStatus.textContent = `已更新：${{payload.stock_id}} 的 ${{categoryLabel}}已標記為${{reviewActionStatusLabel(result.status || payload.status)}}${{backupText}}`;
         }}
+        return true;
       }} catch (error) {{
         if (copyStatus) {{
           copyStatus.textContent = `狀態更新失敗：${{error.message}}`;
         }}
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = `處理結果：更新失敗，${{error.message}}`;
+        }}
+        return false;
       }} finally {{
         button.disabled = false;
       }}
     }}
     function updateReviewActionSummary(button, result) {{
-      const section = button.closest('[data-review-actions-section="true"]');
+      const section = reviewActionSectionForButton(button);
       if (!section) {{
         return;
       }}
@@ -865,7 +1075,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
     }}
     function showReviewActionApiResult(button, result) {{
-      const section = button.closest('[data-review-actions-section="true"]');
+      const section = reviewActionSectionForButton(button);
       const detail = section ? section.querySelector('[data-review-action-api-result="true"]') : null;
       const summary = detail ? detail.querySelector('[data-review-action-result-summary="true"]') : null;
       const output = detail ? detail.querySelector('[data-review-action-api-output="true"]') : null;
@@ -876,7 +1086,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       detail.open = true;
       if (summary) {{
         const byStatus = result.by_status || {{}};
-        const row = button.closest('[data-review-action-row="true"]');
+        const row = reviewActionRowForButton(button, section);
         const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || result.action_id : result.action_id;
         summary.textContent = `已將 ${{result.stock_id}} 的 ${{categoryLabel}}標記為${{reviewActionStatusLabel(result.status)}}，待處理剩 ${{byStatus.open || 0}} 件。`;
       }}
@@ -902,6 +1112,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       batchPathInput.addEventListener('input', updateBatchCommand);
     }}
     initExpertConsoleFocus();
+    initExpertConsoleActionControls();
+    initExpertConsoleBulkControls();
     initReviewActionFilters();
     initReviewActionCommandCopy();
     initReviewActionBulkControls();
@@ -962,9 +1174,12 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         else f"\u4ea4\u63a5\u72c0\u614b\uff1a\u5c1a\u672a\u53ef\u4ea4\u63a5\uff0c\u539f\u56e0\uff1aHandoff Gate \u6709 {blocker_count} \u4ef6\u963b\u585e"
     )
     source_path = str(summary.get("path") or "")
+    state_path = _review_action_state_path(summary)
     source_link = _link(source_path, Path(source_path).name or "research_summary.json")
     next_step = str(gate.get("next_step") or "")
     sync_note = _expert_console_sync_note(top_blockers, action_api_enabled)
+    toolbar = _expert_console_toolbar(top_blockers)
+    feedback_text = "等待處理 Top 3 阻塞事項。" if top_blockers else "目前沒有 Top 3 阻塞事項。"
     escaped_source_path = escape(source_path)
     return (
         f'<div class="expert-console-grid" data-expert-console-source-path="{escaped_source_path}"'
@@ -980,11 +1195,13 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span>'
         f'<span class="badge">Gate \u963b\u585e\uff1a{escape(str(blocker_count))}</span></p>'
         f'<p data-expert-console-next-step="true">{escape(next_step)}</p>'
+        f"{toolbar}"
+        f'<p class="expert-console-feedback" data-expert-console-feedback="true">{escape(feedback_text)}</p>'
         f"{sync_note}"
         "</div>"
         '<div class="expert-console-panel">'
         "<h3>\u512a\u5148\u8655\u7406\u7684 3 \u4ef6\u5f85\u67e5\u4e8b\u9805</h3>"
-        f"{_expert_console_action_list(top_blockers, source_path)}"
+        f"{_expert_console_action_list(top_blockers, source_path, state_path)}"
         "</div>"
         "</div>"
     )
@@ -1042,7 +1259,23 @@ def _expert_console_sync_note(open_actions: list[dict[str, str]], action_api_ena
     )
 
 
-def _expert_console_action_list(actions: list[dict[str, str]], source_path: str) -> str:
+def _expert_console_toolbar(actions: list[dict[str, str]]) -> str:
+    direct_actions = [
+        action
+        for action in actions
+        if action.get("focus_available", "true") == "true" and action.get("action_id") and action.get("stock_id")
+    ]
+    if not direct_actions:
+        return ""
+    return (
+        '<div class="expert-console-toolbar" data-expert-console-bulk="true">'
+        '<button type="button" class="expert-console-next" data-expert-console-bulk-status="done">Top 3 標記完成</button>'
+        '<button type="button" class="expert-console-next" data-expert-console-bulk-status="deferred">Top 3 稍後處理</button>'
+        "</div>"
+    )
+
+
+def _expert_console_action_list(actions: list[dict[str, str]], source_path: str, state_path: str) -> str:
     if not actions:
         return (
             '<p class="empty" data-expert-console-top-actions="true">'
@@ -1051,12 +1284,12 @@ def _expert_console_action_list(actions: list[dict[str, str]], source_path: str)
         )
     return (
         '<ol class="expert-console-actions" data-expert-console-top-actions="true">'
-        f"{''.join(_expert_console_action_item(action, source_path) for action in actions)}"
+        f"{''.join(_expert_console_action_item(action, source_path, state_path) for action in actions)}"
         "</ol>"
     )
 
 
-def _expert_console_action_item(action: dict[str, str], source_path: str) -> str:
+def _expert_console_action_item(action: dict[str, str], source_path: str, state_path: str) -> str:
     stock_id = action.get("stock_id", "-")
     company_name = action.get("company_name", "")
     category = action.get("category", "")
@@ -1067,8 +1300,7 @@ def _expert_console_action_item(action: dict[str, str], source_path: str) -> str
     focus_search = _expert_console_focus_search(action)
     title = stock_id if not company_name else f"{stock_id} {company_name}"
     next_copy = (
-        "\u4e0b\u4e00\u6b65\uff1a\u6309\u4e0b\u6309\u9215\u5b9a\u4f4d\u5230\u5be9\u67e5\u5217\uff0c"
-        "\u518d\u9078\u64c7\u300c\u6a19\u8a18\u5b8c\u6210\u300d\u6216\u300c\u7a0d\u5f8c\u8655\u7406\u300d\u3002"
+        "先確認這個阻塞，處理完可直接標記完成；需要保留但不阻塞時標記稍後處理。"
         if focus_available
         else action.get("next_step", "請執行 handoff doctor 後重新產生 dashboard。")
     )
@@ -1084,18 +1316,54 @@ def _expert_console_action_item(action: dict[str, str], source_path: str) -> str
         if focus_available
         else ""
     )
+    task_controls = (
+        '<div class="expert-console-controls">'
+        f'{_expert_console_action_button(action, source_path, state_path, "done", "標記完成")}'
+        f'{_expert_console_action_button(action, source_path, state_path, "deferred", "稍後處理")}'
+        f"{focus_control}"
+        "</div>"
+        if focus_available
+        else ""
+    )
     return (
-        '<li class="expert-console-action">'
+        '<li class="expert-console-action" data-expert-console-task="true">'
         '<div class="expert-console-meta">'
         f'<span class="badge">{escape(action.get("expert_label") or _expert_agent_label(category))}</span>'
         f'<span class="badge">{escape(_review_label(severity, REVIEW_ACTION_SEVERITY_LABELS))}</span>'
         f'<span class="badge">{escape(_review_label(priority, REVIEW_ACTION_PRIORITY_LABELS))}</span>'
         "</div>"
-        f"<strong>{escape(title)}</strong>"
-        f"<p>{escape(action.get('message', ''))}</p>"
-        f'<p class="empty" data-expert-console-next-copy="true">{escape(next_copy)}</p>'
-        f"{focus_control}"
+        f'<strong class="expert-console-task-title">{escape(title)}</strong>'
+        f'<p class="expert-console-task-copy"><strong>問題：</strong>{escape(action.get("message", ""))}</p>'
+        f'<p class="expert-console-task-copy" data-expert-console-next-copy="true"><strong>建議處理：</strong>{escape(next_copy)}</p>'
+        f"{task_controls}"
+        '<p class="expert-console-result" data-expert-console-task-result="true">處理結果：尚未處理</p>'
         "</li>"
+    )
+
+
+def _expert_console_action_button(
+    action: dict[str, str],
+    source_path: str,
+    state_path: str,
+    status: str,
+    label: str,
+) -> str:
+    stock_id = action.get("stock_id", "")
+    action_id = action.get("action_id", "")
+    command = _review_action_state_command(state_path, stock_id, action_id, status)
+    return (
+        '<button type="button" class="expert-console-next" data-expert-console-action-command="true"'
+        f' data-expert-console-source-path="{escape(source_path)}"'
+        f' data-review-actions-source-path="{escape(source_path)}"'
+        f' data-state-path="{escape(state_path)}"'
+        f' data-stock-id="{escape(stock_id)}"'
+        f' data-action-id="{escape(action_id)}"'
+        f' data-status-value="{escape(status)}"'
+        f' data-expert-console-stock-id="{escape(stock_id)}"'
+        f' data-expert-console-action-id="{escape(action_id)}"'
+        f' data-command="{escape(command)}">'
+        f"{escape(label)}"
+        "</button>"
     )
 
 
