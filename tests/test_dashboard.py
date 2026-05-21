@@ -1318,6 +1318,36 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("research-pack.html", html)
         self.assertIn("pack_summary.json", html)
 
+    def test_render_dashboard_html_contains_handoff_evidence_pack_outputs(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "memo_outputs": [],
+                "pack_outputs": [],
+                "handoff_pack_outputs": [
+                    {
+                        "markdown_path": "research-dist/handoff-pack/handoff-pack.md",
+                        "html_path": "research-dist/handoff-pack/handoff-pack.html",
+                        "summary_path": "research-dist/handoff-pack/handoff_pack_summary.json",
+                        "gate_status": "ready",
+                        "ready": "True",
+                        "blocker_count": "0",
+                        "evidence_missing_count": "0",
+                        "invalid_evidence_count": "0",
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-handoff-evidence-pack-section="true"', html)
+        self.assertIn("Handoff Evidence Pack", html)
+        self.assertIn("handoff-pack.md", html)
+        self.assertIn("handoff_pack_summary.json", html)
+
 
 if __name__ == "__main__":
     unittest.main()

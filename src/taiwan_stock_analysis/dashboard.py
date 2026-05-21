@@ -73,6 +73,7 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "research_summaries": [],
         "memo_outputs": [],
         "pack_outputs": [],
+        "handoff_pack_outputs": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -141,9 +142,13 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         if memos_dir.exists():
             _discover_memo_outputs(memos_dir, items)
         _discover_pack_outputs(directory, items)
+        _discover_handoff_pack_outputs(directory, items)
         packs_dir = directory / "packs"
         if packs_dir.exists():
             _discover_pack_outputs(packs_dir, items)
+        handoff_pack_dir = directory / "handoff-pack"
+        if handoff_pack_dir.exists():
+            _discover_handoff_pack_outputs(handoff_pack_dir, items)
     return items
 
 
@@ -186,6 +191,33 @@ def _discover_pack_outputs(directory: Path, items: DashboardItems) -> None:
     )
 
 
+def _discover_handoff_pack_outputs(directory: Path, items: DashboardItems) -> None:
+    markdown_path = directory / "handoff-pack.md"
+    html_path = directory / "handoff-pack.html"
+    summary_path = directory / "handoff_pack_summary.json"
+    if not any(path.exists() for path in [markdown_path, html_path, summary_path]):
+        return
+    payload: dict[str, Any] = {}
+    if summary_path.exists():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = {"status": "invalid JSON"}
+        payload = loaded if isinstance(loaded, dict) else {"status": "invalid JSON"}
+    items["handoff_pack_outputs"].append(
+        {
+            "markdown_path": str(markdown_path) if markdown_path.exists() else "",
+            "html_path": str(html_path) if html_path.exists() else "",
+            "summary_path": str(summary_path) if summary_path.exists() else "",
+            "gate_status": str(payload.get("gate_status") or payload.get("status") or "-"),
+            "ready": str(payload.get("ready") if "ready" in payload else "-"),
+            "blocker_count": str(payload.get("blocker_count", "-")),
+            "evidence_missing_count": str(payload.get("evidence_missing_count", "-")),
+            "invalid_evidence_count": str(payload.get("invalid_evidence_count", "-")),
+        }
+    )
+
+
 def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = False) -> str:
     report_count = len(items.get("reports", []))
     comparison_count = len(items.get("comparisons", []))
@@ -196,6 +228,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     research_summaries = items.get("research_summaries", [])
     memo_outputs = items.get("memo_outputs", [])
     pack_outputs = items.get("pack_outputs", [])
+    handoff_pack_outputs = items.get("handoff_pack_outputs", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
     action_api_flag = "true" if action_api_enabled else "false"
 
@@ -322,6 +355,10 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     <section>
       <h2>研究包</h2>
       <table><thead><tr><th>Markdown</th><th>HTML</th><th>摘要</th></tr></thead><tbody>{_pack_rows(pack_outputs)}</tbody></table>
+    </section>
+    <section data-handoff-evidence-pack-section="true">
+      <h2>Handoff Evidence Pack</h2>
+      <table><thead><tr><th>Status</th><th>Ready</th><th>Blockers</th><th>Missing evidence</th><th>Invalid evidence</th><th>Markdown</th><th>HTML</th><th>Summary</th></tr></thead><tbody>{_handoff_pack_rows(handoff_pack_outputs)}</tbody></table>
     </section>
     <section>
       <h2>資料可信度</h2>
@@ -1262,6 +1299,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
     blocker_count = int(gate.get("blocker_count") or 0)
     open_count = int(gate.get("open_count") or 0)
     evidence_missing_count = int(gate.get("evidence_missing_count") or 0)
+    invalid_evidence_count = int(gate.get("invalid_evidence_count") or 0)
     stale_count = int(gate.get("stale_state_count") or 0)
     missing_gate_count = int(gate.get("missing_gate_action_count") or 0)
     readiness_class = "ready" if ready else "blocked"
@@ -1283,6 +1321,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f' data-expert-console-handoff-status="{escape(str(gate.get("status") or ""))}"'
         f' data-expert-console-open-count="{escape(str(open_count))}"'
         f' data-expert-console-evidence-missing-count="{escape(str(evidence_missing_count))}"'
+        f' data-expert-console-invalid-evidence-count="{escape(str(invalid_evidence_count))}"'
         f' data-expert-console-stale-count="{escape(str(stale_count))}"'
         f' data-expert-console-missing-gate-count="{escape(str(missing_gate_count))}">'
         '<div class="expert-console-panel">'
@@ -1292,7 +1331,8 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f'<p class="status-line"><span class="badge">\u4f86\u6e90\uff1a{source_link}</span>'
         f'<span class="badge">\u5be9\u67e5\u52d5\u4f5c\uff1a{escape(str(total_actions))}</span>'
         f'<span class="badge">Gate \u963b\u585e\uff1a{escape(str(blocker_count))}</span>'
-        f'<span class="badge">\u7f3a\u5c11\u8b49\u64da\uff1a{escape(str(evidence_missing_count))}</span></p>'
+        f'<span class="badge">\u7f3a\u5c11\u8b49\u64da\uff1a{escape(str(evidence_missing_count))}</span>'
+        f'<span class="badge">\u7121\u6548\u8b49\u64da\uff1a{escape(str(invalid_evidence_count))}</span></p>'
         f'<p data-expert-console-next-step="true">{escape(next_step)}</p>'
         f"{toolbar}"
         f'<p class="expert-console-feedback" data-expert-console-feedback="true">{escape(feedback_text)}</p>'
@@ -1855,6 +1895,24 @@ def _pack_rows(pack_outputs: list[dict[str, Any]]) -> str:
     )
 
 
+def _handoff_pack_rows(pack_outputs: list[dict[str, Any]]) -> str:
+    if not pack_outputs:
+        return _empty_row(8, "No handoff evidence pack outputs")
+    return "".join(
+        "<tr>"
+        f"<td>{escape(str(output.get('gate_status', '-')))}</td>"
+        f"<td>{escape(str(output.get('ready', '-')))}</td>"
+        f"<td>{escape(str(output.get('blocker_count', '-')))}</td>"
+        f"<td>{escape(str(output.get('evidence_missing_count', '-')))}</td>"
+        f"<td>{escape(str(output.get('invalid_evidence_count', '-')))}</td>"
+        f"<td>{_link(str(output.get('markdown_path', '')), Path(str(output.get('markdown_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('html_path', '')), Path(str(output.get('html_path', ''))).name)}</td>"
+        f"<td>{_link(str(output.get('summary_path', '')), Path(str(output.get('summary_path', ''))).name)}</td>"
+        "</tr>"
+        for output in pack_outputs
+    )
+
+
 def _dict_value(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -2392,6 +2450,8 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
     for output in items.get("memo_outputs", []):
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
     for output in items.get("pack_outputs", []):
+        _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
+    for output in items.get("handoff_pack_outputs", []):
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
 
 

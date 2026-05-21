@@ -48,6 +48,7 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("source-audit-lead", result["reviewer"])
         self.assertEqual("evidence/2330-source.md", result["evidence_url"])
         self.assertEqual(0, result["evidence_missing_count"])
+        self.assertEqual(1, result["invalid_evidence_count"])
         self.assertEqual(0, result["stale_count"])
         self.assertNotEqual("-", result["last_updated"])
         payload = json.loads(state_path.read_text(encoding="utf-8"))

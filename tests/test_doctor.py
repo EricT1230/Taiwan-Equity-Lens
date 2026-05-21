@@ -199,11 +199,14 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("Handoff readiness failed:", text)
         self.assertIn("Top blockers:", text)
         self.assertIn("reliability-warning", text)
+        self.assertIn("invalid evidence refs: 0", text)
         self.assertIn("不構成投資建議", text)
 
     def test_check_handoff_readiness_passes_when_state_handles_required_action(self):
         root = Path(".tmp-doctor-test/handoff-pass")
         write_handoff_fixture(root)
+        (root / "evidence").mkdir(exist_ok=True)
+        (root / "evidence" / "reliability.md").write_text("checked", encoding="utf-8")
         (root / "review_action_state.json").write_text(
             json.dumps(
                 {
@@ -229,6 +232,35 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual("ready", result.gate["status"])
         self.assertEqual(0, result.gate["blocker_count"])
+
+    def test_check_handoff_readiness_blocks_missing_evidence_file(self):
+        root = Path(".tmp-doctor-test/handoff-invalid-evidence")
+        write_handoff_fixture(root)
+        (root / "review_action_state.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "actions": {
+                        "2330:reliability-warning": {
+                            "stock_id": "2330",
+                            "action_id": "reliability-warning",
+                            "status": "done",
+                            "note": "checked reliability warning",
+                            "reviewer": "handoff-lead",
+                            "evidence_url": "evidence/missing.md",
+                            "updated_at": "2026-05-20T01:00:00Z",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = check_handoff_readiness(root / "research_summary.json")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(1, result.gate["invalid_evidence_count"])
+        self.assertEqual("invalid_evidence", result.gate["top_blockers"][0]["kind"])
 
 
 def write_release_fixture(

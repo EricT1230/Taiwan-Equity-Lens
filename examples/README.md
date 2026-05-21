@@ -45,6 +45,7 @@ Try persisting one review decision:
 
 ```powershell
 python -m taiwan_stock_analysis.cli research action set demo-dist/review_action_state.json 2330 source-audit-manual-review --status done --note "checked source freshness" --reviewer "source-audit-lead" --evidence-url "demo-dist/evidence/2330-source.md"
+python -m taiwan_stock_analysis.cli research handoff-pack demo-dist/research_summary.json --state demo-dist/review_action_state.json --output-dir demo-dist/handoff-pack
 python -m taiwan_stock_analysis.cli research action backups demo-dist/review_action_state.json
 ```
 
@@ -64,6 +65,7 @@ python -m taiwan_stock_analysis.cli research run research.csv --fixture-root exa
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 python -m taiwan_stock_analysis.cli research memo research.csv --workflow-dir research-dist --output-dir research-dist/memos
 python -m taiwan_stock_analysis.cli research pack research.csv --workflow-dir research-dist --output-dir research-dist/packs
+python -m taiwan_stock_analysis.cli research handoff-pack research-dist/research_summary.json --state research-dist/review_action_state.json --output-dir research-dist/handoff-pack
 ```
 
 Open:

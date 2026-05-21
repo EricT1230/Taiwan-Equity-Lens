@@ -163,7 +163,12 @@ def check_handoff_readiness(
 
     gate: dict[str, Any] = {}
     if isinstance(payload, dict):
-        gate = build_handoff_quality_gate(payload, state, blocker_limit=blocker_limit)
+        gate = build_handoff_quality_gate(
+            payload,
+            state,
+            blocker_limit=blocker_limit,
+            evidence_base_dir=research_summary_path.parent,
+        )
         messages.extend(str(message) for message in gate.get("messages", []))
         if not gate.get("ready"):
             failures.append("handoff gate blocked")
@@ -230,6 +235,7 @@ def format_handoff_doctor_result(result: HandoffDoctorResult) -> str:
         lines.append(f"- status: {gate.get('status', '-')}")
         lines.append(f"- open review actions: {gate.get('open_count', 0)}")
         lines.append(f"- evidence-required gaps: {gate.get('evidence_missing_count', 0)}")
+        lines.append(f"- invalid evidence refs: {gate.get('invalid_evidence_count', 0)}")
         lines.append(f"- stale state entries: {gate.get('stale_state_count', 0)}")
         lines.append(f"- missing gate actions: {gate.get('missing_gate_action_count', 0)}")
         lines.append(f"- next step: {gate.get('next_step', '-')}")

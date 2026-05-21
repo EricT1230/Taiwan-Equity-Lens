@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.40.0 - 2026-05-21
+
+Handoff Evidence Pack release.
+
+### Added
+- `research handoff-pack` command that writes `handoff-pack.md`, `handoff-pack.html`, and `handoff_pack_summary.json` from a research summary and review-action state.
+- `doctor handoff --write-pack` option for producing the same handoff evidence pack during gate checks.
+- Handoff pack discovery and dashboard rendering for generated evidence-pack artifacts.
+- v0.40.0 release notes and design spec.
+
+### Changed
+- `doctor handoff` now validates local evidence references when evidence URLs are file paths relative to the research summary directory.
+- Handoff gate output now reports `invalid evidence refs` alongside open actions, missing evidence fields, stale state, and missing gate actions.
+- README and usage workflow release doctor examples now target `0.40.0`.
+- Package version is now `0.40.0`.
+
+### Tests
+- Added handoff evidence pack, invalid evidence reference, CLI, dashboard, dashboard-server, and doctor coverage.
+
 ## v0.39.0 - 2026-05-21
 
 Evidence-Required Handoff release.

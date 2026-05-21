@@ -429,6 +429,15 @@ From v0.38.0 onward, the Expert Agent Console treats Top 3 blockers as task card
 
 From v0.39.0 onward, high-risk blockers require handoff evidence before they can clear the Handoff Quality Gate. If a source-audit, workflow, reliability, valuation, fundamental-review, blocked-state, or missing-research-quality action is marked `done`, `deferred`, or `ignored`, the state entry must include `note`, `reviewer`, `evidence_url`, and `updated_at`. Served dashboards prompt for the missing evidence before writing state; static dashboards show the extra CLI flags to add. `doctor handoff` reports `evidence-required gaps` when a handled blocker lacks those fields.
 
+From v0.40.0 onward, handoff evidence can be packaged into a local Evidence Pack. The pack records the gate verdict, Top blockers, reviewer, note, evidence reference, evidence validity, and the non-investment-advice notice:
+
+```powershell
+python -m taiwan_stock_analysis.cli research handoff-pack research-dist/research_summary.json --state research-dist/review_action_state.json --output-dir research-dist/handoff-pack
+python -m taiwan_stock_analysis.cli doctor handoff research-dist/research_summary.json --state research-dist/review_action_state.json --write-pack
+```
+
+When evidence references are local paths, `doctor handoff` checks that the referenced files exist relative to the research summary directory. `http` and `https` evidence references are accepted as remote references.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -456,7 +465,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.39.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.40.0
 python -m unittest discover -s tests -v
 ```
 

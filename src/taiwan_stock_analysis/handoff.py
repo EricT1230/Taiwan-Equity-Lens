@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from taiwan_stock_analysis.review_action_state import (
     apply_review_action_state,
@@ -92,11 +94,41 @@ def requires_handoff_evidence(action_id: object) -> bool:
     return _clean_string(action_id) in EVIDENCE_REQUIRED_ACTION_IDS
 
 
+def validate_handoff_evidence_url(evidence_url: object, base_dir: Path | None = None) -> tuple[bool, str]:
+    value = _clean_string(evidence_url)
+    if not value:
+        return False, "missing evidence_url"
+
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"}:
+        if parsed.netloc:
+            return True, "remote evidence URL"
+        return False, "remote evidence URL is missing a host"
+
+    if parsed.scheme == "file":
+        raw_path = unquote(parsed.path)
+        if raw_path.startswith("/") and len(raw_path) > 3 and raw_path[2] == ":":
+            raw_path = raw_path[1:]
+        path = Path(raw_path)
+        return (True, "local evidence file exists") if path.exists() else (False, f"local evidence file not found: {value}")
+
+    if parsed.scheme:
+        return False, f"unsupported evidence URL scheme: {parsed.scheme}"
+
+    path = Path(value)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    if path.exists():
+        return True, "local evidence file exists"
+    return False, f"local evidence file not found: {value}"
+
+
 def build_handoff_quality_gate(
     research_summary: dict[str, Any],
     state: dict[str, Any] | None = None,
     *,
     blocker_limit: int = 3,
+    evidence_base_dir: Path | None = None,
 ) -> dict[str, Any]:
     queue_value = research_summary.get("review_action_queue")
     items_value = research_summary.get("items")
@@ -115,11 +147,13 @@ def build_handoff_quality_gate(
     overlaid_queue = apply_review_action_state(queue, state)
     open_blockers = _open_action_blockers(overlaid_queue)
     evidence_blockers = _missing_evidence_blockers(overlaid_queue)
+    invalid_evidence_blockers = _invalid_evidence_blockers(overlaid_queue, evidence_base_dir)
     stale_rows = stale_review_action_state_rows(queue, state if isinstance(state, dict) else None)
     stale_blockers = [_stale_state_blocker(row) for row in stale_rows]
     missing_blockers = _missing_gate_action_blockers(items, overlaid_queue)
     blockers.extend(open_blockers)
     blockers.extend(evidence_blockers)
+    blockers.extend(invalid_evidence_blockers)
     blockers.extend(stale_blockers)
     blockers.extend(missing_blockers)
 
@@ -127,12 +161,14 @@ def build_handoff_quality_gate(
     ready = not blockers and not structural_failures
     open_count = len(open_blockers)
     evidence_missing_count = len(evidence_blockers)
+    invalid_evidence_count = len(invalid_evidence_blockers)
     stale_count = len(stale_rows)
     missing_gate_count = len(missing_blockers)
     messages = [
         "handoff gate ready" if ready else "handoff gate blocked",
         f"open review actions: {open_count}",
         f"evidence-required gaps: {evidence_missing_count}",
+        f"invalid evidence refs: {invalid_evidence_count}",
         f"stale state entries: {stale_count}",
         f"missing gate actions: {missing_gate_count}",
     ]
@@ -146,10 +182,11 @@ def build_handoff_quality_gate(
         "blocker_count": len(blockers),
         "open_count": open_count,
         "evidence_missing_count": evidence_missing_count,
+        "invalid_evidence_count": invalid_evidence_count,
         "stale_state_count": stale_count,
         "missing_gate_action_count": missing_gate_count,
         "total_actions": _review_action_row_count(overlaid_queue),
-        "next_step": _next_step(open_count, evidence_missing_count, stale_count, missing_gate_count),
+        "next_step": _next_step(open_count, evidence_missing_count, invalid_evidence_count, stale_count, missing_gate_count),
         "non_advice_notice": NON_ADVICE_NOTICE,
     }
 
@@ -242,6 +279,55 @@ def _missing_evidence_blockers(action_queue: list[Any]) -> list[dict[str, str]]:
 
 def _missing_evidence_fields(action: dict[str, Any]) -> list[str]:
     return [field for field in EVIDENCE_REQUIRED_FIELDS if not _clean_string(action.get(field))]
+
+
+def _invalid_evidence_blockers(action_queue: list[Any], evidence_base_dir: Path | None) -> list[dict[str, str]]:
+    if evidence_base_dir is None:
+        return []
+    blockers: list[dict[str, str]] = []
+    for item in action_queue:
+        if not isinstance(item, dict):
+            continue
+        stock_id = _clean_string(item.get("stock_id")) or "-"
+        company_name = _clean_string(item.get("company_name"))
+        priority = _clean_string(item.get("priority"))
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_id = _clean_string(action.get("id"))
+            status = _clean_string(action.get("status")) or "open"
+            if status not in EVIDENCE_REQUIRED_STATUSES or not requires_handoff_evidence(action_id):
+                continue
+            if _missing_evidence_fields(action):
+                continue
+            ok, reason = validate_handoff_evidence_url(action.get("evidence_url"), evidence_base_dir)
+            if ok:
+                continue
+            category = _clean_string(action.get("category")) or ACTION_CATEGORY_BY_ID.get(action_id, "")
+            blockers.append(
+                {
+                    "kind": "invalid_evidence",
+                    "stock_id": stock_id,
+                    "company_name": company_name,
+                    "priority": priority,
+                    "severity": "manual_review",
+                    "category": category,
+                    "expert_label": _expert_label(category),
+                    "action_id": action_id,
+                    "message": f"{ACTION_GATE_LABELS.get(action_id, action_id)} has invalid handoff evidence: {reason}.",
+                    "next_step": "Create the evidence file or replace evidence-url with a reachable http/https URL, then rerun doctor handoff.",
+                    "focus_available": "true",
+                    "note": _clean_string(action.get("note")),
+                    "reviewer": _clean_string(action.get("reviewer")),
+                    "evidence_url": _clean_string(action.get("evidence_url")),
+                    "updated_at": _clean_string(action.get("updated_at")),
+                    "evidence_reason": reason,
+                }
+            )
+    return blockers
 
 
 def _missing_gate_action_blockers(items: list[Any], overlaid_queue: list[Any]) -> list[dict[str, str]]:
@@ -397,13 +483,21 @@ def _review_action_row_count(action_queue: list[Any]) -> int:
     return count
 
 
-def _next_step(open_count: int, evidence_missing_count: int, stale_count: int, missing_gate_count: int) -> str:
+def _next_step(
+    open_count: int,
+    evidence_missing_count: int,
+    invalid_evidence_count: int,
+    stale_count: int,
+    missing_gate_count: int,
+) -> str:
     if missing_gate_count:
         return "下一步：先修正 review-action 產生邏輯或重新產生 research_summary.json，避免靜默遺漏 gate。"
     if open_count:
         return "下一步：先處理 Top 3 阻塞事項，再回到審查動作表確認剩餘事項。"
     if evidence_missing_count:
         return "下一步：補齊 blocker 的 note、reviewer、evidence URL，再重新執行 handoff gate。"
+    if invalid_evidence_count:
+        return "Next: create or fix the evidence files referenced by handled blockers, then rerun doctor handoff."
     if stale_count:
         return "下一步：先 prune stale review-action state，再重新執行 handoff gate。"
     return "下一步：打開研究摘要、memo 與 pack，進行人工閱讀與簽核。"

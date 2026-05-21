@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.39.0"])
+            exit_code = main(["doctor", "release", "--version", "0.40.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -116,6 +116,64 @@ class CliTests(unittest.TestCase):
         self.assertIn("Handoff readiness failed", stdout)
         self.assertIn("reliability-warning", stdout)
         self.assertIn("不構成投資建議", stdout)
+
+    def test_main_doctor_handoff_write_pack_writes_summary(self):
+        root = Path(".tmp-cli-test/doctor-handoff-pack")
+        research_summary = _write_handoff_cli_fixture(root)
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["doctor", "handoff", str(research_summary), "--write-pack"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue((root / "handoff-pack" / "handoff_pack_summary.json").exists())
+        self.assertIn("Wrote", output.getvalue())
+
+    def test_main_research_handoff_pack_writes_outputs(self):
+        root = Path(".tmp-cli-test/research-handoff-pack")
+        research_summary = _write_handoff_cli_fixture(root)
+        evidence_path = root / "evidence" / "reliability.md"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text("checked", encoding="utf-8")
+        (root / "review_action_state.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "actions": {
+                        "2330:reliability-warning": {
+                            "stock_id": "2330",
+                            "action_id": "reliability-warning",
+                            "status": "done",
+                            "note": "checked reliability warning",
+                            "reviewer": "handoff-lead",
+                            "evidence_url": "evidence/reliability.md",
+                            "updated_at": "2026-05-20T01:00:00Z",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        output_dir = root / "handoff-pack"
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(
+                [
+                    "research",
+                    "handoff-pack",
+                    str(research_summary),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "handoff-pack.md").exists())
+        self.assertTrue((output_dir / "handoff-pack.html").exists())
+        payload = json.loads((output_dir / "handoff_pack_summary.json").read_text(encoding="utf-8"))
+        self.assertTrue(payload["ready"])
+        self.assertIn("Wrote", output.getvalue())
 
     def test_main_doctor_demo_json_returns_machine_readable_payload(self):
         output_dir = Path(".tmp-cli-test/doctor-demo-json-pass")
@@ -1662,6 +1720,49 @@ def _review_action_state_with_stale_payload():
             },
         },
     }
+
+
+def _write_handoff_cli_fixture(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    research_summary = root / "research_summary.json"
+    research_summary.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "priority": "high",
+                        "research_state": "watching",
+                        "thesis": "Leading foundry scale",
+                        "follow_up_questions": "Are assumptions current?",
+                        "workflow_status": "ok",
+                        "reliability_status": "warning",
+                        "source_audit_status": "fresh",
+                        "attention_reasons": ["data reliability is warning"],
+                    }
+                ],
+                "review_action_queue": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "priority": "high",
+                        "actions": [
+                            {
+                                "id": "reliability-warning",
+                                "category": "reliability",
+                                "severity": "warning",
+                                "message": "Inspect data reliability warning before handoff.",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return research_summary
 
 
 if __name__ == "__main__":

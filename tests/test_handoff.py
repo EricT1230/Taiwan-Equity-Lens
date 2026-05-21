@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from taiwan_stock_analysis.handoff import NON_ADVICE_NOTICE, build_handoff_quality_gate
 
@@ -65,6 +66,31 @@ class HandoffGateTests(unittest.TestCase):
         self.assertEqual("missing_evidence", gate["top_blockers"][0]["kind"])
         self.assertIn("reviewer", gate["top_blockers"][0]["message"])
         self.assertIn("evidence-required gaps: 1", gate["messages"])
+
+    def test_handoff_gate_blocks_invalid_evidence_path_when_base_dir_supplied(self):
+        summary = _summary_with_reliability_warning()
+        state = {
+            "version": 1,
+            "actions": {
+                "2330:reliability-warning": {
+                    "stock_id": "2330",
+                    "action_id": "reliability-warning",
+                    "status": "done",
+                    "note": "checked reliability warning",
+                    "reviewer": "fundamental-lead",
+                    "evidence_url": "evidence/missing.md",
+                    "updated_at": "2026-05-20T01:00:00Z",
+                }
+            },
+        }
+
+        gate = build_handoff_quality_gate(summary, state, evidence_base_dir=Path(".tmp-handoff-test"))
+
+        self.assertFalse(gate["ready"])
+        self.assertEqual(0, gate["evidence_missing_count"])
+        self.assertEqual(1, gate["invalid_evidence_count"])
+        self.assertEqual("invalid_evidence", gate["top_blockers"][0]["kind"])
+        self.assertIn("invalid evidence refs: 1", gate["messages"])
 
     def test_handoff_gate_catches_missing_required_review_action(self):
         summary = _summary_with_reliability_warning()

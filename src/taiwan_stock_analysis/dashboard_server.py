@@ -50,6 +50,7 @@ def set_review_action_status_from_payload(
         "note": note.strip(),
         "reviewer": reviewer.strip(),
         "evidence_missing_count": report.get("evidence_missing_count", 0),
+        "invalid_evidence_count": report.get("invalid_evidence_count", 0),
         "evidence_url": evidence_url.strip(),
         "state_path": str(output_path),
         "status": status,
@@ -166,8 +167,13 @@ def _state_report_for_path(state_path: Path) -> dict[str, Any]:
     if warning:
         return {"by_status": {}, "last_updated": "-", "stale_count": 0}
     report = build_review_action_state_report(queue if isinstance(queue, list) else [], state)
-    gate = build_handoff_quality_gate(payload, state) if isinstance(payload, dict) else {}
+    gate = (
+        build_handoff_quality_gate(payload, state, evidence_base_dir=research_summary.parent)
+        if isinstance(payload, dict)
+        else {}
+    )
     report["evidence_missing_count"] = gate.get("evidence_missing_count", 0)
+    report["invalid_evidence_count"] = gate.get("invalid_evidence_count", 0)
     return report
 
 

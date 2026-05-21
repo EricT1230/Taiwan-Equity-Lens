@@ -304,6 +304,9 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_handoff.add_argument("research_summary", type=Path)
     doctor_handoff.add_argument("--state", type=Path, help="Path to review_action_state.json.")
     doctor_handoff.add_argument("--blocker-limit", type=int, default=3)
+    doctor_handoff.add_argument("--write-pack", action="store_true", help="Write a handoff evidence pack after the gate check.")
+    doctor_handoff.add_argument("--pack-output-dir", type=Path, help="Directory for handoff evidence pack outputs.")
+    doctor_handoff.add_argument("--format", choices=["both", "markdown", "html"], default="both")
     doctor_handoff.add_argument("--json", action="store_true", help="Print handoff readiness as JSON.")
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
@@ -336,6 +339,16 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_pack.add_argument("research_csv", type=Path)
     research_pack.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
     research_pack.add_argument("--output-dir", default=Path("research-dist/packs"), type=Path)
+
+    research_handoff_pack = research_subparsers.add_parser(
+        "handoff-pack",
+        help="Generate a handoff evidence pack from a research summary and review-action state.",
+    )
+    research_handoff_pack.add_argument("research_summary", type=Path)
+    research_handoff_pack.add_argument("--state", type=Path, help="Path to review_action_state.json.")
+    research_handoff_pack.add_argument("--output-dir", type=Path)
+    research_handoff_pack.add_argument("--format", choices=["both", "markdown", "html"], default="both")
+    research_handoff_pack.add_argument("--blocker-limit", type=int, default=10)
 
     research_action = research_subparsers.add_parser("action", help="Manage persisted review-action state.")
     research_action_subparsers = research_action.add_subparsers(dest="research_action_command")
@@ -578,6 +591,10 @@ def main(argv: list[str] | None = None) -> int:
                 '"checked source freshness" --reviewer "source-audit-lead" '
                 f'--evidence-url "{args.output_dir / "evidence" / "2330-source.md"}"'
             )
+            print(
+                "python -m taiwan_stock_analysis.cli research handoff-pack "
+                f"{research_summary} --state {state_path} --output-dir {args.output_dir / 'handoff-pack'}"
+            )
             print(f"python -m taiwan_stock_analysis.cli research action backups {state_path}")
             return 0
         build_command_arg_parser().error("demo command is required")
@@ -633,10 +650,32 @@ def main(argv: list[str] | None = None) -> int:
                 state_path=args.state,
                 blocker_limit=args.blocker_limit,
             )
+            pack_summary_path = ""
+            if args.write_pack:
+                from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
+
+                output_dir = args.pack_output_dir or (args.research_summary.parent / "handoff-pack")
+                try:
+                    pack_summary = write_handoff_evidence_pack(
+                        args.research_summary,
+                        output_dir,
+                        state_path=args.state,
+                        output_format=args.format,
+                        blocker_limit=args.blocker_limit,
+                    )
+                except ValueError as exc:
+                    print(f"Warning: {exc}")
+                    return 1
+                pack_summary_path = str(pack_summary)
             if args.json:
-                print(json.dumps(asdict(result), ensure_ascii=False, indent=2, sort_keys=True))
+                payload = asdict(result)
+                if pack_summary_path:
+                    payload["handoff_pack_summary_path"] = pack_summary_path
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
             else:
                 print(format_handoff_doctor_result(result))
+                if pack_summary_path:
+                    print(f"Wrote {pack_summary_path}")
             return 0 if result.ok else 1
         build_command_arg_parser().error("doctor command is required")
 
@@ -679,6 +718,23 @@ def main(argv: list[str] | None = None) -> int:
                 memo_summary_path=memo_summary_path if memo_summary_path.exists() else None,
                 dashboard_path=dashboard_path if dashboard_path.exists() else None,
             )
+            print(f"Wrote {output_path}")
+            return 0
+        if args.research_command == "handoff-pack":
+            from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
+
+            output_dir = args.output_dir or (args.research_summary.parent / "handoff-pack")
+            try:
+                output_path = write_handoff_evidence_pack(
+                    args.research_summary,
+                    output_dir,
+                    state_path=args.state,
+                    output_format=args.format,
+                    blocker_limit=args.blocker_limit,
+                )
+            except ValueError as exc:
+                print(f"Warning: {exc}")
+                return 1
             print(f"Wrote {output_path}")
             return 0
         if args.research_command == "action":
