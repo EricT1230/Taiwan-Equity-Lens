@@ -440,7 +440,7 @@ When evidence references are local paths, `doctor handoff` checks that the refer
 
 From v0.41.0 onward, the dashboard turns the Evidence Pack into a guided workflow. Served dashboards can write the pack through the local API and show the generated Markdown, HTML, and JSON paths immediately. Static dashboards copy the equivalent `research handoff-pack` command. When evidence is incomplete or invalid, the console lists the stock/action and a suggested local evidence file path to create before handoff.
 
-The dashboard also includes a `產業輪動地圖` for research operations. It groups research items by `category`, shows research-delivery pressure from handoff blockers, missing or invalid evidence, stale state, and open review actions, then links back to the matching review-action rows. The map is a handoff triage view only; it does not show industry strength, price momentum, buy/sell/hold guidance, target prices, or allocation recommendations.
+The dashboard also includes a `產業輪動地圖` for research operations. It groups research items by `category`, shows research-delivery pressure from handoff blockers, missing or invalid evidence, stale state, and open review actions, then links back to the matching review-action rows. From v0.42.0 onward, the map has status/evidence/expert/search filters plus a right-side workflow panel: select a sector, inspect its Top blockers, read the single next action, and jump to the matching Review Actions row. The map is a handoff triage view only; it does not show industry strength, price momentum, buy/sell/hold guidance, target prices, or allocation recommendations.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
@@ -469,7 +469,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.41.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.42.0
 python -m unittest discover -s tests -v
 ```
 

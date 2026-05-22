@@ -263,8 +263,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-map-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 12px 0; }}
     .industry-map-summary-item {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 12px; background: #fbfdff; }}
     .industry-map-summary-item strong {{ display: block; color: #12355b; margin-bottom: 4px; }}
+    .industry-map-workflow {{ display: grid; grid-template-columns: minmax(280px, 0.95fr) minmax(340px, 1.05fr); gap: 14px; align-items: start; margin-top: 12px; }}
+    .industry-map-list {{ min-width: 0; }}
+    .industry-map-controls {{ display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
     .industry-map-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }}
-    .industry-map-card {{ border: 1px solid #d8dee8; border-left: 6px solid #64748b; border-radius: 8px; padding: 14px; background: #ffffff; }}
+    .industry-map-card {{ border: 1px solid #d8dee8; border-left: 6px solid #64748b; border-radius: 8px; padding: 14px; background: #ffffff; cursor: pointer; }}
+    .industry-map-card:focus-visible, .industry-map-card.is-selected {{ outline: 3px solid #93c5fd; outline-offset: 2px; }}
     .industry-map-card[data-industry-map-status="blocked"] {{ border-left-color: #dc2626; background: #fffafa; }}
     .industry-map-card[data-industry-map-status="needs-review"] {{ border-left-color: #d97706; background: #fffdf7; }}
     .industry-map-card[data-industry-map-status="ready"] {{ border-left-color: #16a34a; background: #fbfffc; }}
@@ -284,6 +288,17 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-map-metrics strong {{ display: block; color: #172033; font-size: 18px; }}
     .industry-map-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .industry-map-note {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
+    .industry-map-detail-panel {{ position: sticky; top: 12px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; background: #f8fafc; }}
+    .industry-map-detail-header {{ display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 8px; }}
+    .industry-map-detail-header h3 {{ margin: 0; }}
+    .industry-map-detail-panel h4 {{ margin: 12px 0 8px; }}
+    .industry-map-next-action {{ border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px; background: #eff6ff; color: #12355b; }}
+    .industry-map-next-action strong {{ display: block; margin-bottom: 4px; }}
+    .industry-map-detail-list {{ display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }}
+    .industry-map-detail-task {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 10px; background: white; }}
+    .industry-map-detail-task p {{ margin: 6px 0; }}
+    .industry-map-task-head {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }}
+    .industry-map-task-head strong {{ color: #172033; }}
     .expert-console-grid {{ display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.6fr); gap: 14px; align-items: start; }}
     .expert-console-panel {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; background: #fbfdff; }}
     .expert-console-panel h3 {{ margin-bottom: 8px; }}
@@ -361,6 +376,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     @media (max-width: 720px) {{
       header, main {{ padding-left: 16px; padding-right: 16px; }}
       .expert-console-grid {{ grid-template-columns: 1fr; }}
+      .industry-map-workflow {{ grid-template-columns: 1fr; }}
+      .industry-map-detail-panel {{ position: static; }}
       .industry-map-metrics {{ grid-template-columns: 1fr; }}
       table {{ display: block; overflow-x: auto; }}
     }}
@@ -510,55 +527,179 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       const sections = Array.from(document.querySelectorAll('[data-review-actions-section="true"]'));
       return sections.find((section) => (section.dataset.reviewActionsSourcePath || '') === sourcePath) || sections[0] || null;
     }}
-    function initIndustryMapControls() {{
-      document.querySelectorAll('[data-industry-map-focus-stock]').forEach((button) => {{
-        button.addEventListener('click', () => {{
-          const section = industryMapSectionForButton(button);
-          if (!section) {{
-            return;
-          }}
-          const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
-          const severityFilter = section.querySelector(filterSelector('severity'));
-          const categoryFilter = section.querySelector(filterSelector('category'));
-          const priorityFilter = section.querySelector(filterSelector('priority'));
-          const statusFilter = section.querySelector(filterSelector('status'));
-          const searchFilter = section.querySelector(filterSelector('search'));
-          if (severityFilter) {{
-            severityFilter.value = 'all';
-          }}
-          if (categoryFilter) {{
-            categoryFilter.value = button.dataset.industryMapFocusCategory || 'all';
-          }}
-          if (priorityFilter) {{
-            priorityFilter.value = 'all';
-          }}
-          if (statusFilter) {{
-            statusFilter.value = 'open';
-          }}
-          if (searchFilter) {{
-            searchFilter.value = button.dataset.industryMapFocusStock || '';
-          }}
-          if (section.reviewActionApplyFilters) {{
-            section.reviewActionApplyFilters();
-          }}
-          section.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-          const targetStockId = button.dataset.industryMapFocusStock || '';
-          const targetActionId = button.dataset.industryMapFocusAction || '';
-          const visibleRows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'))
-            .filter((row) => row.style.display !== 'none');
-          const firstVisible = visibleRows.find((row) =>
-            (!targetStockId || (row.dataset.stockId || '') === targetStockId)
-            && (!targetActionId || (row.dataset.actionId || '') === targetActionId)
-          ) || visibleRows[0];
-          if (firstVisible) {{
-            firstVisible.classList.add('review-action-highlight');
-            const firstAction = firstVisible.querySelector('[data-review-action-command]');
-            if (firstAction) {{
-              firstAction.focus();
-            }}
-            window.setTimeout(() => firstVisible.classList.remove('review-action-highlight'), 1600);
-          }}
+    function industryMapSourceForElement(element) {{
+      return element.closest('[data-industry-map-source="true"]') || document.querySelector('[data-industry-map-source="true"]');
+    }}
+    function selectIndustryMapDetail(card, options = {{}}) {{
+      const source = industryMapSourceForElement(card);
+      if (!source) {{
+        return;
+      }}
+      const panel = source.querySelector('[data-industry-map-detail-panel="true"]');
+      const detailId = card.dataset.industryMapDetailId || '';
+      const template = source.querySelector('[data-industry-map-detail-template="' + detailId + '"]');
+      if (!panel || !template) {{
+        return;
+      }}
+      source.querySelectorAll('[data-industry-map-card="true"]').forEach((item) => {{
+        item.classList.toggle('is-selected', item === card);
+      }});
+      panel.innerHTML = template.innerHTML;
+      panel.dataset.industryMapDetailName = card.dataset.industryName || '';
+      if (options.scroll) {{
+        panel.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+      }}
+    }}
+    function applyIndustryMapFilters(source) {{
+      const statusFilter = source.querySelector('[data-industry-map-filter="status"]');
+      const evidenceFilter = source.querySelector('[data-industry-map-filter="evidence"]');
+      const lensFilter = source.querySelector('[data-industry-map-filter="lens"]');
+      const searchFilter = source.querySelector('[data-industry-map-filter="search"]');
+      const status = statusFilter ? statusFilter.value : 'all';
+      const evidence = evidenceFilter ? evidenceFilter.value : 'all';
+      const lens = lensFilter ? lensFilter.value : 'all';
+      const search = searchFilter ? searchFilter.value.trim().toLowerCase() : '';
+      const cards = Array.from(source.querySelectorAll('[data-industry-map-card="true"]'));
+      let visible = 0;
+      let firstVisible = null;
+      cards.forEach((card) => {{
+        const cardStatus = card.dataset.industryMapStatus || '';
+        const cardEvidence = card.dataset.industryMapEvidenceStatus || '';
+        const cardLenses = (card.dataset.industryMapLenses || '').split(/\\s+/).filter(Boolean);
+        const searchText = (card.dataset.industryMapSearchText || '').toLowerCase();
+        const matches = (status === 'all' || cardStatus === status)
+          && (evidence === 'all' || cardEvidence === evidence)
+          && (lens === 'all' || cardLenses.includes(lens))
+          && (!search || searchText.includes(search));
+        card.hidden = !matches;
+        if (matches) {{
+          visible += 1;
+          firstVisible = firstVisible || card;
+        }}
+      }});
+      const count = source.querySelector('[data-industry-map-count="true"]');
+      if (count) {{
+        count.textContent = `顯示 ${{visible}} / ${{cards.length}} 個產業`;
+      }}
+      const selected = source.querySelector('[data-industry-map-card="true"].is-selected');
+      if (selected && selected.hidden) {{
+        selected.classList.remove('is-selected');
+      }}
+      const active = source.querySelector('[data-industry-map-card="true"].is-selected');
+      if (!active && firstVisible) {{
+        selectIndustryMapDetail(firstVisible);
+      }}
+      if (!firstVisible) {{
+        const panel = source.querySelector('[data-industry-map-detail-panel="true"]');
+        if (panel) {{
+          panel.innerHTML = '<p class="empty">沒有符合條件的產業，請放寬篩選。</p>';
+        }}
+      }}
+    }}
+    function initIndustryMapWorkflowControls() {{
+      document.querySelectorAll('[data-industry-map-source="true"]').forEach((source) => {{
+        source.querySelectorAll('[data-industry-map-filter]').forEach((input) => {{
+          const eventName = input.tagName === 'INPUT' ? 'input' : 'change';
+          input.addEventListener(eventName, () => applyIndustryMapFilters(source));
         }});
+        const reset = source.querySelector('[data-industry-map-filter-reset="true"]');
+        if (reset) {{
+          reset.addEventListener('click', () => {{
+            source.querySelectorAll('[data-industry-map-filter]').forEach((input) => {{
+              input.value = 'all';
+            }});
+            const search = source.querySelector('[data-industry-map-filter="search"]');
+            if (search) {{
+              search.value = '';
+            }}
+            applyIndustryMapFilters(source);
+          }});
+        }}
+        source.querySelectorAll('[data-industry-map-card="true"]').forEach((card) => {{
+          card.addEventListener('click', (event) => {{
+            if (event.target.closest('a, button, input, select, textarea')) {{
+              return;
+            }}
+            selectIndustryMapDetail(card, {{ scroll: true }});
+          }});
+          card.addEventListener('keydown', (event) => {{
+            if (event.key === 'Enter' || event.key === ' ') {{
+              event.preventDefault();
+              selectIndustryMapDetail(card, {{ scroll: true }});
+            }}
+          }});
+        }});
+        source.querySelectorAll('[data-industry-map-detail-target]').forEach((button) => {{
+          button.addEventListener('click', () => {{
+            const detailId = button.dataset.industryMapDetailTarget || '';
+            const card = source.querySelector('[data-industry-map-detail-id="' + detailId + '"]');
+            if (card) {{
+              selectIndustryMapDetail(card, {{ scroll: true }});
+            }}
+          }});
+        }});
+        const firstCard = source.querySelector('[data-industry-map-card="true"]');
+        if (firstCard) {{
+          selectIndustryMapDetail(firstCard);
+        }}
+        applyIndustryMapFilters(source);
+      }});
+    }}
+    function focusIndustryMapReviewAction(button) {{
+      const section = industryMapSectionForButton(button);
+      if (!section) {{
+        return;
+      }}
+      const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
+      const severityFilter = section.querySelector(filterSelector('severity'));
+      const categoryFilter = section.querySelector(filterSelector('category'));
+      const priorityFilter = section.querySelector(filterSelector('priority'));
+      const statusFilter = section.querySelector(filterSelector('status'));
+      const searchFilter = section.querySelector(filterSelector('search'));
+      if (severityFilter) {{
+        severityFilter.value = 'all';
+      }}
+      if (categoryFilter) {{
+        categoryFilter.value = button.dataset.industryMapFocusCategory || 'all';
+      }}
+      if (priorityFilter) {{
+        priorityFilter.value = 'all';
+      }}
+      if (statusFilter) {{
+        statusFilter.value = 'open';
+      }}
+      if (searchFilter) {{
+        searchFilter.value = button.dataset.industryMapFocusStock || '';
+      }}
+      if (section.reviewActionApplyFilters) {{
+        section.reviewActionApplyFilters();
+      }}
+      section.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+      const targetStockId = button.dataset.industryMapFocusStock || '';
+      const targetActionId = button.dataset.industryMapFocusAction || '';
+      const visibleRows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'))
+        .filter((row) => row.style.display !== 'none');
+      const firstVisible = visibleRows.find((row) =>
+        (!targetStockId || (row.dataset.stockId || '') === targetStockId)
+        && (!targetActionId || (row.dataset.actionId || '') === targetActionId)
+      ) || visibleRows[0];
+      if (firstVisible) {{
+        firstVisible.classList.add('review-action-highlight');
+        const firstAction = firstVisible.querySelector('[data-review-action-command]');
+        if (firstAction) {{
+          firstAction.focus();
+        }}
+        window.setTimeout(() => firstVisible.classList.remove('review-action-highlight'), 1600);
+      }}
+    }}
+    function initIndustryMapControls() {{
+      initIndustryMapWorkflowControls();
+      document.addEventListener('click', (event) => {{
+        const button = event.target.closest('[data-industry-map-focus-stock]');
+        if (!button) {{
+          return;
+        }}
+        focusIndustryMapReviewAction(button);
       }});
     }}
     function expertConsoleForSection(section) {{
@@ -1883,7 +2024,13 @@ def _industry_map_source_block(summary: dict[str, Any]) -> str:
     top_lens = _industry_map_top_lens(entries)
     handoff_text = "可交接" if gate.get("ready") else "尚未可交接"
     next_step = str(gate.get("next_step") or "-")
-    cards = "".join(_industry_map_card(entry, source_path) for entry in entries)
+    card_html: list[str] = []
+    detail_templates: list[str] = []
+    for index, entry in enumerate(entries):
+        detail_id = f"industry-detail-{index}"
+        card_html.append(_industry_map_card(entry, source_path, detail_id))
+        detail_templates.append(_industry_map_detail_template(entry, source_path, detail_id))
+    initial_detail = _industry_map_detail_body(entries[0], source_path) if entries else ""
 
     return (
         '<div class="industry-map-source" data-industry-map-source="true">'
@@ -1898,8 +2045,19 @@ def _industry_map_source_block(summary: dict[str, Any]) -> str:
         '<div class="industry-map-summary-item"><strong>需優先處理</strong>'
         f"<span>{escape(str(blocked_industries))} 個產業，{escape(str(evidence_gap_total))} 件待補交付證據</span></div>"
         "</div>"
+        '<div class="industry-map-workflow" data-industry-map-workflow="true">'
+        '<div class="industry-map-list">'
+        f"{_industry_map_filter_bar(len(entries))}"
         '<div class="industry-map-grid" data-industry-map-grid="true">'
-        f"{cards}"
+        f"{''.join(card_html)}"
+        "</div>"
+        "</div>"
+        '<aside class="industry-map-detail-panel" data-industry-map-detail-panel="true" aria-live="polite">'
+        f"{initial_detail}"
+        "</aside>"
+        "</div>"
+        '<div class="industry-map-detail-templates" hidden>'
+        f"{''.join(detail_templates)}"
         "</div>"
         "</div>"
     )
@@ -2093,8 +2251,7 @@ def _industry_add_stock(group: dict[str, Any], stock_id: str, record: dict[str, 
     if isinstance(reasons, list) and any(str(reason).strip() for reason in reasons):
         group["attention_stocks"].add(stock_id)
 
-
-def _industry_map_card(entry: dict[str, Any], source_path: str) -> str:
+def _industry_map_card(entry: dict[str, Any], source_path: str, detail_id: str) -> str:
     category = str(entry["category"])
     status = str(entry["status"])
     status_label = _industry_status_label(entry)
@@ -2103,6 +2260,9 @@ def _industry_map_card(entry: dict[str, Any], source_path: str) -> str:
     lens_summary = _count_pairs(lens_counts if isinstance(lens_counts, dict) else {}, REVIEW_ACTION_CATEGORY_LABELS)
     sample_stocks = _list_value(entry.get("sample_stocks"))
     focus = _industry_map_focus(entry)
+    evidence_status = _industry_map_evidence_status(entry)
+    lens_keys = " ".join(sorted(str(key) for key in lens_counts)) if isinstance(lens_counts, dict) else ""
+    search_text = _industry_map_search_text(entry)
     focus_button = ""
     if focus:
         focus_button = (
@@ -2110,37 +2270,232 @@ def _industry_map_card(entry: dict[str, Any], source_path: str) -> str:
             f'{escape(focus.get("stock_id", ""))}"'
             f' data-industry-map-focus-action="{escape(focus.get("action_id", ""))}"'
             f' data-industry-map-focus-category="{escape(focus.get("category", "all"))}"'
-            f' data-review-actions-source-path="{escape(source_path)}">前往這個產業阻塞</button>'
+            f' data-review-actions-source-path="{escape(source_path)}">\u524d\u5f80\u7b2c\u4e00\u500b\u963b\u585e</button>'
         )
+    detail_button = (
+        '<button type="button" class="expert-console-next" data-industry-map-detail-target="'
+        f'{escape(detail_id)}">\u67e5\u770b\u7522\u696d\u4efb\u52d9</button>'
+    )
     sample_text = ", ".join(sample_stocks) if sample_stocks else "-"
     blocker_copy = _industry_blocker_copy(entry)
     return (
         '<article class="industry-map-card" data-industry-map-card="true"'
         f' data-industry-map-status="{escape(status)}"'
-        f' data-industry-name="{escape(category)}">'
+        f' data-industry-map-evidence-status="{escape(evidence_status)}"'
+        f' data-industry-map-lenses="{escape(lens_keys)}"'
+        f' data-industry-map-search-text="{escape(search_text)}"'
+        f' data-industry-map-detail-id="{escape(detail_id)}"'
+        f' data-industry-name="{escape(category)}"'
+        f' tabindex="0" aria-label="{escape(_industry_map_card_aria(entry))}">'
         '<div class="industry-map-head">'
         f"<h3>{escape(category)}</h3>"
         f'<span class="industry-status-pill">{escape(status_label)}</span>'
         "</div>"
         f'<p class="industry-map-lead">{escape(blocker_copy)}</p>'
-        f'<div class="industry-pressure" aria-label="交付壓力 {escape(str(pressure))}"><span style="width: {escape(str(pressure))}%"></span></div>'
+        f'<div class="industry-pressure" aria-label="research pressure {escape(str(pressure))}">'
+        f'<span style="width: {escape(str(pressure))}%"></span></div>'
         '<div class="industry-map-metrics">'
-        f'<span><strong>{escape(str(entry["stock_count"]))}</strong>研究項目</span>'
-        f'<span><strong>{escape(str(entry["blocker_count"]))}</strong>阻塞數</span>'
-        f'<span><strong>{escape(str(entry["evidence_missing_count"]))}</strong>證據缺口</span>'
-        f'<span><strong>{escape(str(entry["open_count"]))}</strong>待處理動作</span>'
+        f'<span><strong>{escape(str(entry["stock_count"]))}</strong>\u80a1\u7968</span>'
+        f'<span><strong>{escape(str(entry["blocker_count"]))}</strong>blockers</span>'
+        f'<span><strong>{escape(str(entry["evidence_missing_count"]))}</strong>\u7f3a\u8b49\u64da</span>'
+        f'<span><strong>{escape(str(entry["open_count"]))}</strong>\u672a\u5b8c\u6210</span>'
         "</div>"
         '<p class="status-line">'
-        f'<span class="badge">高優先：{escape(str(entry["high_priority_count"]))}</span>'
-        f'<span class="badge">需關注：{escape(str(entry["attention_count"]))}</span>'
-        f'<span class="badge">無效證據：{escape(str(entry["invalid_evidence_count"]))}</span>'
-        f'<span class="badge">過期狀態：{escape(str(entry["stale_count"]))}</span>'
+        f'<span class="badge">\u9ad8\u512a\u5148 {escape(str(entry["high_priority_count"]))}</span>'
+        f'<span class="badge">\u9700\u95dc\u6ce8 {escape(str(entry["attention_count"]))}</span>'
+        f'<span class="badge">\u7121\u6548\u8b49\u64da {escape(str(entry["invalid_evidence_count"]))}</span>'
+        f'<span class="badge">stale state {escape(str(entry["stale_count"]))}</span>'
         "</p>"
-        f'<p class="status-line"><span class="badge">專家阻塞：{lens_summary}</span></p>'
-        f'<p class="empty">樣本股票：{escape(sample_text)}</p>'
-        f'<div class="industry-map-actions">{focus_button}</div>'
+        f'<p class="status-line"><span class="badge">\u5c08\u5bb6 blockers\uff1a{lens_summary}</span></p>'
+        f'<p class="empty">\u6a23\u672c\u80a1\u7968\uff1a{escape(sample_text)}</p>'
+        f'<div class="industry-map-actions">{detail_button}{focus_button}</div>'
         "</article>"
     )
+
+
+def _industry_map_filter_bar(total_entries: int) -> str:
+    status_options = [
+        ("all", "\u5168\u90e8\u72c0\u614b"),
+        ("blocked", "\u6709\u963b\u585e"),
+        ("needs-review", "\u9700\u8907\u6838"),
+        ("ready", "\u53ef\u95b1\u8b80"),
+    ]
+    evidence_options = [
+        ("all", "\u5168\u90e8\u8b49\u64da"),
+        ("missing", "\u7f3a\u4ea4\u4ed8\u8b49\u64da"),
+        ("invalid", "\u8b49\u64da\u8def\u5f91\u7121\u6548"),
+        ("clean", "\u8b49\u64da\u7121\u963b\u585e"),
+    ]
+    lens_labels = dict(REVIEW_ACTION_CATEGORY_LABELS)
+    lens_labels["state"] = "\u72c0\u614b\u6a94\u5c08\u5bb6"
+    lens_options = [("all", "\u5168\u90e8\u5c08\u5bb6")]
+    lens_options.extend((key, _review_label(key, lens_labels)) for key in (*REVIEW_ACTION_CATEGORIES, "state"))
+    status_label = "\u72c0\u614b"
+    evidence_label = "\u8b49\u64da"
+    lens_label = "\u5c08\u5bb6"
+
+    def select(name: str, label: str, options: list[tuple[str, str]]) -> str:
+        option_html = "".join(
+            f'<option value="{escape(value)}">{escape(text)}</option>' for value, text in options
+        )
+        return (
+            '<label class="filter-field">'
+            f"<span>{escape(label)}</span>"
+            f'<select data-industry-map-filter="{escape(name)}">{option_html}</select>'
+            "</label>"
+        )
+
+    return (
+        '<div class="industry-map-controls" data-industry-map-filter-bar="true">'
+        f'{select("status", status_label, status_options)}'
+        f'{select("evidence", evidence_label, evidence_options)}'
+        f'{select("lens", lens_label, lens_options)}'
+        '<label class="filter-field"><span>\u641c\u5c0b</span>'
+        '<input data-industry-map-filter="search" type="search" placeholder="\u7522\u696d\u3001\u80a1\u7968\u3001\u4efb\u52d9">'
+        "</label>"
+        '<button type="button" data-industry-map-filter-reset="true">\u91cd\u8a2d</button>'
+        f'<span class="filter-count" data-industry-map-count="true">\u986f\u793a {total_entries} / {total_entries} \u500b\u7522\u696d</span>'
+        "</div>"
+    )
+
+
+def _industry_map_detail_template(entry: dict[str, Any], source_path: str, detail_id: str) -> str:
+    return (
+        '<div class="industry-map-detail-template"'
+        f' data-industry-map-detail-template="{escape(detail_id)}" hidden>'
+        f"{_industry_map_detail_body(entry, source_path)}"
+        "</div>"
+    )
+
+
+def _industry_map_detail_body(entry: dict[str, Any], source_path: str) -> str:
+    category = str(entry["category"])
+    status_label = _industry_status_label(entry)
+    lens_counts = entry.get("lens_counts", {})
+    lens_summary = _count_pairs(lens_counts if isinstance(lens_counts, dict) else {}, REVIEW_ACTION_CATEGORY_LABELS)
+    return (
+        '<div class="industry-map-detail-header">'
+        "<div>"
+        '<p class="empty">\u7522\u696d\u5de5\u4f5c\u6d41</p>'
+        f"<h3>{escape(category)}</h3>"
+        "</div>"
+        f'<span class="industry-status-pill">{escape(status_label)}</span>'
+        "</div>"
+        '<p class="industry-map-next-action" data-industry-map-next-action="true">'
+        f"<strong>\u4e0b\u4e00\u500b\u6309\u9215</strong>{escape(_industry_map_next_action(entry))}</p>"
+        '<div class="industry-map-metrics">'
+        f'<span><strong>{escape(str(entry["blocker_count"]))}</strong>gate blockers</span>'
+        f'<span><strong>{escape(str(entry["evidence_missing_count"]))}</strong>\u7f3a\u4ea4\u4ed8\u8b49\u64da</span>'
+        f'<span><strong>{escape(str(entry["invalid_evidence_count"]))}</strong>\u7121\u6548\u8b49\u64da</span>'
+        f'<span><strong>{escape(str(entry["open_count"]))}</strong>\u672a\u5b8c\u6210\u4efb\u52d9</span>'
+        "</div>"
+        f'<p class="status-line"><span class="badge">\u5c08\u5bb6\u963b\u585e\uff1a{lens_summary}</span></p>'
+        "<h4>Top blockers</h4>"
+        f"{_industry_map_detail_tasks(entry, source_path)}"
+        '<p class="industry-map-note" data-industry-map-non-advice="true">'
+        "\u9019\u88e1\u53ea\u662f\u4ea4\u4ed8\u54c1\u8cea\u8207\u8b49\u64da\u6aa2\u67e5\u5de5\u4f5c\u6d41\uff0c\u4e0d\u69cb\u6210\u6295\u8cc7\u5efa\u8b70\u3002"
+        "</p>"
+    )
+
+
+def _industry_map_detail_tasks(entry: dict[str, Any], source_path: str) -> str:
+    blockers = entry.get("top_blockers", [])
+    if not isinstance(blockers, list) or not blockers:
+        return '<p class="empty">\u76ee\u524d\u6c92\u6709 gate blocker\uff0c\u53ef\u9032\u5165\u4eba\u5de5\u95b1\u8b80\u8207\u7c3d\u6838\u3002</p>'
+
+    rows: list[str] = []
+    for blocker in blockers[:3]:
+        if not isinstance(blocker, dict):
+            continue
+        stock_id = str(blocker.get("stock_id") or "-")
+        company_name = str(blocker.get("company_name") or "")
+        stock_label = stock_id if not company_name else f"{stock_id} {company_name}"
+        category = str(blocker.get("category") or "")
+        severity = str(blocker.get("severity") or "")
+        expert_label = str(blocker.get("expert_label") or _review_label(category, REVIEW_ACTION_CATEGORY_LABELS))
+        message = str(blocker.get("message") or "")
+        next_step = str(blocker.get("next_step") or "")
+        rows.append(
+            '<li class="industry-map-detail-task" data-industry-map-task="true">'
+            '<div class="industry-map-task-head">'
+            f"<strong>{escape(stock_label)}</strong>"
+            f'<span class="badge">{escape(expert_label)}</span>'
+            f'<span class="badge">{escape(_review_label(severity, REVIEW_ACTION_SEVERITY_LABELS))}</span>'
+            "</div>"
+            f"<p>{escape(message)}</p>"
+            f"<p><strong>\u5efa\u8b70\u52d5\u4f5c\uff1a</strong>{escape(next_step)}</p>"
+            '<div class="industry-map-actions">'
+            f'{_industry_map_blocker_focus_button(blocker, source_path)}'
+            "</div>"
+            "</li>"
+        )
+    if not rows:
+        return '<p class="empty">\u76ee\u524d\u6c92\u6709\u53ef\u986f\u793a\u7684 blocker\u3002</p>'
+    return f'<ol class="industry-map-detail-list">{"".join(rows)}</ol>'
+
+
+def _industry_map_blocker_focus_button(blocker: dict[str, Any], source_path: str) -> str:
+    focus_available = str(blocker.get("focus_available", "true")).lower() == "true"
+    stock_id = str(blocker.get("stock_id") or "").strip()
+    if not focus_available or not stock_id or stock_id == "-":
+        return '<span class="empty">\u9700\u5148\u91cd\u65b0\u7522\u751f research summary \u6216\u4fee\u6b63 state sidecar\u3002</span>'
+    return (
+        '<button type="button" class="expert-console-next" data-industry-map-focus-stock="'
+        f'{escape(stock_id)}"'
+        f' data-industry-map-focus-action="{escape(str(blocker.get("action_id") or ""))}"'
+        f' data-industry-map-focus-category="{escape(str(blocker.get("category") or "all"))}"'
+        f' data-review-actions-source-path="{escape(source_path)}">\u524d\u5f80\u5be9\u67e5\u52d5\u4f5c</button>'
+    )
+
+
+def _industry_map_evidence_status(entry: dict[str, Any]) -> str:
+    if int(entry["invalid_evidence_count"]) > 0:
+        return "invalid"
+    if int(entry["evidence_missing_count"]) > 0:
+        return "missing"
+    return "clean"
+
+
+def _industry_map_next_action(entry: dict[str, Any]) -> str:
+    if int(entry["evidence_missing_count"]) > 0:
+        return "\u5148\u88dc\u4ea4\u4ed8\u8b49\u64da\u6b04\u4f4d note\u3001reviewer\u3001evidence URL\u3002"
+    if int(entry["invalid_evidence_count"]) > 0:
+        return "\u5148\u4fee\u6b63\u7121\u6548 evidence \u8def\u5f91\u6216\u6539\u7528\u53ef\u958b\u555f\u7684 URL\u3002"
+    if int(entry["stale_count"]) > 0:
+        return "\u5148\u6e05\u7406 stale review-action state\uff0c\u518d\u91cd\u8dd1 handoff gate\u3002"
+    if int(entry["blocker_count"]) > 0 or int(entry["open_count"]) > 0:
+        return "\u5148\u8655\u7406 Top blockers\uff0c\u518d\u56de\u5230 Review Actions \u78ba\u8a8d\u72c0\u614b\u3002"
+    if str(entry["status"]) == "needs-review":
+        return "\u5148\u5b8c\u6210\u4eba\u5de5\u8907\u6838\uff0c\u518d\u7522\u751f Evidence Pack\u3002"
+    return "\u53ef\u9032\u5165\u4eba\u5de5\u95b1\u8b80\u8207\u7c3d\u6838\uff1b\u8acb\u4fdd\u6301\u975e\u6295\u8cc7\u5efa\u8b70\u908a\u754c\u3002"
+
+
+def _industry_map_search_text(entry: dict[str, Any]) -> str:
+    parts = [
+        str(entry.get("category") or ""),
+        str(entry.get("status") or ""),
+        _industry_status_label(entry),
+        _industry_blocker_copy(entry),
+        _industry_map_next_action(entry),
+    ]
+    parts.extend(_list_value(entry.get("sample_stocks")))
+    lens_counts = entry.get("lens_counts", {})
+    if isinstance(lens_counts, dict):
+        for lens in lens_counts:
+            parts.append(str(lens))
+            parts.append(_review_label(str(lens), REVIEW_ACTION_CATEGORY_LABELS))
+    blockers = entry.get("top_blockers", [])
+    if isinstance(blockers, list):
+        for blocker in blockers:
+            if not isinstance(blocker, dict):
+                continue
+            for key in ("kind", "stock_id", "company_name", "category", "expert_label", "action_id", "message", "next_step"):
+                parts.append(str(blocker.get(key) or ""))
+    return " ".join(part.strip() for part in parts if part and part.strip())
+
+
+def _industry_map_card_aria(entry: dict[str, Any]) -> str:
+    return f"\u67e5\u770b {entry['category']} \u7522\u696d\u5de5\u4f5c\u6d41\u8a73\u60c5"
 
 
 def _industry_status_label(entry: dict[str, Any]) -> str:

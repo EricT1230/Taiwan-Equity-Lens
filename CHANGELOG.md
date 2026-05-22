@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.42.0 - 2026-05-22
+
+Industry Map Drilldown / Sector Workflow release.
+
+### Added
+- Dashboard industry map workflow with status, evidence, expert-lens, and search filters.
+- Sector detail panel that shows the selected industry's single next action, Top blockers, and evidence/review workload counts.
+- Per-blocker `前往審查動作` buttons that jump from the sector workflow back into the matching Review Actions row.
+- Dashboard tests for the industry-map filters, detail panel, task rendering, and escaping.
+- v0.42.0 release notes and design spec.
+
+### Changed
+- The industry map is now an operational workflow for clearing handoff blockers rather than a static card grid.
+- README and usage workflow release doctor examples now target `0.42.0`.
+- Package version is now `0.42.0`.
+
+### Tests
+- Added dashboard coverage for sector filters, evidence status attributes, expert lens attributes, Top blockers, and workflow detail templates.
+
 ## v0.41.0 - 2026-05-22
 
 Dashboard Evidence Pack Flow release.
