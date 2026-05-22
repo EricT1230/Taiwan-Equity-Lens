@@ -475,6 +475,168 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2330", html)
         self.assertIn("2303", html)
 
+    def test_render_dashboard_html_contains_industry_rotation_map(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_state": {
+                            "actions": {
+                                "2330:source-audit-manual-review": {
+                                    "status": "done",
+                                    "updated_at": "2026-05-20T01:00:00Z",
+                                }
+                            }
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "source-audit-manual-review",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review source audit.",
+                                        "status": "open",
+                                    }
+                                ],
+                            },
+                            {
+                                "stock_id": "2303",
+                                "company_name": "UMC",
+                                "priority": "medium",
+                                "actions": [
+                                    {
+                                        "id": "valuation-unavailable",
+                                        "category": "valuation",
+                                        "severity": "warning",
+                                        "message": "Complete valuation.",
+                                        "status": "open",
+                                    }
+                                ],
+                            },
+                        ],
+                        "items": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "category": "Semiconductor",
+                                "priority": "high",
+                                "research_state": "watching",
+                                "workflow_status": "ok",
+                                "reliability_status": "ok",
+                                "attention_reasons": ["source audit requires handoff evidence"],
+                                "thesis": "foundry leader",
+                                "follow_up_questions": "check margin",
+                            },
+                            {
+                                "stock_id": "2303",
+                                "company_name": "UMC",
+                                "category": "Semiconductor",
+                                "priority": "medium",
+                                "research_state": "watching",
+                                "workflow_status": "ok",
+                                "reliability_status": "ok",
+                                "attention_reasons": ["valuation output is unavailable or skipped"],
+                            },
+                            {
+                                "stock_id": "1504",
+                                "company_name": "TECO",
+                                "category": "Power",
+                                "priority": "medium",
+                                "research_state": "watching",
+                                "workflow_status": "ok",
+                                "reliability_status": "ok",
+                                "attention_reasons": [],
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-industry-rotation-map="true"', html)
+        self.assertIn('data-industry-map-grid="true"', html)
+        self.assertIn('data-industry-map-card="true"', html)
+        self.assertIn('data-industry-map-status="blocked"', html)
+        self.assertIn("產業輪動地圖", html)
+        self.assertIn("研究交付壓力", html)
+        self.assertIn("交付壓力", html)
+        self.assertIn("可否交接", html)
+        self.assertIn("最大阻塞來源", html)
+        self.assertIn("最短修復路徑", html)
+        self.assertIn("Semiconductor", html)
+        self.assertIn("Power", html)
+        self.assertIn("待補交付證據", html)
+        self.assertIn("專家阻塞", html)
+        self.assertIn("來源檢查", html)
+        self.assertIn("估值", html)
+        self.assertIn('data-industry-map-focus-stock="2303"', html)
+        self.assertIn('data-review-actions-source-path="research-dist/research_summary.json"', html)
+        self.assertIn("前往這個產業阻塞", html)
+        self.assertIn("不構成買賣、持有、目標價或配置建議", html)
+        self.assertIn("initIndustryMapControls()", html)
+        self.assertIn("industryMapSectionForButton(button)", html)
+
+    def test_render_dashboard_html_industry_rotation_map_escapes_values(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330<script>",
+                                "company_name": "Co <Name>",
+                                "priority": "medium",
+                                "actions": [
+                                    {
+                                        "id": "source-audit-manual-review",
+                                        "category": "source_audit",
+                                        "severity": "manual_review",
+                                        "message": "Review <source>.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                        "items": [
+                            {
+                                "stock_id": "2330<script>",
+                                "company_name": "Co <Name>",
+                                "category": "<Sector>",
+                                "priority": "medium",
+                                "research_state": "watching",
+                                "workflow_status": "ok",
+                                "reliability_status": "ok",
+                                "attention_reasons": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("&lt;Sector&gt;", html)
+        self.assertIn("2330&lt;script&gt;", html)
+        self.assertIn("Co &lt;Name&gt;", html)
+        self.assertIn('data-industry-name="&lt;Sector&gt;"', html)
+        self.assertIn('data-industry-map-focus-stock="2330&lt;script&gt;"', html)
+        self.assertNotIn("<Sector>", html)
+        self.assertNotIn("2330<script>", html)
+        self.assertNotIn("Co <Name>", html)
+
     def test_render_dashboard_html_contains_review_actions(self):
         html = render_dashboard_html(
             {
@@ -1347,6 +1509,78 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Handoff Evidence Pack", html)
         self.assertIn("handoff-pack.md", html)
         self.assertIn("handoff_pack_summary.json", html)
+
+    def test_render_dashboard_html_contains_handoff_pack_workflow_guidance(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_state": {
+                            "version": 1,
+                            "actions": {
+                                "2330:reliability-warning": {
+                                    "status": "done",
+                                    "note": "checked reliability warning",
+                                    "updated_at": "2026-05-20T01:00:00Z",
+                                }
+                            },
+                        },
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "reliability-warning",
+                                        "category": "reliability",
+                                        "severity": "warning",
+                                        "message": "Inspect data reliability warning before handoff.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-handoff-pack-workflow="true"', html)
+        self.assertIn('data-handoff-pack-write="true"', html)
+        self.assertIn('data-handoff-pack-result="true"', html)
+        self.assertIn('data-handoff-pack-evidence-guidance="true"', html)
+        self.assertIn("research-dist/handoff-pack", html)
+        self.assertIn("research handoff-pack research-dist/research_summary.json --state research-dist/review_action_state.json --output-dir research-dist/handoff-pack", html)
+        self.assertIn("reviewer, evidence_url", html)
+        self.assertIn("research-dist/evidence/2330-reliability-warning.md", html)
+
+    def test_render_dashboard_html_contains_api_handoff_pack_writer(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_queue": [],
+                    }
+                ],
+            },
+            action_api_enabled=True,
+        )
+
+        self.assertIn("const response = await fetch('/api/handoff-pack/write'", html)
+        self.assertIn("產出 Evidence Pack", html)
+        self.assertIn('data-research-summary-path="research-dist/research_summary.json"', html)
+        self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
+        self.assertIn('data-output-dir="research-dist/handoff-pack"', html)
 
 
 if __name__ == "__main__":

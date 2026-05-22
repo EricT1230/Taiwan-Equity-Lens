@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
 from taiwan_stock_analysis.handoff import build_handoff_quality_gate
+from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
 from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
     load_review_action_state,
@@ -60,6 +61,60 @@ def set_review_action_status_from_payload(
     }
 
 
+def write_handoff_pack_from_payload(
+    payload: dict[str, Any],
+    *,
+    allowed_roots: list[Path],
+) -> dict[str, Any]:
+    research_summary_path = _allowed_path(
+        str(payload.get("research_summary_path") or ""),
+        allowed_roots,
+        label="research_summary_path",
+    )
+    raw_state_path = str(payload.get("state_path") or "").strip()
+    state_path = (
+        _allowed_path(raw_state_path, allowed_roots, label="state_path")
+        if raw_state_path
+        else research_summary_path.with_name("review_action_state.json")
+    )
+    raw_output_dir = str(payload.get("output_dir") or "").strip()
+    output_dir = (
+        _allowed_path(raw_output_dir, allowed_roots, label="output_dir")
+        if raw_output_dir
+        else research_summary_path.parent / "handoff-pack"
+    )
+    if not any(_is_relative_to(output_dir.resolve(), root.resolve()) for root in allowed_roots):
+        raise ValueError("output_dir is outside the served dashboard directories")
+
+    try:
+        blocker_limit = int(payload.get("blocker_limit") or 10)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("blocker_limit must be an integer") from exc
+
+    summary_path = write_handoff_evidence_pack(
+        research_summary_path,
+        output_dir,
+        state_path=state_path,
+        output_format=str(payload.get("format") or "both"),
+        blocker_limit=blocker_limit,
+    )
+    summary = _load_pack_summary(summary_path)
+    return {
+        "blocker_count": summary.get("blocker_count", 0),
+        "evidence_missing_count": summary.get("evidence_missing_count", 0),
+        "gate_status": summary.get("gate_status", "blocked"),
+        "html_path": summary.get("html_path", ""),
+        "invalid_evidence_count": summary.get("invalid_evidence_count", 0),
+        "markdown_path": summary.get("markdown_path", ""),
+        "ok": True,
+        "output_dir": str(output_dir),
+        "ready": bool(summary.get("ready")),
+        "research_summary_path": str(research_summary_path),
+        "state_path": str(state_path),
+        "summary_path": str(summary_path),
+    }
+
+
 def serve_dashboard(
     search_dirs: list[Path],
     *,
@@ -98,12 +153,15 @@ def _build_handler(search_dirs: list[Path]) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(body)
 
         def do_POST(self) -> None:
-            if self.path != "/api/review-actions/set":
+            if self.path not in {"/api/review-actions/set", "/api/handoff-pack/write"}:
                 self._send_json({"error": "not found", "ok": False}, status=HTTPStatus.NOT_FOUND)
                 return
             try:
                 payload = self._read_json()
-                result = set_review_action_status_from_payload(payload, allowed_roots=search_dirs)
+                if self.path == "/api/review-actions/set":
+                    result = set_review_action_status_from_payload(payload, allowed_roots=search_dirs)
+                else:
+                    result = write_handoff_pack_from_payload(payload, allowed_roots=search_dirs)
             except ValueError as exc:
                 self._send_json({"error": str(exc), "ok": False}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -154,6 +212,18 @@ def _allowed_state_path(raw_path: str, allowed_roots: list[Path]) -> Path:
     raise ValueError("state_path is outside the served dashboard directories")
 
 
+def _allowed_path(raw_path: str, allowed_roots: list[Path], *, label: str) -> Path:
+    if not raw_path.strip():
+        raise ValueError(f"{label} is required")
+    roots = [root.resolve() for root in allowed_roots]
+    raw = Path(raw_path)
+    candidates = [raw.resolve()] if raw.is_absolute() else [(root / raw).resolve() for root in roots]
+    for candidate in candidates:
+        if any(_is_relative_to(candidate, root) for root in roots):
+            return candidate
+    raise ValueError(f"{label} is outside the served dashboard directories")
+
+
 def _state_report_for_path(state_path: Path) -> dict[str, Any]:
     research_summary = state_path.with_name("research_summary.json")
     if not research_summary.exists():
@@ -175,6 +245,16 @@ def _state_report_for_path(state_path: Path) -> dict[str, Any]:
     report["evidence_missing_count"] = gate.get("evidence_missing_count", 0)
     report["invalid_evidence_count"] = gate.get("invalid_evidence_count", 0)
     return report
+
+
+def _load_pack_summary(summary_path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("could not read generated handoff pack summary") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("generated handoff pack summary must be a JSON object")
+    return payload
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

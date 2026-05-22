@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.41.0 - 2026-05-22
+
+Dashboard Evidence Pack Flow release.
+
+### Added
+- Served dashboard API endpoint for writing the Handoff Evidence Pack from the dashboard.
+- Expert Agent Console Evidence Pack workflow with API-mode generation, static-mode CLI command copying, output path display, and missing-evidence guidance.
+- Dashboard server and dashboard coverage for one-click pack generation and evidence-file guidance.
+- Dashboard industry rotation map that groups research items by category, ranks research-delivery pressure from blockers and evidence gaps, and links back to review-action tasks.
+- v0.41.0 release notes and design spec.
+
+### Changed
+- Dashboard handoff gate rendering now keeps the research summary base directory for local evidence validation when summaries are discovered from disk.
+- README and usage workflow release doctor examples now target `0.41.0`.
+- Package version is now `0.41.0`.
+
+### Tests
+- Added dashboard-server and dashboard tests for Handoff Evidence Pack workflow generation, path safety, static fallback, and API wiring.
+
 ## v0.40.0 - 2026-05-21
 
 Handoff Evidence Pack release.

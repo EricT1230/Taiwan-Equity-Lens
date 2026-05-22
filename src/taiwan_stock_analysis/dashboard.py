@@ -128,6 +128,8 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
             if not isinstance(payload, dict):
                 payload = {"error": "invalid JSON"}
             payload["path"] = str(research_summary)
+            if not payload.get("error"):
+                payload["base_dir"] = str(directory)
             state_path = directory / "review_action_state.json"
             if state_path.exists():
                 state, warning = load_review_action_state(state_path)
@@ -257,6 +259,31 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .summary strong {{ display: block; font-size: 28px; color: #12355b; }}
     .summary span {{ color: #4b5563; }}
     .status-line {{ display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; }}
+    .industry-map-lead {{ margin: 0 0 12px; color: #475569; max-width: 860px; }}
+    .industry-map-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 12px 0; }}
+    .industry-map-summary-item {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 12px; background: #fbfdff; }}
+    .industry-map-summary-item strong {{ display: block; color: #12355b; margin-bottom: 4px; }}
+    .industry-map-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .industry-map-card {{ border: 1px solid #d8dee8; border-left: 6px solid #64748b; border-radius: 8px; padding: 14px; background: #ffffff; }}
+    .industry-map-card[data-industry-map-status="blocked"] {{ border-left-color: #dc2626; background: #fffafa; }}
+    .industry-map-card[data-industry-map-status="needs-review"] {{ border-left-color: #d97706; background: #fffdf7; }}
+    .industry-map-card[data-industry-map-status="ready"] {{ border-left-color: #16a34a; background: #fbfffc; }}
+    .industry-map-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: start; }}
+    .industry-map-head h3 {{ margin: 0 0 8px; }}
+    .industry-status-pill {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; background: #eef4fb; color: #12355b; white-space: nowrap; }}
+    .industry-map-card[data-industry-map-status="blocked"] .industry-status-pill {{ background: #fee2e2; color: #991b1b; }}
+    .industry-map-card[data-industry-map-status="needs-review"] .industry-status-pill {{ background: #fef3c7; color: #92400e; }}
+    .industry-map-card[data-industry-map-status="ready"] .industry-status-pill {{ background: #dcfce7; color: #166534; }}
+    .industry-pressure {{ height: 9px; border-radius: 999px; overflow: hidden; background: #e2e8f0; margin: 10px 0; }}
+    .industry-pressure span {{ display: block; height: 100%; width: 0; background: #64748b; }}
+    .industry-map-card[data-industry-map-status="blocked"] .industry-pressure span {{ background: #dc2626; }}
+    .industry-map-card[data-industry-map-status="needs-review"] .industry-pressure span {{ background: #d97706; }}
+    .industry-map-card[data-industry-map-status="ready"] .industry-pressure span {{ background: #16a34a; }}
+    .industry-map-metrics {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }}
+    .industry-map-metrics span {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; color: #475569; background: #fbfdff; }}
+    .industry-map-metrics strong {{ display: block; color: #172033; font-size: 18px; }}
+    .industry-map-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
+    .industry-map-note {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .expert-console-grid {{ display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.6fr); gap: 14px; align-items: start; }}
     .expert-console-panel {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; background: #fbfdff; }}
     .expert-console-panel h3 {{ margin-bottom: 8px; }}
@@ -275,6 +302,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .expert-console-next:hover {{ background: #eef4fb; }}
     .expert-console-next[data-status-value="done"], .expert-console-next[data-expert-console-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
     .expert-console-next[data-status-value="done"]:hover, .expert-console-next[data-expert-console-bulk-status="done"]:hover {{ background: #bbf7d0; }}
+    .handoff-pack-workflow {{ margin-top: 12px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }}
+    .handoff-pack-workflow h4 {{ margin: 0 0 8px; font-size: 15px; }}
+    .handoff-pack-controls {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
+    .handoff-pack-result {{ margin: 9px 0 0; padding: 9px 11px; border: 1px solid #d8dee8; border-radius: 8px; background: white; color: #12355b; }}
+    .handoff-pack-result ul, .handoff-pack-guidance ul {{ margin: 6px 0 0 18px; padding: 0; }}
+    .handoff-pack-guidance {{ margin-top: 8px; color: #92400e; }}
     .expert-console-non-advice {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .review-action-highlight {{ outline: 3px solid #facc15; outline-offset: -3px; }}
     .review-action-filters {{ display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
@@ -328,6 +361,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     @media (max-width: 720px) {{
       header, main {{ padding-left: 16px; padding-right: 16px; }}
       .expert-console-grid {{ grid-template-columns: 1fr; }}
+      .industry-map-metrics {{ grid-template-columns: 1fr; }}
       table {{ display: block; overflow-x: auto; }}
     }}
   </style>
@@ -346,6 +380,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>工作流程摘要</span></div>
     </section>
     {_expert_agent_console_section(research_summaries, action_api_enabled=action_api_enabled)}
+    {_industry_rotation_map_section(research_summaries)}
     {_research_summary_section(research_summaries)}
     {_review_actions_section(research_summaries, action_api_enabled=action_api_enabled)}
     <section>
@@ -468,6 +503,62 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function initExpertConsoleFocus() {{
       document.querySelectorAll('[data-expert-console-focus-category]').forEach((button) => {{
         attachExpertConsoleFocus(button);
+      }});
+    }}
+    function industryMapSectionForButton(button) {{
+      const sourcePath = button.dataset.reviewActionsSourcePath || '';
+      const sections = Array.from(document.querySelectorAll('[data-review-actions-section="true"]'));
+      return sections.find((section) => (section.dataset.reviewActionsSourcePath || '') === sourcePath) || sections[0] || null;
+    }}
+    function initIndustryMapControls() {{
+      document.querySelectorAll('[data-industry-map-focus-stock]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          const section = industryMapSectionForButton(button);
+          if (!section) {{
+            return;
+          }}
+          const filterSelector = (name) => '[data-review-' + `filter="${{name}}"]`;
+          const severityFilter = section.querySelector(filterSelector('severity'));
+          const categoryFilter = section.querySelector(filterSelector('category'));
+          const priorityFilter = section.querySelector(filterSelector('priority'));
+          const statusFilter = section.querySelector(filterSelector('status'));
+          const searchFilter = section.querySelector(filterSelector('search'));
+          if (severityFilter) {{
+            severityFilter.value = 'all';
+          }}
+          if (categoryFilter) {{
+            categoryFilter.value = button.dataset.industryMapFocusCategory || 'all';
+          }}
+          if (priorityFilter) {{
+            priorityFilter.value = 'all';
+          }}
+          if (statusFilter) {{
+            statusFilter.value = 'open';
+          }}
+          if (searchFilter) {{
+            searchFilter.value = button.dataset.industryMapFocusStock || '';
+          }}
+          if (section.reviewActionApplyFilters) {{
+            section.reviewActionApplyFilters();
+          }}
+          section.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+          const targetStockId = button.dataset.industryMapFocusStock || '';
+          const targetActionId = button.dataset.industryMapFocusAction || '';
+          const visibleRows = Array.from(section.querySelectorAll('[data-review-action-row="true"]'))
+            .filter((row) => row.style.display !== 'none');
+          const firstVisible = visibleRows.find((row) =>
+            (!targetStockId || (row.dataset.stockId || '') === targetStockId)
+            && (!targetActionId || (row.dataset.actionId || '') === targetActionId)
+          ) || visibleRows[0];
+          if (firstVisible) {{
+            firstVisible.classList.add('review-action-highlight');
+            const firstAction = firstVisible.querySelector('[data-review-action-command]');
+            if (firstAction) {{
+              firstAction.focus();
+            }}
+            window.setTimeout(() => firstVisible.classList.remove('review-action-highlight'), 1600);
+          }}
+        }});
       }});
     }}
     function expertConsoleForSection(section) {{
@@ -1225,6 +1316,99 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}
       output.textContent = JSON.stringify(result, null, 2);
     }}
+    function handoffPackResultForButton(button) {{
+      const panel = button.closest('[data-handoff-pack-workflow="true"]');
+      return panel ? panel.querySelector('[data-handoff-pack-result="true"]') : null;
+    }}
+    function renderHandoffPackResult(container, result) {{
+      if (!container) {{
+        return;
+      }}
+      container.textContent = '';
+      const summary = document.createElement('p');
+      const readyLabel = result.ready ? 'ready' : 'blocked';
+      summary.textContent = `Evidence Pack 已產出：${{readyLabel}}，blockers ${{result.blocker_count ?? 0}}，缺證據 ${{result.evidence_missing_count ?? 0}}，無效證據 ${{result.invalid_evidence_count ?? 0}}。`;
+      container.appendChild(summary);
+      const list = document.createElement('ul');
+      [
+        ['Markdown', result.markdown_path],
+        ['HTML', result.html_path],
+        ['Summary JSON', result.summary_path],
+      ].forEach(([label, path]) => {{
+        if (!path) {{
+          return;
+        }}
+        const item = document.createElement('li');
+        item.textContent = `${{label}}: ${{path}}`;
+        list.appendChild(item);
+      }});
+      if (list.children.length > 0) {{
+        container.appendChild(list);
+      }}
+    }}
+    async function writeHandoffPack(button) {{
+      const resultBox = handoffPackResultForButton(button);
+      if (reviewActionApiEnabled) {{
+        const payload = {{
+          research_summary_path: button.dataset.researchSummaryPath || '',
+          state_path: button.dataset.statePath || '',
+          output_dir: button.dataset.outputDir || '',
+          format: 'both',
+          blocker_limit: 10,
+        }};
+        if (!payload.research_summary_path || !payload.output_dir) {{
+          if (resultBox) {{
+            resultBox.textContent = '缺少 research summary 或 output dir，請重新產生 dashboard。';
+          }}
+          return;
+        }}
+        button.disabled = true;
+        if (resultBox) {{
+          resultBox.textContent = '正在產出 Handoff Evidence Pack...';
+        }}
+        try {{
+          const response = await fetch('/api/handoff-pack/write', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify(payload),
+          }});
+          const result = await response.json();
+          if (!response.ok || !result.ok) {{
+            throw new Error(result.error || `HTTP ${{response.status}}`);
+          }}
+          renderHandoffPackResult(resultBox, result);
+        }} catch (error) {{
+          if (resultBox) {{
+            resultBox.textContent = `Evidence Pack 產出失敗：${{error.message}}`;
+          }}
+        }} finally {{
+          button.disabled = false;
+        }}
+        return;
+      }}
+      const command = button.dataset.command || '';
+      if (!command) {{
+        if (resultBox) {{
+          resultBox.textContent = '找不到可複製的 handoff-pack 指令。';
+        }}
+        return;
+      }}
+      try {{
+        await copyText(command);
+        if (resultBox) {{
+          resultBox.textContent = '已複製 Evidence Pack 產出指令；在 PowerShell 執行後重新整理 dashboard。';
+        }}
+      }} catch (error) {{
+        if (resultBox) {{
+          resultBox.textContent = '指令複製失敗，請展開下方 CLI 指令手動執行。';
+        }}
+      }}
+    }}
+    function initHandoffPackControls() {{
+      document.querySelectorAll('[data-handoff-pack-write="true"]').forEach((button) => {{
+        button.addEventListener('click', () => writeHandoffPack(button));
+      }});
+    }}
     function updateCommand() {{
       const stock = stockInput.value || '2330';
       const name = nameInput.value || '台積電';
@@ -1247,7 +1431,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     initExpertConsoleFocus();
     initExpertConsoleActionControls();
     initExpertConsoleBulkControls();
+    initHandoffPackControls();
     initReviewActionFilters();
+    initIndustryMapControls();
     initReviewActionCommandCopy();
     initReviewActionBulkControls();
   </script>
@@ -1291,7 +1477,12 @@ def _expert_agent_console_section(research_summaries: list[dict[str, Any]], *, a
 
 def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled: bool = False) -> str:
     state = _dict_value(summary.get("review_action_state"))
-    gate = build_handoff_quality_gate(summary, state, blocker_limit=3)
+    gate = build_handoff_quality_gate(
+        summary,
+        state,
+        blocker_limit=3,
+        evidence_base_dir=_research_summary_base_dir(summary),
+    )
     blockers = gate.get("top_blockers", [])
     top_blockers = blockers if isinstance(blockers, list) else []
     total_actions = int(gate.get("total_actions") or 0)
@@ -1314,6 +1505,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
     next_step = str(gate.get("next_step") or "")
     sync_note = _expert_console_sync_note(top_blockers, action_api_enabled)
     toolbar = _expert_console_toolbar(top_blockers)
+    pack_workflow = _handoff_pack_workflow(summary, gate, state_path, action_api_enabled=action_api_enabled)
     feedback_text = "等待處理 Top 3 阻塞事項。" if top_blockers else "目前沒有 Top 3 阻塞事項。"
     escaped_source_path = escape(source_path)
     return (
@@ -1337,6 +1529,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f"{toolbar}"
         f'<p class="expert-console-feedback" data-expert-console-feedback="true">{escape(feedback_text)}</p>'
         f"{sync_note}"
+        f"{pack_workflow}"
         "</div>"
         '<div class="expert-console-panel">'
         "<h3>\u512a\u5148\u8655\u7406\u7684 3 \u4ef6\u5f85\u67e5\u4e8b\u9805</h3>"
@@ -1344,6 +1537,116 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         "</div>"
         "</div>"
     )
+
+
+def _handoff_pack_workflow(
+    summary: dict[str, Any],
+    gate: dict[str, Any],
+    state_path: str,
+    *,
+    action_api_enabled: bool = False,
+) -> str:
+    source_path = str(summary.get("path") or "")
+    output_dir = _handoff_pack_output_dir(summary)
+    command = _handoff_pack_command(source_path, state_path, output_dir)
+    button_label = "\u7522\u51fa Evidence Pack" if action_api_enabled else "\u8907\u88fd Evidence Pack \u6307\u4ee4"
+    mode_label = (
+        "\u76ee\u524d\u662f API \u6a21\u5f0f\uff1a\u6309\u9215\u6703\u76f4\u63a5\u7522\u51fa handoff-pack \u6a94\u6848\u3002"
+        if action_api_enabled
+        else "\u76ee\u524d\u662f\u975c\u614b\u6a21\u5f0f\uff1a\u6309\u9215\u6703\u8907\u88fd CLI \u6307\u4ee4\u3002"
+    )
+    return (
+        '<div class="handoff-pack-workflow" data-handoff-pack-workflow="true">'
+        "<h4>\u4ea4\u4ed8 Evidence Pack</h4>"
+        f'<p class="status-line"><span class="badge">output: {escape(output_dir)}</span>'
+        f'<span class="badge">gate: {escape(str(gate.get("status", "-")))}</span></p>'
+        f'<p>{escape(mode_label)}</p>'
+        f"{_handoff_pack_evidence_guidance(gate, summary)}"
+        '<div class="handoff-pack-controls">'
+        '<button type="button" class="expert-console-next" data-handoff-pack-write="true"'
+        f' data-research-summary-path="{escape(source_path)}"'
+        f' data-state-path="{escape(state_path)}"'
+        f' data-output-dir="{escape(output_dir)}"'
+        f' data-command="{escape(command)}">{escape(button_label)}</button>'
+        "</div>"
+        '<details class="review-action-detail">'
+        "<summary>CLI</summary>"
+        f'<code class="review-action-command-fallback">{escape(command)}</code>'
+        "</details>"
+        '<div class="handoff-pack-result" data-handoff-pack-result="true">'
+        "\u8655\u7406\u7d50\u679c\uff1a\u5c1a\u672a\u7522\u51fa\u3002"
+        "</div>"
+        "</div>"
+    )
+
+
+def _handoff_pack_evidence_guidance(gate: dict[str, Any], summary: dict[str, Any]) -> str:
+    blockers = gate.get("blockers", [])
+    evidence_blockers = [
+        blocker
+        for blocker in (blockers if isinstance(blockers, list) else [])
+        if isinstance(blocker, dict) and blocker.get("kind") in {"missing_evidence", "invalid_evidence"}
+    ]
+    if not evidence_blockers:
+        return '<p class="handoff-pack-guidance" data-handoff-pack-evidence-guidance="true">\u9700\u88dc\u8b49\u64da\uff1a0\u3002</p>'
+
+    rows: list[str] = []
+    for blocker in evidence_blockers[:5]:
+        stock_id = str(blocker.get("stock_id") or "-")
+        action_id = str(blocker.get("action_id") or "-")
+        suggested_path = _suggested_evidence_path(summary, stock_id, action_id)
+        if blocker.get("kind") == "missing_evidence":
+            missing = str(blocker.get("missing_evidence_fields") or "note, reviewer, evidence_url")
+            detail = f"{stock_id} {action_id}: \u88dc {missing}\uff1b\u5efa\u8b70\u6a94\u6848 {suggested_path}"
+        else:
+            current = str(blocker.get("evidence_url") or "-")
+            detail = f"{stock_id} {action_id}: \u76ee\u524d evidence {current} \u7121\u6548\uff1b\u5efa\u7acb\u6a94\u6848\u6216\u6539\u7528 {suggested_path}"
+        rows.append(f"<li>{escape(detail)}</li>")
+    return (
+        '<div class="handoff-pack-guidance" data-handoff-pack-evidence-guidance="true">'
+        "<strong>\u7f3a\u8b49\u64da\u512a\u5148\u88dc\u4ef6</strong>"
+        f"<ul>{''.join(rows)}</ul>"
+        "</div>"
+    )
+
+
+def _handoff_pack_command(research_summary_path: str, state_path: str, output_dir: str) -> str:
+    args = [
+        "python",
+        "-m",
+        "taiwan_stock_analysis.cli",
+        "research",
+        "handoff-pack",
+        research_summary_path or "research_summary.json",
+        "--state",
+        state_path or "review_action_state.json",
+        "--output-dir",
+        output_dir or "handoff-pack",
+    ]
+    return " ".join(_powershell_arg(arg) for arg in args)
+
+
+def _handoff_pack_output_dir(summary: dict[str, Any]) -> str:
+    source_path = str(summary.get("path") or "").strip()
+    if source_path:
+        return (Path(source_path).parent / "handoff-pack").as_posix()
+    base_dir = str(summary.get("base_dir") or "").strip()
+    if base_dir:
+        return (Path(base_dir) / "handoff-pack").as_posix()
+    return "handoff-pack"
+
+
+def _research_summary_base_dir(summary: dict[str, Any]) -> Path | None:
+    base_dir = str(summary.get("base_dir") or "").strip()
+    return Path(base_dir) if base_dir else None
+
+
+def _suggested_evidence_path(summary: dict[str, Any], stock_id: str, action_id: str) -> str:
+    source_path = str(summary.get("path") or "").strip()
+    base = Path(source_path).parent if source_path else Path(str(summary.get("base_dir") or "."))
+    safe_stock = "".join(char if char.isalnum() or char in "-_" else "-" for char in stock_id or "stock")
+    safe_action = "".join(char if char.isalnum() or char in "-_" else "-" for char in action_id or "action")
+    return (base / "evidence" / f"{safe_stock}-{safe_action}.md").as_posix()
 
 
 def _expert_console_open_actions(action_queue: list[Any]) -> list[dict[str, str]]:
@@ -1533,6 +1836,381 @@ def _expert_agent_label(category: str) -> str:
     if category in EXPERT_AGENT_LABELS:
         return EXPERT_AGENT_LABELS[category]
     return _review_label(category, REVIEW_ACTION_CATEGORY_LABELS)
+
+
+def _industry_rotation_map_section(research_summaries: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    for summary in research_summaries:
+        if not isinstance(summary, dict) or summary.get("error"):
+            continue
+        block = _industry_map_source_block(summary)
+        if block:
+            blocks.append(block)
+
+    if not blocks:
+        return ""
+    return (
+        '<section data-industry-rotation-map="true">'
+        "<h2>產業輪動地圖</h2>"
+        '<p class="industry-map-lead">'
+        "用產業分類整理研究交付壓力、證據缺口與專家阻塞，幫助先處理最卡住的研究包；"
+        "這裡的顏色與排序只代表 handoff gate 狀態，不代表產業強弱或買賣方向。"
+        "</p>"
+        f"{''.join(blocks)}"
+        '<p class="industry-map-note" data-industry-map-non-advice="true">'
+        "本圖用於研究交付排程、證據覆核與 blocker triage；"
+        "不構成買賣、持有、目標價或配置建議。"
+        "</p>"
+        "</section>"
+    )
+
+
+def _industry_map_source_block(summary: dict[str, Any]) -> str:
+    entries = _industry_map_entries(summary)
+    if not entries:
+        return ""
+
+    source_path = str(summary.get("path") or "")
+    state = _dict_value(summary.get("review_action_state"))
+    gate = build_handoff_quality_gate(
+        summary,
+        state,
+        blocker_limit=3,
+        evidence_base_dir=_research_summary_base_dir(summary),
+    )
+    blocked_industries = sum(1 for entry in entries if entry["status"] == "blocked")
+    evidence_gap_total = sum(int(entry["evidence_missing_count"]) for entry in entries)
+    top_lens = _industry_map_top_lens(entries)
+    handoff_text = "可交接" if gate.get("ready") else "尚未可交接"
+    next_step = str(gate.get("next_step") or "-")
+    cards = "".join(_industry_map_card(entry, source_path) for entry in entries)
+
+    return (
+        '<div class="industry-map-source" data-industry-map-source="true">'
+        f"<p>{_link(source_path, Path(source_path).name or 'research_summary.json')}</p>"
+        '<div class="industry-map-summary">'
+        '<div class="industry-map-summary-item"><strong>可否交接</strong>'
+        f"<span>{escape(handoff_text)}</span></div>"
+        '<div class="industry-map-summary-item"><strong>最大阻塞來源</strong>'
+        f"<span>{escape(top_lens)}</span></div>"
+        '<div class="industry-map-summary-item"><strong>最短修復路徑</strong>'
+        f"<span>{escape(next_step)}</span></div>"
+        '<div class="industry-map-summary-item"><strong>需優先處理</strong>'
+        f"<span>{escape(str(blocked_industries))} 個產業，{escape(str(evidence_gap_total))} 件待補交付證據</span></div>"
+        "</div>"
+        '<div class="industry-map-grid" data-industry-map-grid="true">'
+        f"{cards}"
+        "</div>"
+        "</div>"
+    )
+
+
+def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    stock_lookup = _industry_stock_lookup(summary)
+    groups: dict[str, dict[str, Any]] = {}
+
+    def group_for(category: str) -> dict[str, Any]:
+        clean_category = category.strip() or "未分類"
+        if clean_category not in groups:
+            groups[clean_category] = {
+                "category": clean_category,
+                "stocks": {},
+                "high_priority_stocks": set(),
+                "attention_stocks": set(),
+                "blocker_count": 0,
+                "open_count": 0,
+                "evidence_missing_count": 0,
+                "invalid_evidence_count": 0,
+                "stale_count": 0,
+                "missing_gate_count": 0,
+                "lens_counts": {},
+                "top_blockers": [],
+            }
+        return groups[clean_category]
+
+    for stock_id, record in stock_lookup.items():
+        group = group_for(str(record.get("category") or "未分類"))
+        _industry_add_stock(group, stock_id, record)
+
+    source_queue = summary.get("review_action_queue", [])
+    queue = source_queue if isinstance(source_queue, list) else []
+    state = _dict_value(summary.get("review_action_state"))
+    overlaid_queue = apply_review_action_state(queue, state)
+    for item in overlaid_queue:
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "-")
+        record = _industry_record_for_action_item(stock_lookup, item)
+        group = group_for(str(record.get("category") or "未分類"))
+        _industry_add_stock(group, stock_id, record)
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            if str(action.get("status") or "open") == "open":
+                group["open_count"] = int(group["open_count"]) + 1
+
+    gate = build_handoff_quality_gate(
+        summary,
+        state,
+        blocker_limit=999,
+        evidence_base_dir=_research_summary_base_dir(summary),
+    )
+    blockers_value = gate.get("blockers", [])
+    blockers = blockers_value if isinstance(blockers_value, list) else []
+    for blocker in blockers:
+        if not isinstance(blocker, dict):
+            continue
+        stock_id = str(blocker.get("stock_id") or "-")
+        record = stock_lookup.get(stock_id, {})
+        category = str(record.get("category") or "未分類")
+        group = group_for(category)
+        if stock_id and stock_id != "-":
+            _industry_add_stock(
+                group,
+                stock_id,
+                {
+                    "company_name": str(blocker.get("company_name") or record.get("company_name") or ""),
+                    "priority": str(blocker.get("priority") or record.get("priority") or ""),
+                    "attention_reasons": record.get("attention_reasons", []),
+                },
+            )
+        group["blocker_count"] = int(group["blocker_count"]) + 1
+        kind = str(blocker.get("kind") or "")
+        if kind == "missing_evidence":
+            group["evidence_missing_count"] = int(group["evidence_missing_count"]) + 1
+        elif kind == "invalid_evidence":
+            group["invalid_evidence_count"] = int(group["invalid_evidence_count"]) + 1
+        elif kind == "stale_state":
+            group["stale_count"] = int(group["stale_count"]) + 1
+        elif kind == "missing_gate_action":
+            group["missing_gate_count"] = int(group["missing_gate_count"]) + 1
+        lens = str(blocker.get("category") or "")
+        if lens:
+            lens_counts = group["lens_counts"]
+            lens_counts[lens] = int(lens_counts.get(lens, 0)) + 1
+        top_blockers = group["top_blockers"]
+        if len(top_blockers) < 3:
+            top_blockers.append(blocker)
+
+    entries: list[dict[str, Any]] = []
+    max_score = 1
+    for group in groups.values():
+        stock_count = len(group["stocks"])
+        high_priority_count = len(group["high_priority_stocks"])
+        attention_count = len(group["attention_stocks"])
+        score = (
+            int(group["blocker_count"]) * 4
+            + int(group["evidence_missing_count"]) * 2
+            + int(group["invalid_evidence_count"]) * 2
+            + int(group["stale_count"]) * 2
+            + attention_count
+            + high_priority_count
+        )
+        max_score = max(max_score, score)
+        status = "ready"
+        if int(group["blocker_count"]) > 0:
+            status = "blocked"
+        elif attention_count > 0 or high_priority_count > 0:
+            status = "needs-review"
+        entry = {
+            "category": group["category"],
+            "stock_count": stock_count,
+            "high_priority_count": high_priority_count,
+            "attention_count": attention_count,
+            "blocker_count": int(group["blocker_count"]),
+            "open_count": int(group["open_count"]),
+            "evidence_missing_count": int(group["evidence_missing_count"]),
+            "invalid_evidence_count": int(group["invalid_evidence_count"]),
+            "stale_count": int(group["stale_count"]),
+            "missing_gate_count": int(group["missing_gate_count"]),
+            "lens_counts": group["lens_counts"],
+            "top_blockers": group["top_blockers"],
+            "sample_stocks": _industry_sample_stocks(group["stocks"]),
+            "score": score,
+            "status": status,
+            "pressure": 0,
+        }
+        entries.append(entry)
+
+    for entry in entries:
+        score = int(entry["score"])
+        entry["pressure"] = 5 if score <= 0 else max(12, min(100, round(score / max_score * 100)))
+
+    return sorted(entries, key=lambda entry: (-int(entry["score"]), str(entry["category"])))
+
+
+def _industry_stock_lookup(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for item in _industry_summary_items(summary):
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "").strip()
+        if not stock_id:
+            continue
+        record = records.setdefault(stock_id, {})
+        record["category"] = str(item.get("category") or record.get("category") or "未分類")
+        record["company_name"] = str(item.get("company_name") or record.get("company_name") or "")
+        record["priority"] = str(item.get("priority") or record.get("priority") or "")
+        reasons = item.get("attention_reasons", record.get("attention_reasons", []))
+        record["attention_reasons"] = reasons if isinstance(reasons, list) else [str(reasons)]
+    return records
+
+
+def _industry_summary_items(summary: dict[str, Any]) -> list[Any]:
+    items: list[Any] = []
+    source_items = summary.get("items", [])
+    if isinstance(source_items, list):
+        items.extend(source_items)
+    universe_review = summary.get("universe_review", {})
+    if isinstance(universe_review, dict):
+        queue = universe_review.get("attention_queue", [])
+        if isinstance(queue, list):
+            items.extend(queue)
+    return items
+
+
+def _industry_record_for_action_item(stock_lookup: dict[str, dict[str, Any]], item: dict[str, Any]) -> dict[str, Any]:
+    stock_id = str(item.get("stock_id") or "")
+    record = dict(stock_lookup.get(stock_id, {}))
+    record.setdefault("category", "未分類")
+    record.setdefault("company_name", str(item.get("company_name") or ""))
+    record.setdefault("priority", str(item.get("priority") or ""))
+    record.setdefault("attention_reasons", [])
+    return record
+
+
+def _industry_add_stock(group: dict[str, Any], stock_id: str, record: dict[str, Any]) -> None:
+    if not stock_id or stock_id == "-":
+        return
+    stocks = group["stocks"]
+    stocks[stock_id] = str(record.get("company_name") or stocks.get(stock_id) or "")
+    if str(record.get("priority") or "") == "high":
+        group["high_priority_stocks"].add(stock_id)
+    reasons = record.get("attention_reasons", [])
+    if isinstance(reasons, list) and any(str(reason).strip() for reason in reasons):
+        group["attention_stocks"].add(stock_id)
+
+
+def _industry_map_card(entry: dict[str, Any], source_path: str) -> str:
+    category = str(entry["category"])
+    status = str(entry["status"])
+    status_label = _industry_status_label(entry)
+    pressure = int(entry["pressure"])
+    lens_counts = entry.get("lens_counts", {})
+    lens_summary = _count_pairs(lens_counts if isinstance(lens_counts, dict) else {}, REVIEW_ACTION_CATEGORY_LABELS)
+    sample_stocks = _list_value(entry.get("sample_stocks"))
+    focus = _industry_map_focus(entry)
+    focus_button = ""
+    if focus:
+        focus_button = (
+            '<button type="button" class="expert-console-next" data-industry-map-focus-stock="'
+            f'{escape(focus.get("stock_id", ""))}"'
+            f' data-industry-map-focus-action="{escape(focus.get("action_id", ""))}"'
+            f' data-industry-map-focus-category="{escape(focus.get("category", "all"))}"'
+            f' data-review-actions-source-path="{escape(source_path)}">前往這個產業阻塞</button>'
+        )
+    sample_text = ", ".join(sample_stocks) if sample_stocks else "-"
+    blocker_copy = _industry_blocker_copy(entry)
+    return (
+        '<article class="industry-map-card" data-industry-map-card="true"'
+        f' data-industry-map-status="{escape(status)}"'
+        f' data-industry-name="{escape(category)}">'
+        '<div class="industry-map-head">'
+        f"<h3>{escape(category)}</h3>"
+        f'<span class="industry-status-pill">{escape(status_label)}</span>'
+        "</div>"
+        f'<p class="industry-map-lead">{escape(blocker_copy)}</p>'
+        f'<div class="industry-pressure" aria-label="交付壓力 {escape(str(pressure))}"><span style="width: {escape(str(pressure))}%"></span></div>'
+        '<div class="industry-map-metrics">'
+        f'<span><strong>{escape(str(entry["stock_count"]))}</strong>研究項目</span>'
+        f'<span><strong>{escape(str(entry["blocker_count"]))}</strong>阻塞數</span>'
+        f'<span><strong>{escape(str(entry["evidence_missing_count"]))}</strong>證據缺口</span>'
+        f'<span><strong>{escape(str(entry["open_count"]))}</strong>待處理動作</span>'
+        "</div>"
+        '<p class="status-line">'
+        f'<span class="badge">高優先：{escape(str(entry["high_priority_count"]))}</span>'
+        f'<span class="badge">需關注：{escape(str(entry["attention_count"]))}</span>'
+        f'<span class="badge">無效證據：{escape(str(entry["invalid_evidence_count"]))}</span>'
+        f'<span class="badge">過期狀態：{escape(str(entry["stale_count"]))}</span>'
+        "</p>"
+        f'<p class="status-line"><span class="badge">專家阻塞：{lens_summary}</span></p>'
+        f'<p class="empty">樣本股票：{escape(sample_text)}</p>'
+        f'<div class="industry-map-actions">{focus_button}</div>'
+        "</article>"
+    )
+
+
+def _industry_status_label(entry: dict[str, Any]) -> str:
+    if entry["status"] == "blocked":
+        if int(entry["evidence_missing_count"]) > 0:
+            return "交付阻塞：待補證據"
+        return "交付阻塞高"
+    if entry["status"] == "needs-review":
+        return "需人工複核"
+    return "交付可讀"
+
+
+def _industry_blocker_copy(entry: dict[str, Any]) -> str:
+    category = str(entry["category"])
+    if int(entry["blocker_count"]) > 0:
+        lens_counts = entry.get("lens_counts", {})
+        lens_text = _industry_lens_text(lens_counts if isinstance(lens_counts, dict) else {})
+        return f"{category} 研究包目前較不適合交付，主因：{lens_text}。"
+    if int(entry["attention_count"]) > 0:
+        return f"{category} 有需關注研究項目，適合先完成人工複核再交付。"
+    return f"{category} 目前沒有 gate 阻塞；下一步是人工閱讀與簽核。"
+
+
+def _industry_lens_text(counts: dict[str, Any]) -> str:
+    if not counts:
+        return "-"
+    pairs = sorted(((str(key), str(value)) for key, value in counts.items()), key=lambda item: item[0])
+    return ", ".join(f"{_review_label(key, REVIEW_ACTION_CATEGORY_LABELS)}: {value}" for key, value in pairs)
+
+
+def _industry_sample_stocks(stocks: dict[str, str]) -> list[str]:
+    samples = []
+    for stock_id, company_name in sorted(stocks.items())[:5]:
+        label = stock_id if not company_name else f"{stock_id} {company_name}"
+        samples.append(label)
+    return samples
+
+
+def _industry_map_focus(entry: dict[str, Any]) -> dict[str, str]:
+    blockers = entry.get("top_blockers", [])
+    if isinstance(blockers, list):
+        for blocker in blockers:
+            if not isinstance(blocker, dict):
+                continue
+            stock_id = str(blocker.get("stock_id") or "").strip()
+            if not stock_id or stock_id == "-":
+                continue
+            return {
+                "stock_id": stock_id,
+                "action_id": str(blocker.get("action_id") or ""),
+                "category": str(blocker.get("category") or "all"),
+            }
+    samples = _list_value(entry.get("sample_stocks"))
+    if samples:
+        return {"stock_id": samples[0].split()[0], "action_id": "", "category": "all"}
+    return {}
+
+
+def _industry_map_top_lens(entries: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        lens_counts = entry.get("lens_counts", {})
+        if not isinstance(lens_counts, dict):
+            continue
+        for lens, value in lens_counts.items():
+            counts[str(lens)] = counts.get(str(lens), 0) + int(value)
+    if not counts:
+        return "-"
+    lens, count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
+    return f"{_review_label(lens, REVIEW_ACTION_CATEGORY_LABELS)} {count} 件"
 
 
 def _research_summary_section(summaries: list[dict[str, Any]]) -> str:

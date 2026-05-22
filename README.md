@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.40.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.41.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -30,6 +30,8 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Guides dashboard handoff with an Expert Agent Console that shows readiness, the top 3 blockers, expert lenses, next actions, and a non-investment-advice notice; Top 3 blocker cards can be handled directly from the console.
 - Checks handoff readiness with a reusable Handoff Quality Gate and `doctor handoff`, including open actions, stale state, missing required gate actions, and missing evidence on handled high-risk blockers.
 - Generates a Handoff Evidence Pack with gate status, Top blockers, reviewer notes, evidence references, and non-investment-advice notice for final local review.
+- Lets the dashboard generate or copy the Handoff Evidence Pack workflow, show output file paths, and point to missing evidence files before handoff.
+- Shows a dashboard industry rotation map that groups research items by category and ranks research-delivery pressure from blockers, evidence gaps, and open review actions without creating investment advice.
 - Prunes stale review-action state entries explicitly with a dry-run-by-default CLI command.
 - Backs up existing review-action state files before CLI writes.
 - Lists available review-action state backup files before restore.
@@ -202,7 +204,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.40.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.41.0
 ```
 
 ## Example Files
@@ -249,6 +251,7 @@ When a `research_summary.json` is present, the dashboard also shows:
 
 - research item counts by state and priority
 - stocks that need review because of research state, workflow status, or reliability warnings
+- an industry rotation map that groups the research universe by `category`, highlights handoff blockers and evidence gaps, and links back to the matching review-action tasks
 - a universe review queue for high-attention and blocked research items
 - links back to generated workflow and research outputs
 - links to generated Markdown and HTML research memos when memo outputs are present
@@ -308,6 +311,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.41.0 release notes](docs/releases/v0.41.0.md)
 - [v0.40.0 release notes](docs/releases/v0.40.0.md)
 - [v0.39.0 release notes](docs/releases/v0.39.0.md)
 - [v0.38.0 release notes](docs/releases/v0.38.0.md)
