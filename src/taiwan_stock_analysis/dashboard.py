@@ -299,6 +299,16 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-map-detail-task p {{ margin: 6px 0; }}
     .industry-map-task-head {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }}
     .industry-map-task-head strong {{ color: #172033; }}
+    .industry-evidence-board {{ display: grid; gap: 10px; margin: 10px 0 12px; }}
+    .industry-evidence-row {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 10px; background: white; }}
+    .industry-evidence-row[data-industry-evidence-status="missing"] {{ border-left: 5px solid #d97706; }}
+    .industry-evidence-row[data-industry-evidence-status="invalid"] {{ border-left: 5px solid #dc2626; }}
+    .industry-evidence-row[data-industry-evidence-status="open"] {{ border-left: 5px solid #2563eb; }}
+    .industry-evidence-row[data-industry-evidence-status="ready"] {{ border-left: 5px solid #16a34a; }}
+    .industry-evidence-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 6px; }}
+    .industry-evidence-head strong {{ color: #172033; }}
+    .industry-evidence-next {{ margin: 6px 0; color: #12355b; }}
+    .industry-evidence-path {{ margin: 6px 0; color: #475569; font-size: 13px; overflow-wrap: anywhere; }}
     .expert-console-grid {{ display: grid; grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.6fr); gap: 14px; align-items: start; }}
     .expert-console-panel {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; background: #fbfdff; }}
     .expert-console-panel h3 {{ margin-bottom: 8px; }}
@@ -546,6 +556,9 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }});
       panel.innerHTML = template.innerHTML;
       panel.dataset.industryMapDetailName = card.dataset.industryName || '';
+      panel.querySelectorAll('[data-expert-console-action-command="true"]').forEach((button) => {{
+        attachExpertConsoleCommand(button);
+      }});
       if (options.scroll) {{
         panel.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
       }}
@@ -2024,13 +2037,14 @@ def _industry_map_source_block(summary: dict[str, Any]) -> str:
     top_lens = _industry_map_top_lens(entries)
     handoff_text = "可交接" if gate.get("ready") else "尚未可交接"
     next_step = str(gate.get("next_step") or "-")
+    state_path = _review_action_state_path(summary)
     card_html: list[str] = []
     detail_templates: list[str] = []
     for index, entry in enumerate(entries):
         detail_id = f"industry-detail-{index}"
         card_html.append(_industry_map_card(entry, source_path, detail_id))
-        detail_templates.append(_industry_map_detail_template(entry, source_path, detail_id))
-    initial_detail = _industry_map_detail_body(entries[0], source_path) if entries else ""
+        detail_templates.append(_industry_map_detail_template(entry, source_path, state_path, detail_id))
+    initial_detail = _industry_map_detail_body(entries[0], source_path, state_path) if entries else ""
 
     return (
         '<div class="industry-map-source" data-industry-map-source="true">'
@@ -2083,6 +2097,7 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "missing_gate_count": 0,
                 "lens_counts": {},
                 "top_blockers": [],
+                "evidence_rows": {},
             }
         return groups[clean_category]
 
@@ -2101,14 +2116,25 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
         record = _industry_record_for_action_item(stock_lookup, item)
         group = group_for(str(record.get("category") or "未分類"))
         _industry_add_stock(group, stock_id, record)
+        evidence_row = _industry_stock_evidence_row(group, stock_id, record)
         actions = item.get("actions", [])
         if not isinstance(actions, list):
             continue
         for action in actions:
             if not isinstance(action, dict):
                 continue
-            if str(action.get("status") or "open") == "open":
+            status = str(action.get("status") or "open")
+            action_id = str(action.get("id") or "")
+            category = str(action.get("category") or "")
+            evidence_row["action_count"] = int(evidence_row["action_count"]) + 1
+            if status == "open":
                 group["open_count"] = int(group["open_count"]) + 1
+                evidence_row["open_count"] = int(evidence_row["open_count"]) + 1
+            if requires_handoff_evidence(action_id):
+                evidence_row["evidence_required_count"] = int(evidence_row["evidence_required_count"]) + 1
+                if status != "open" and _industry_action_has_handoff_evidence(action):
+                    evidence_row["evidence_filled_count"] = int(evidence_row["evidence_filled_count"]) + 1
+            _industry_evidence_row_set_focus(evidence_row, action_id, category, action)
 
     gate = build_handoff_quality_gate(
         summary,
@@ -2135,6 +2161,8 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
                     "attention_reasons": record.get("attention_reasons", []),
                 },
             )
+        evidence_row = _industry_stock_evidence_row(group, stock_id, record)
+        _industry_evidence_row_add_blocker(summary, evidence_row, blocker)
         group["blocker_count"] = int(group["blocker_count"]) + 1
         kind = str(blocker.get("kind") or "")
         if kind == "missing_evidence":
@@ -2186,6 +2214,7 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
             "missing_gate_count": int(group["missing_gate_count"]),
             "lens_counts": group["lens_counts"],
             "top_blockers": group["top_blockers"],
+            "evidence_rows": _industry_evidence_rows(group["evidence_rows"]),
             "sample_stocks": _industry_sample_stocks(group["stocks"]),
             "score": score,
             "status": status,
@@ -2250,6 +2279,131 @@ def _industry_add_stock(group: dict[str, Any], stock_id: str, record: dict[str, 
     reasons = record.get("attention_reasons", [])
     if isinstance(reasons, list) and any(str(reason).strip() for reason in reasons):
         group["attention_stocks"].add(stock_id)
+    _industry_stock_evidence_row(group, stock_id, record)
+
+
+def _industry_stock_evidence_row(group: dict[str, Any], stock_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    rows = group["evidence_rows"]
+    row = rows.setdefault(
+        stock_id,
+        {
+            "stock_id": stock_id,
+            "company_name": "",
+            "priority": "",
+            "action_count": 0,
+            "evidence_required_count": 0,
+            "evidence_filled_count": 0,
+            "open_count": 0,
+            "blocker_count": 0,
+            "open_blocker_count": 0,
+            "missing_evidence_count": 0,
+            "invalid_evidence_count": 0,
+            "stale_count": 0,
+            "missing_gate_count": 0,
+            "missing_fields": set(),
+            "suggested_paths": [],
+            "lens_counts": {},
+            "focus_action_id": "",
+            "focus_category": "all",
+            "focus_note": "",
+            "focus_reviewer": "",
+            "focus_evidence_url": "",
+            "focus_updated_at": "",
+        },
+    )
+    company_name = str(record.get("company_name") or "")
+    priority = str(record.get("priority") or "")
+    if company_name:
+        row["company_name"] = company_name
+    if priority:
+        row["priority"] = priority
+    return row
+
+
+def _industry_action_has_handoff_evidence(action: dict[str, Any]) -> bool:
+    return all(str(action.get(field) or "").strip() for field in ("note", "reviewer", "evidence_url", "updated_at"))
+
+
+def _industry_evidence_row_set_focus(
+    row: dict[str, Any],
+    action_id: str,
+    category: str,
+    action: dict[str, Any],
+) -> None:
+    if row.get("focus_action_id") or not action_id:
+        return
+    row["focus_action_id"] = action_id
+    row["focus_category"] = category or "all"
+    row["focus_note"] = str(action.get("note") or "")
+    row["focus_reviewer"] = str(action.get("reviewer") or "")
+    row["focus_evidence_url"] = str(action.get("evidence_url") or "")
+    row["focus_updated_at"] = str(action.get("updated_at") or "")
+
+
+def _industry_evidence_row_add_blocker(
+    summary: dict[str, Any],
+    row: dict[str, Any],
+    blocker: dict[str, Any],
+) -> None:
+    row["blocker_count"] = int(row["blocker_count"]) + 1
+    kind = str(blocker.get("kind") or "")
+    category = str(blocker.get("category") or "")
+    action_id = str(blocker.get("action_id") or "")
+    if kind == "open_action":
+        row["open_blocker_count"] = int(row["open_blocker_count"]) + 1
+    elif kind == "missing_evidence":
+        row["missing_evidence_count"] = int(row["missing_evidence_count"]) + 1
+        missing = str(blocker.get("missing_evidence_fields") or "")
+        row["missing_fields"].update(field.strip() for field in missing.split(",") if field.strip())
+        row["suggested_paths"].append(_suggested_evidence_path(summary, str(row["stock_id"]), action_id))
+    elif kind == "invalid_evidence":
+        row["invalid_evidence_count"] = int(row["invalid_evidence_count"]) + 1
+        row["suggested_paths"].append(_suggested_evidence_path(summary, str(row["stock_id"]), action_id))
+    elif kind == "stale_state":
+        row["stale_count"] = int(row["stale_count"]) + 1
+    elif kind == "missing_gate_action":
+        row["missing_gate_count"] = int(row["missing_gate_count"]) + 1
+    if category:
+        lens_counts = row["lens_counts"]
+        lens_counts[category] = int(lens_counts.get(category, 0)) + 1
+    if action_id:
+        row["focus_action_id"] = row.get("focus_action_id") or action_id
+        row["focus_category"] = row.get("focus_category") or category or "all"
+        row["focus_note"] = row.get("focus_note") or str(blocker.get("note") or "")
+        row["focus_reviewer"] = row.get("focus_reviewer") or str(blocker.get("reviewer") or "")
+        row["focus_evidence_url"] = row.get("focus_evidence_url") or str(blocker.get("evidence_url") or "")
+        row["focus_updated_at"] = row.get("focus_updated_at") or str(blocker.get("updated_at") or "")
+
+
+def _industry_evidence_rows(rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows.values():
+        normalized_row = dict(row)
+        normalized_row["missing_fields"] = sorted(str(field) for field in row.get("missing_fields", set()))
+        normalized_row["suggested_paths"] = [
+            str(path) for path in row.get("suggested_paths", []) if str(path).strip()
+        ]
+        normalized_row["status"] = _industry_evidence_row_status(normalized_row)
+        normalized.append(normalized_row)
+    status_order = {"invalid": 0, "missing": 1, "open": 2, "ready": 3}
+    return sorted(
+        normalized,
+        key=lambda row: (
+            status_order.get(str(row["status"]), 9),
+            -int(row.get("blocker_count") or 0),
+            str(row.get("stock_id") or ""),
+        ),
+    )
+
+
+def _industry_evidence_row_status(row: dict[str, Any]) -> str:
+    if int(row.get("invalid_evidence_count") or 0) > 0:
+        return "invalid"
+    if int(row.get("missing_evidence_count") or 0) > 0:
+        return "missing"
+    if int(row.get("open_blocker_count") or 0) > 0 or int(row.get("open_count") or 0) > 0:
+        return "open"
+    return "ready"
 
 def _industry_map_card(entry: dict[str, Any], source_path: str, detail_id: str) -> str:
     category = str(entry["category"])
@@ -2359,16 +2513,16 @@ def _industry_map_filter_bar(total_entries: int) -> str:
     )
 
 
-def _industry_map_detail_template(entry: dict[str, Any], source_path: str, detail_id: str) -> str:
+def _industry_map_detail_template(entry: dict[str, Any], source_path: str, state_path: str, detail_id: str) -> str:
     return (
         '<div class="industry-map-detail-template"'
         f' data-industry-map-detail-template="{escape(detail_id)}" hidden>'
-        f"{_industry_map_detail_body(entry, source_path)}"
+        f"{_industry_map_detail_body(entry, source_path, state_path)}"
         "</div>"
     )
 
 
-def _industry_map_detail_body(entry: dict[str, Any], source_path: str) -> str:
+def _industry_map_detail_body(entry: dict[str, Any], source_path: str, state_path: str) -> str:
     category = str(entry["category"])
     status_label = _industry_status_label(entry)
     lens_counts = entry.get("lens_counts", {})
@@ -2390,12 +2544,123 @@ def _industry_map_detail_body(entry: dict[str, Any], source_path: str) -> str:
         f'<span><strong>{escape(str(entry["open_count"]))}</strong>\u672a\u5b8c\u6210\u4efb\u52d9</span>'
         "</div>"
         f'<p class="status-line"><span class="badge">\u5c08\u5bb6\u963b\u585e\uff1a{lens_summary}</span></p>'
+        "<h4>\u7522\u696d\u8b49\u64da\u770b\u677f</h4>"
+        f"{_industry_map_evidence_board(entry, source_path, state_path)}"
         "<h4>Top blockers</h4>"
         f"{_industry_map_detail_tasks(entry, source_path)}"
         '<p class="industry-map-note" data-industry-map-non-advice="true">'
         "\u9019\u88e1\u53ea\u662f\u4ea4\u4ed8\u54c1\u8cea\u8207\u8b49\u64da\u6aa2\u67e5\u5de5\u4f5c\u6d41\uff0c\u4e0d\u69cb\u6210\u6295\u8cc7\u5efa\u8b70\u3002"
         "</p>"
     )
+
+
+def _industry_map_evidence_board(entry: dict[str, Any], source_path: str, state_path: str) -> str:
+    rows = entry.get("evidence_rows", [])
+    if not isinstance(rows, list) or not rows:
+        return '<p class="empty" data-industry-evidence-board="true">\u6c92\u6709\u53ef\u986f\u793a\u7684\u80a1\u7968\u8b49\u64da\u72c0\u614b\u3002</p>'
+    return (
+        '<div class="industry-evidence-board" data-industry-evidence-board="true">'
+        f"{''.join(_industry_map_evidence_row(row, source_path, state_path) for row in rows[:8] if isinstance(row, dict))}"
+        "</div>"
+    )
+
+
+def _industry_map_evidence_row(row: dict[str, Any], source_path: str, state_path: str) -> str:
+    stock_id = str(row.get("stock_id") or "-")
+    company_name = str(row.get("company_name") or "")
+    stock_label = stock_id if not company_name else f"{stock_id} {company_name}"
+    status = str(row.get("status") or "ready")
+    status_label = _industry_evidence_status_label(status)
+    missing_fields = _list_value(row.get("missing_fields"))
+    missing_text = ", ".join(missing_fields) if missing_fields else "-"
+    suggested_paths = _list_value(row.get("suggested_paths"))
+    suggested_path = suggested_paths[0] if suggested_paths else "-"
+    next_copy = _industry_evidence_next_step(row)
+    focus_button = _industry_map_evidence_focus_button(row, source_path)
+    action_buttons = _industry_map_evidence_action_buttons(row, source_path, state_path)
+    return (
+        '<div class="industry-evidence-row" data-industry-evidence-row="true"'
+        f' data-industry-evidence-status="{escape(status)}"'
+        f' data-industry-evidence-stock-id="{escape(stock_id)}"'
+        f' data-industry-evidence-suggested-path="{escape(suggested_path)}"'
+        ' data-expert-console-task="true">'
+        '<div class="industry-evidence-head">'
+        f"<strong>{escape(stock_label)}</strong>"
+        f'<span class="industry-status-pill">{escape(status_label)}</span>'
+        "</div>"
+        '<p class="status-line">'
+        f'<span class="badge">\u9700\u8b49\u64da {escape(str(row.get("evidence_required_count", 0)))}</span>'
+        f'<span class="badge">\u5df2\u586b {escape(str(row.get("evidence_filled_count", 0)))}</span>'
+        f'<span class="badge">\u5f85\u88dc {escape(str(row.get("missing_evidence_count", 0)))}</span>'
+        f'<span class="badge">\u7121\u6548 {escape(str(row.get("invalid_evidence_count", 0)))}</span>'
+        f'<span class="badge">\u672a\u5b8c\u6210 {escape(str(row.get("open_count", 0)))}</span>'
+        "</p>"
+        f'<p class="industry-evidence-next"><strong>\u4e0b\u4e00\u6b65\uff1a</strong>{escape(next_copy)}</p>'
+        f'<p class="industry-evidence-path"><strong>\u7f3a\u6b04\u4f4d\uff1a</strong>{escape(missing_text)}</p>'
+        f'<p class="industry-evidence-path"><strong>\u5efa\u8b70\u8b49\u64da\u6a94\uff1a</strong>{escape(suggested_path)}</p>'
+        f'<div class="industry-map-actions">{focus_button}{action_buttons}</div>'
+        '<p class="expert-console-result" data-expert-console-task-result="true">\u8655\u7406\u7d50\u679c\uff1a\u5c1a\u672a\u8655\u7406</p>'
+        "</div>"
+    )
+
+
+def _industry_map_evidence_focus_button(row: dict[str, Any], source_path: str) -> str:
+    stock_id = str(row.get("stock_id") or "").strip()
+    action_id = str(row.get("focus_action_id") or "").strip()
+    if not stock_id or stock_id == "-" or not action_id:
+        return ""
+    return (
+        '<button type="button" class="expert-console-next" data-industry-map-focus-stock="'
+        f'{escape(stock_id)}"'
+        f' data-industry-map-focus-action="{escape(action_id)}"'
+        f' data-industry-map-focus-category="{escape(str(row.get("focus_category") or "all"))}"'
+        f' data-review-actions-source-path="{escape(source_path)}">\u524d\u5f80\u5be9\u67e5\u52d5\u4f5c</button>'
+    )
+
+
+def _industry_map_evidence_action_buttons(row: dict[str, Any], source_path: str, state_path: str) -> str:
+    stock_id = str(row.get("stock_id") or "").strip()
+    action_id = str(row.get("focus_action_id") or "").strip()
+    if not stock_id or stock_id == "-" or not action_id:
+        return ""
+    action = {
+        "stock_id": stock_id,
+        "action_id": action_id,
+        "category": str(row.get("focus_category") or "all"),
+        "note": str(row.get("focus_note") or ""),
+        "reviewer": str(row.get("focus_reviewer") or ""),
+        "evidence_url": str(row.get("focus_evidence_url") or ""),
+        "updated_at": str(row.get("focus_updated_at") or ""),
+    }
+    done_label = "\u88dc\u8b49\u4e26\u6a19\u8a18\u5b8c\u6210"
+    deferred_label = "\u7a0d\u5f8c\u88dc\u8b49"
+    return (
+        f'{_expert_console_action_button(action, source_path, state_path, "done", done_label)}'
+        f'{_expert_console_action_button(action, source_path, state_path, "deferred", deferred_label)}'
+    )
+
+
+def _industry_evidence_status_label(status: str) -> str:
+    labels = {
+        "invalid": "\u8b49\u64da\u7121\u6548",
+        "missing": "\u5f85\u88dc\u8b49\u64da",
+        "open": "\u5f85\u8655\u7406\u52d5\u4f5c",
+        "ready": "\u8b49\u64da\u53ef\u4ea4\u4ed8",
+    }
+    return labels.get(status, status or "-")
+
+
+def _industry_evidence_next_step(row: dict[str, Any]) -> str:
+    status = str(row.get("status") or "")
+    if status == "invalid":
+        return "\u4fee\u6b63 evidence URL \u6216\u5efa\u7acb\u5efa\u8b70\u8b49\u64da\u6a94\u5f8c\uff0c\u91cd\u8dd1 handoff gate\u3002"
+    if status == "missing":
+        return "\u88dc note\u3001reviewer\u3001evidence URL\uff0c\u7136\u5f8c\u5728 dashboard \u6216 CLI \u6a19\u8a18\u8655\u7406\u7d50\u679c\u3002"
+    if status == "open":
+        return "\u5148\u8655\u7406\u672a\u5b8c\u6210\u7684 Review Actions\uff0c\u518d\u88dc\u4ea4\u4ed8\u8b49\u64da\u3002"
+    if int(row.get("evidence_required_count") or 0) == 0:
+        return "\u76ee\u524d\u6c92\u6709\u9700\u88dc\u7684\u4ea4\u4ed8\u8b49\u64da\u52d5\u4f5c\u3002"
+    return "\u8b49\u64da\u6b04\u4f4d\u5df2\u586b\uff1b\u4e0b\u4e00\u6b65\u662f\u4eba\u5de5\u95b1\u8b80\u8207\u7c3d\u6838\u3002"
 
 
 def _industry_map_detail_tasks(entry: dict[str, Any], source_path: str) -> str:
@@ -2491,6 +2756,15 @@ def _industry_map_search_text(entry: dict[str, Any]) -> str:
                 continue
             for key in ("kind", "stock_id", "company_name", "category", "expert_label", "action_id", "message", "next_step"):
                 parts.append(str(blocker.get(key) or ""))
+    evidence_rows = entry.get("evidence_rows", [])
+    if isinstance(evidence_rows, list):
+        for row in evidence_rows:
+            if not isinstance(row, dict):
+                continue
+            for key in ("stock_id", "company_name", "status", "focus_action_id"):
+                parts.append(str(row.get(key) or ""))
+            parts.extend(_list_value(row.get("missing_fields")))
+            parts.extend(_list_value(row.get("suggested_paths")))
     return " ".join(part.strip() for part in parts if part and part.strip())
 
 

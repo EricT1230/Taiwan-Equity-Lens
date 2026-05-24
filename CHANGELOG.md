@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.43.0 - 2026-05-24
+
+Sector Evidence Board release.
+
+### Added
+- Sector evidence board inside the dashboard industry workflow detail panel.
+- Stock-level evidence rows showing evidence status, required/filled evidence counts, missing fields, suggested evidence file, and next action.
+- Direct handling buttons from the sector evidence board using the existing review-action state flow.
+- Dashboard tests for sector evidence rows, suggested evidence paths, and detail-panel action re-binding.
+- v0.43.0 release notes and design spec.
+
+### Changed
+- The industry workflow now shows both sector blockers and per-stock evidence readiness in one place.
+- README and usage workflow release doctor examples now target `0.43.0`.
+- Package version is now `0.43.0`.
+
+### Tests
+- Added dashboard coverage for the stock-level evidence board rendered inside industry details.
+
 ## v0.42.0 - 2026-05-22
 
 Industry Map Drilldown / Sector Workflow release.
