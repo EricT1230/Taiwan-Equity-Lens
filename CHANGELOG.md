@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.44.0 - 2026-05-25
+
+Served Dashboard Quality Gate release.
+
+### Added
+- Regression coverage that uses the rendered sector evidence-board `補證並標記完成` button payload to update `review_action_state.json` through the served dashboard API helper.
+- Post-update dashboard coverage confirming a stock evidence row can move to `證據可交付` after valid note, reviewer, and evidence reference fields are written.
+- v0.44.0 release notes.
+
+### Changed
+- README and usage workflow release doctor examples now target `0.44.0`.
+- Package version is now `0.44.0`.
+
+### Tests
+- Added served-dashboard quality coverage for the v0.43 sector evidence-board interaction path.
+
 ## v0.43.0 - 2026-05-24
 
 Sector Evidence Board release.
