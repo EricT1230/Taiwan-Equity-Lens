@@ -1,7 +1,9 @@
 import json
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
+from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
 from taiwan_stock_analysis.dashboard_server import (
     set_review_action_status_from_payload,
     write_handoff_pack_from_payload,
@@ -9,6 +11,80 @@ from taiwan_stock_analysis.dashboard_server import (
 
 
 class DashboardServerTests(unittest.TestCase):
+    def test_sector_evidence_board_done_button_payload_updates_state(self):
+        root = Path(".tmp-cli-test/dashboard-server-sector-evidence")
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "evidence").mkdir(exist_ok=True)
+        (root / "evidence" / "2330-source.md").write_text("checked source audit", encoding="utf-8")
+        state_path = root / "review_action_state.json"
+        (root / "research_summary.json").write_text(
+            json.dumps(
+                {
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "company_name": "TSMC",
+                            "priority": "high",
+                            "actions": [
+                                {
+                                    "id": "source-audit-manual-review",
+                                    "category": "source_audit",
+                                    "severity": "manual_review",
+                                    "message": "Review source audit before handoff.",
+                                    "status": "open",
+                                }
+                            ],
+                        }
+                    ],
+                    "items": [
+                        {
+                            "stock_id": "2330",
+                            "company_name": "TSMC",
+                            "category": "Semiconductor",
+                            "priority": "high",
+                            "research_state": "watching",
+                            "workflow_status": "ok",
+                            "reliability_status": "ok",
+                            "source_audit_status": "manual_review",
+                            "attention_reasons": ["source audit requires handoff evidence"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
+        button = _find_button_by_text(html, "補證並標記完成")
+
+        result = set_review_action_status_from_payload(
+            {
+                "state_path": button["data-state-path"],
+                "stock_id": button["data-stock-id"],
+                "action_id": button["data-action-id"],
+                "status": button["data-status-value"],
+                "note": "checked source filing",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source.md",
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("done", result["status"])
+        self.assertEqual(0, result["evidence_missing_count"])
+        self.assertEqual(0, result["invalid_evidence_count"])
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        action = payload["actions"]["2330:source-audit-manual-review"]
+        self.assertEqual("done", action["status"])
+        self.assertEqual("checked source filing", action["note"])
+        self.assertEqual("source-audit-lead", action["reviewer"])
+        self.assertEqual("evidence/2330-source.md", action["evidence_url"])
+
+        updated_html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
+        self.assertIn('data-industry-evidence-status="ready"', updated_html)
+        self.assertIn("證據可交付", updated_html)
+
     def test_set_review_action_status_from_payload_writes_state(self):
         root = Path(".tmp-cli-test/dashboard-server-api")
         root.mkdir(parents=True, exist_ok=True)
@@ -184,6 +260,38 @@ class DashboardServerTests(unittest.TestCase):
                 },
                 allowed_roots=[root],
             )
+
+
+class _ButtonTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.buttons: list[tuple[dict[str, str], str]] = []
+        self._attrs: dict[str, str] | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "button":
+            self._attrs = {key: value or "" for key, value in attrs}
+            self._text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._attrs is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "button" and self._attrs is not None:
+            self.buttons.append((self._attrs, "".join(self._text).strip()))
+            self._attrs = None
+            self._text = []
+
+
+def _find_button_by_text(html: str, text: str) -> dict[str, str]:
+    parser = _ButtonTextParser()
+    parser.feed(html)
+    for attrs, button_text in parser.buttons:
+        if button_text == text:
+            return attrs
+    raise AssertionError(f"button not found: {text}")
 
 
 if __name__ == "__main__":
