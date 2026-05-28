@@ -1,4 +1,5 @@
 import json
+import shutil
 import threading
 import unittest
 from html.parser import HTMLParser
@@ -88,6 +89,48 @@ class DashboardServerTests(unittest.TestCase):
             updated_html = _http_get_text(url)
             self.assertIn('data-industry-evidence-status="ready"', updated_html)
             self.assertIn("證據可交付", updated_html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_served_dashboard_http_guided_next_action_workbench_updates_gate(self):
+        root = Path(".tmp-cli-test/dashboard-server-next-action-http")
+        _write_sector_evidence_fixture(root)
+        server, url = create_dashboard_server([root.resolve()], port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(url)
+            self.assertIn('data-next-action-workbench="true"', html)
+            self.assertIn('data-next-action-kind="blocker"', html)
+            button = _find_button_by_attr(html, "data-next-action-primary", "true")
+
+            result = _http_post_json(
+                f"{url}api/review-actions/set",
+                {
+                    "state_path": button["data-state-path"],
+                    "stock_id": button["data-stock-id"],
+                    "action_id": button["data-action-id"],
+                    "status": button["data-status-value"],
+                    "note": "checked source filing",
+                    "reviewer": "source-audit-lead",
+                    "evidence_url": "evidence/2330-source.md",
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual("done", result["status"])
+            self.assertEqual("ready", result["handoff_status"])
+            self.assertTrue(result["ready"])
+            self.assertEqual(0, result["blocker_count"])
+            self.assertEqual(0, result["open_count"])
+            self.assertIn("人工閱讀", result["next_step"])
+
+            updated_html = _http_get_text(url)
+            self.assertIn('data-next-action-kind="ready"', updated_html)
+            self.assertIn('data-next-action-primary="true"', updated_html)
+            self.assertIn("產出 Evidence Pack", updated_html)
         finally:
             server.shutdown()
             thread.join(timeout=5)
@@ -271,6 +314,8 @@ class DashboardServerTests(unittest.TestCase):
 
 
 def _write_sector_evidence_fixture(root: Path) -> Path:
+    if root.exists():
+        shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     (root / "evidence").mkdir(exist_ok=True)
     (root / "evidence" / "2330-source.md").write_text("checked source audit", encoding="utf-8")
@@ -305,6 +350,8 @@ def _write_sector_evidence_fixture(root: Path) -> Path:
                         "reliability_status": "ok",
                         "source_audit_status": "manual_review",
                         "attention_reasons": ["source audit requires handoff evidence"],
+                        "thesis": "foundry scale requires source freshness review",
+                        "follow_up_questions": "confirm source freshness before handoff",
                     }
                 ],
             }
@@ -344,6 +391,15 @@ def _find_button_by_text(html: str, text: str) -> dict[str, str]:
         if button_text == text:
             return attrs
     raise AssertionError(f"button not found: {text}")
+
+
+def _find_button_by_attr(html: str, attr_name: str, attr_value: str) -> dict[str, str]:
+    parser = _ButtonTextParser()
+    parser.feed(html)
+    for attrs, _button_text in parser.buttons:
+        if attrs.get(attr_name) == attr_value:
+            return attrs
+    raise AssertionError(f"button not found: {attr_name}={attr_value}")
 
 
 def _http_get_text(url: str) -> str:

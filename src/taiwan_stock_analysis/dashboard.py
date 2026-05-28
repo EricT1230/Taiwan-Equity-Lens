@@ -323,6 +323,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .expert-console-controls, .expert-console-toolbar {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .expert-console-feedback {{ margin: 10px 0 0; padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #12355b; }}
     .expert-console-result {{ margin: 8px 0 0; color: #166534; font-size: 0.9rem; }}
+    .next-action-workbench {{ margin: 0 0 12px; padding: 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; }}
+    .next-action-workbench h4 {{ margin: 0 0 6px; font-size: 15px; color: #12355b; }}
+    .next-action-workbench p {{ margin: 6px 0; }}
+    .next-action-workbench[data-next-action-kind="ready"] {{ border-color: #86efac; background: #f0fdf4; }}
+    .next-action-workbench[data-next-action-kind="repair"] {{ border-color: #fde68a; background: #fffbeb; }}
+    .next-action-primary {{ font-weight: 700; }}
     .expert-console-next {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     .expert-console-next:hover {{ background: #eef4fb; }}
     .expert-console-next[data-status-value="done"], .expert-console-next[data-expert-console-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
@@ -750,6 +756,36 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function expertConsoleTaskResultForButton(button) {{
       const task = button.closest('[data-expert-console-task="true"]');
       return task ? task.querySelector('[data-expert-console-task-result="true"]') : null;
+    }}
+    function nextActionWorkbenchForButton(button) {{
+      return button.closest('[data-next-action-workbench="true"]')
+        || button.closest('[data-expert-console-source-path]')?.querySelector('[data-next-action-workbench="true"]')
+        || null;
+    }}
+    function updateNextActionWorkbench(button, result) {{
+      const workbench = nextActionWorkbenchForButton(button);
+      if (!workbench) {{
+        return;
+      }}
+      const ready = Boolean(result.ready);
+      workbench.dataset.nextActionKind = ready ? 'ready' : 'blocker';
+      const byStatus = result.by_status || {{}};
+      const openCount = result.open_count ?? byStatus.open ?? 0;
+      const blockerCount = result.blocker_count ?? 0;
+      const remaining = workbench.querySelector('[data-next-action-remaining="true"]');
+      if (remaining) {{
+        remaining.textContent = `Gate blockers ${{blockerCount}} / 未完成 ${{openCount}} / 缺證據 ${{result.evidence_missing_count ?? 0}} / 無效證據 ${{result.invalid_evidence_count ?? 0}}`;
+      }}
+      const resultBox = workbench.querySelector('[data-next-action-result="true"]');
+      if (resultBox) {{
+        const nextStep = result.next_step ? ` 下一步：${{result.next_step}}` : '';
+        resultBox.textContent = `處理結果：${{result.stock_id}} / ${{result.action_id}} 已標記為${{reviewActionStatusLabel(result.status)}}；待處理剩 ${{openCount}} 件，Gate blocker 剩 ${{blockerCount}}。${{nextStep}}`;
+      }}
+      const primary = workbench.querySelector('[data-next-action-primary="true"][data-expert-console-action-command="true"]');
+      if (primary && ready) {{
+        primary.disabled = true;
+        primary.textContent = '交付門檻已通過，請產出 Evidence Pack';
+      }}
     }}
     function reviewActionRows(section) {{
       return Array.from(section.querySelectorAll('[data-review-action-row="true"]'));
@@ -1396,8 +1432,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         updateReviewActionSummary(button, result);
         const taskResult = expertConsoleTaskResultForButton(button);
         if (taskResult) {{
-          taskResult.textContent = `處理結果：已標記為${{reviewActionStatusLabel(result.status || payload.status)}}。`;
+          const byStatus = result.by_status || {{}};
+          const openCount = result.open_count ?? byStatus.open ?? 0;
+          const blockerCount = result.blocker_count ?? '-';
+          taskResult.textContent = `處理結果：已標記為${{reviewActionStatusLabel(result.status || payload.status)}}；待處理剩 ${{openCount}} 件，Gate blocker 剩 ${{blockerCount}}。`;
         }}
+        updateNextActionWorkbench(button, result);
         if (!options.bulk) {{
           showReviewActionApiResult(button, result);
         }}
@@ -1660,6 +1700,14 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
     sync_note = _expert_console_sync_note(top_blockers, action_api_enabled)
     toolbar = _expert_console_toolbar(top_blockers)
     pack_workflow = _handoff_pack_workflow(summary, gate, state_path, action_api_enabled=action_api_enabled)
+    next_action_workbench = _next_action_workbench(
+        summary,
+        gate,
+        top_blockers,
+        source_path,
+        state_path,
+        action_api_enabled=action_api_enabled,
+    )
     feedback_text = "等待處理 Top 3 阻塞事項。" if top_blockers else "目前沒有 Top 3 阻塞事項。"
     escaped_source_path = escape(source_path)
     return (
@@ -1672,6 +1720,7 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f' data-expert-console-missing-gate-count="{escape(str(missing_gate_count))}">'
         '<div class="expert-console-panel">'
         "<h3>\u7814\u7a76\u4ea4\u4ed8\u72c0\u614b</h3>"
+        f"{next_action_workbench}"
         f'<p><span class="expert-console-readiness {readiness_class}" '
         f'data-expert-console-readiness="true">{escape(readiness_text)}</span></p>'
         f'<p class="status-line"><span class="badge">\u4f86\u6e90\uff1a{source_link}</span>'
@@ -1690,6 +1739,113 @@ def _expert_console_summary_block(summary: dict[str, Any], *, action_api_enabled
         f"{_expert_console_action_list(top_blockers, source_path, state_path)}"
         "</div>"
         "</div>"
+    )
+
+
+def _next_action_workbench(
+    summary: dict[str, Any],
+    gate: dict[str, Any],
+    top_blockers: list[Any],
+    source_path: str,
+    state_path: str,
+    *,
+    action_api_enabled: bool = False,
+) -> str:
+    ready = bool(gate.get("ready"))
+    blocker_count = int(gate.get("blocker_count") or 0)
+    open_count = int(gate.get("open_count") or 0)
+    evidence_missing_count = int(gate.get("evidence_missing_count") or 0)
+    invalid_evidence_count = int(gate.get("invalid_evidence_count") or 0)
+    next_step = str(gate.get("next_step") or "")
+    if ready:
+        kind = "ready"
+        title = "交付門檻已通過"
+        guidance = "建議主按鈕：產出 Evidence Pack，讓人工簽核者先看同一份交付證據。"
+        primary = _next_action_pack_button(summary, state_path, action_api_enabled=action_api_enabled)
+    else:
+        primary_blocker = _next_action_primary_blocker(top_blockers)
+        if primary_blocker:
+            kind = "blocker"
+            stock_id = str(primary_blocker.get("stock_id") or "-")
+            action_id = str(primary_blocker.get("action_id") or "-")
+            title = f"{stock_id} / {action_id}"
+            guidance = "建議主按鈕：先處理最高優先阻塞；完成後 Console 會顯示剩餘阻塞與下一步。"
+            primary = _next_action_blocker_button(primary_blocker, source_path, state_path)
+        else:
+            kind = "repair"
+            title = "Gate 結構需要修復"
+            guidance = next_step or "先修正 research summary 或 review-action state，再重新檢查 handoff gate。"
+            primary = (
+                '<button type="button" class="expert-console-next next-action-primary" '
+                'data-next-action-primary="true" disabled>依照修復說明處理</button>'
+            )
+    return (
+        '<div class="next-action-workbench" data-next-action-workbench="true"'
+        f' data-next-action-kind="{escape(kind)}" data-expert-console-task="true" data-handoff-pack-workflow="true">'
+        "<h4>下一步工作台</h4>"
+        f'<p><strong>{escape(title)}</strong></p>'
+        f"<p>{escape(guidance)}</p>"
+        '<p class="status-line" data-next-action-remaining="true">'
+        f'<span class="badge">Gate blockers {escape(str(blocker_count))}</span>'
+        f'<span class="badge">未完成 {escape(str(open_count))}</span>'
+        f'<span class="badge">缺證據 {escape(str(evidence_missing_count))}</span>'
+        f'<span class="badge">無效證據 {escape(str(invalid_evidence_count))}</span>'
+        "</p>"
+        '<div class="expert-console-controls">'
+        f"{primary}"
+        "</div>"
+        '<p class="expert-console-result" data-next-action-result="true" '
+        'data-handoff-pack-result="true" data-expert-console-task-result="true">'
+        "處理結果：等待按下建議主按鈕。"
+        "</p>"
+        "</div>"
+    )
+
+
+def _next_action_primary_blocker(top_blockers: list[Any]) -> dict[str, Any] | None:
+    for blocker in top_blockers:
+        if not isinstance(blocker, dict):
+            continue
+        if str(blocker.get("focus_available", "true")).lower() != "true":
+            continue
+        if str(blocker.get("stock_id") or "").strip() and str(blocker.get("action_id") or "").strip():
+            return blocker
+    return None
+
+
+def _next_action_blocker_button(action: dict[str, Any], source_path: str, state_path: str) -> str:
+    button = _expert_console_action_button(
+        {key: str(value) for key, value in action.items()},
+        source_path,
+        state_path,
+        "done",
+        "處理最高優先阻塞",
+    )
+    button = button.replace('class="expert-console-next"', 'class="expert-console-next next-action-primary"', 1)
+    return button.replace(
+        'data-expert-console-action-command="true"',
+        'data-expert-console-action-command="true" data-next-action-primary="true"',
+        1,
+    )
+
+
+def _next_action_pack_button(
+    summary: dict[str, Any],
+    state_path: str,
+    *,
+    action_api_enabled: bool = False,
+) -> str:
+    source_path = str(summary.get("path") or "")
+    output_dir = _handoff_pack_output_dir(summary)
+    command = _handoff_pack_command(source_path, state_path, output_dir)
+    button_label = "\u7522\u51fa Evidence Pack"
+    return (
+        '<button type="button" class="expert-console-next next-action-primary" '
+        'data-next-action-primary="true" data-handoff-pack-write="true"'
+        f' data-research-summary-path="{escape(source_path)}"'
+        f' data-state-path="{escape(state_path)}"'
+        f' data-output-dir="{escape(output_dir)}"'
+        f' data-command="{escape(command)}">{escape(button_label)}</button>'
     )
 
 

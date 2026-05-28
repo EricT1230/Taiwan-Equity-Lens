@@ -53,6 +53,11 @@ def set_review_action_status_from_payload(
         "reviewer": reviewer.strip(),
         "evidence_missing_count": report.get("evidence_missing_count", 0),
         "invalid_evidence_count": report.get("invalid_evidence_count", 0),
+        "handoff_status": report.get("handoff_status", "blocked"),
+        "ready": bool(report.get("ready")),
+        "blocker_count": report.get("blocker_count", 0),
+        "open_count": report.get("open_count", 0),
+        "next_step": report.get("next_step", ""),
         "evidence_url": evidence_url.strip(),
         "state_path": str(output_path),
         "status": status,
@@ -254,6 +259,11 @@ def _state_report_for_path(state_path: Path) -> dict[str, Any]:
     )
     report["evidence_missing_count"] = gate.get("evidence_missing_count", 0)
     report["invalid_evidence_count"] = gate.get("invalid_evidence_count", 0)
+    report["handoff_status"] = gate.get("status", "blocked")
+    report["ready"] = bool(gate.get("ready"))
+    report["blocker_count"] = gate.get("blocker_count", 0)
+    report["open_count"] = gate.get("open_count", 0)
+    report["next_step"] = gate.get("next_step", "")
     return report
 
 

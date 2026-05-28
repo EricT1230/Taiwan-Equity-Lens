@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.46.0 - 2026-05-28
+
+Guided Next Action Loop release.
+
+### Added
+- Next Action Workbench inside the Expert Agent Console with one recommended primary button, remaining gate counts, and post-action result text.
+- Served HTTP coverage that reads the workbench button payload, posts it to `/api/review-actions/set`, and verifies the dashboard re-renders to the ready Evidence Pack action.
+- v0.46.0 release notes and design spec.
+
+### Changed
+- Review-action API responses now include handoff gate status, readiness, blocker count, open count, and next-step text after a state write.
+- README and usage workflow release doctor examples now target `0.46.0`.
+- Package version is now `0.46.0`.
+
+### Tests
+- Added dashboard and served-dashboard regression coverage for the guided next-action loop.
+
 ## v0.45.0 - 2026-05-27
 
 Served HTTP Evidence Smoke release.
