@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.45.0 - 2026-05-27
+
+Served HTTP Evidence Smoke release.
+
+### Added
+- `create_dashboard_server()` for tests and tooling that need to start the real local dashboard HTTP server without blocking forever.
+- HTTP smoke coverage that starts the dashboard server on an ephemeral port, GETs the rendered dashboard, POSTs a sector evidence-board action to `/api/review-actions/set`, and verifies the re-rendered stock evidence row becomes `證據可交付`.
+- v0.45.0 release notes and design spec.
+
+### Changed
+- `serve_dashboard()` now reuses the server factory while preserving the CLI behavior.
+- README and usage workflow release doctor examples now target `0.45.0`.
+- Package version is now `0.45.0`.
+
+### Tests
+- Added served HTTP regression coverage for the sector evidence-board update path.
+
 ## v0.44.0 - 2026-05-25
 
 Served Dashboard Quality Gate release.

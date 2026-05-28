@@ -440,7 +440,7 @@ When evidence references are local paths, `doctor handoff` checks that the refer
 
 From v0.41.0 onward, the dashboard turns the Evidence Pack into a guided workflow. Served dashboards can write the pack through the local API and show the generated Markdown, HTML, and JSON paths immediately. Static dashboards copy the equivalent `research handoff-pack` command. When evidence is incomplete or invalid, the console lists the stock/action and a suggested local evidence file path to create before handoff.
 
-The dashboard also includes a `產業輪動地圖` for research operations. It groups research items by `category`, shows research-delivery pressure from handoff blockers, missing or invalid evidence, stale state, and open review actions, then links back to the matching review-action rows. From v0.42.0 onward, the map has status/evidence/expert/search filters plus a right-side workflow panel: select a sector, inspect its Top blockers, read the single next action, and jump to the matching Review Actions row. From v0.43.0 onward, that panel also includes a sector evidence board showing each stock's evidence status, missing fields, suggested evidence file, and direct handling buttons. From v0.44.0 onward, the served-dashboard test suite verifies that the evidence-board button payload can update `review_action_state.json` and clear evidence gaps through the same API path used by the dashboard. The map is a handoff triage view only; it does not show industry strength, price momentum, buy/sell/hold guidance, target prices, or allocation recommendations.
+The dashboard also includes a `產業輪動地圖` for research operations. It groups research items by `category`, shows research-delivery pressure from handoff blockers, missing or invalid evidence, stale state, and open review actions, then links back to the matching review-action rows. From v0.42.0 onward, the map has status/evidence/expert/search filters plus a right-side workflow panel: select a sector, inspect its Top blockers, read the single next action, and jump to the matching Review Actions row. From v0.43.0 onward, that panel also includes a sector evidence board showing each stock's evidence status, missing fields, suggested evidence file, and direct handling buttons. From v0.44.0 onward, the served-dashboard test suite verifies that the evidence-board button payload can update `review_action_state.json` and clear evidence gaps through the same API path used by the dashboard. From v0.45.0 onward, the suite starts an actual local HTTP dashboard, reads the rendered button from GET `/`, posts to `/api/review-actions/set`, and verifies the re-rendered dashboard state. The map is a handoff triage view only; it does not show industry strength, price momentum, buy/sell/hold guidance, target prices, or allocation recommendations.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
@@ -469,7 +469,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.44.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.45.0
 python -m unittest discover -s tests -v
 ```
 

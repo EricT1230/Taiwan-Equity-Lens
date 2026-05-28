@@ -1,10 +1,13 @@
 import json
+import threading
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
 from taiwan_stock_analysis.dashboard_server import (
+    create_dashboard_server,
     set_review_action_status_from_payload,
     write_handoff_pack_from_payload,
 )
@@ -13,46 +16,7 @@ from taiwan_stock_analysis.dashboard_server import (
 class DashboardServerTests(unittest.TestCase):
     def test_sector_evidence_board_done_button_payload_updates_state(self):
         root = Path(".tmp-cli-test/dashboard-server-sector-evidence")
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "evidence").mkdir(exist_ok=True)
-        (root / "evidence" / "2330-source.md").write_text("checked source audit", encoding="utf-8")
-        state_path = root / "review_action_state.json"
-        (root / "research_summary.json").write_text(
-            json.dumps(
-                {
-                    "review_action_queue": [
-                        {
-                            "stock_id": "2330",
-                            "company_name": "TSMC",
-                            "priority": "high",
-                            "actions": [
-                                {
-                                    "id": "source-audit-manual-review",
-                                    "category": "source_audit",
-                                    "severity": "manual_review",
-                                    "message": "Review source audit before handoff.",
-                                    "status": "open",
-                                }
-                            ],
-                        }
-                    ],
-                    "items": [
-                        {
-                            "stock_id": "2330",
-                            "company_name": "TSMC",
-                            "category": "Semiconductor",
-                            "priority": "high",
-                            "research_state": "watching",
-                            "workflow_status": "ok",
-                            "reliability_status": "ok",
-                            "source_audit_status": "manual_review",
-                            "attention_reasons": ["source audit requires handoff evidence"],
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
+        state_path = _write_sector_evidence_fixture(root)
 
         html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
         button = _find_button_by_text(html, "補證並標記完成")
@@ -84,6 +48,50 @@ class DashboardServerTests(unittest.TestCase):
         updated_html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
         self.assertIn('data-industry-evidence-status="ready"', updated_html)
         self.assertIn("證據可交付", updated_html)
+
+    def test_served_dashboard_http_updates_sector_evidence_state(self):
+        root = Path(".tmp-cli-test/dashboard-server-sector-evidence-http")
+        state_path = _write_sector_evidence_fixture(root)
+        server, url = create_dashboard_server([root.resolve()], port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(url)
+            self.assertIn('data-industry-evidence-row="true"', html)
+            button = _find_button_by_text(html, "補證並標記完成")
+
+            result = _http_post_json(
+                f"{url}api/review-actions/set",
+                {
+                    "state_path": button["data-state-path"],
+                    "stock_id": button["data-stock-id"],
+                    "action_id": button["data-action-id"],
+                    "status": button["data-status-value"],
+                    "note": "checked source filing",
+                    "reviewer": "source-audit-lead",
+                    "evidence_url": "evidence/2330-source.md",
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual("done", result["status"])
+            self.assertEqual(0, result["evidence_missing_count"])
+            self.assertEqual(0, result["invalid_evidence_count"])
+            action = json.loads(state_path.read_text(encoding="utf-8"))["actions"][
+                "2330:source-audit-manual-review"
+            ]
+            self.assertEqual("done", action["status"])
+            self.assertEqual("checked source filing", action["note"])
+            self.assertEqual("source-audit-lead", action["reviewer"])
+            self.assertEqual("evidence/2330-source.md", action["evidence_url"])
+
+            updated_html = _http_get_text(url)
+            self.assertIn('data-industry-evidence-status="ready"', updated_html)
+            self.assertIn("證據可交付", updated_html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
 
     def test_set_review_action_status_from_payload_writes_state(self):
         root = Path(".tmp-cli-test/dashboard-server-api")
@@ -262,6 +270,50 @@ class DashboardServerTests(unittest.TestCase):
             )
 
 
+def _write_sector_evidence_fixture(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "evidence").mkdir(exist_ok=True)
+    (root / "evidence" / "2330-source.md").write_text("checked source audit", encoding="utf-8")
+    state_path = root / "review_action_state.json"
+    (root / "research_summary.json").write_text(
+        json.dumps(
+            {
+                "review_action_queue": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "priority": "high",
+                        "actions": [
+                            {
+                                "id": "source-audit-manual-review",
+                                "category": "source_audit",
+                                "severity": "manual_review",
+                                "message": "Review source audit before handoff.",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+                "items": [
+                    {
+                        "stock_id": "2330",
+                        "company_name": "TSMC",
+                        "category": "Semiconductor",
+                        "priority": "high",
+                        "research_state": "watching",
+                        "workflow_status": "ok",
+                        "reliability_status": "ok",
+                        "source_audit_status": "manual_review",
+                        "attention_reasons": ["source audit requires handoff evidence"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return state_path
+
+
 class _ButtonTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -292,6 +344,21 @@ def _find_button_by_text(html: str, text: str) -> dict[str, str]:
         if button_text == text:
             return attrs
     raise AssertionError(f"button not found: {text}")
+
+
+def _http_get_text(url: str) -> str:
+    with urlopen(url, timeout=5) as response:
+        return response.read().decode("utf-8")
+
+
+def _http_post_json(url: str, payload: dict[str, str]) -> dict[str, object]:
+    body = json.dumps(payload).encode("utf-8")
+    request = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    with urlopen(request, timeout=5) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if not isinstance(result, dict):
+        raise AssertionError("JSON response must be an object")
+    return result
 
 
 if __name__ == "__main__":

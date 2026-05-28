@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.44.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.45.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -31,7 +31,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Checks handoff readiness with a reusable Handoff Quality Gate and `doctor handoff`, including open actions, stale state, missing required gate actions, and missing evidence on handled high-risk blockers.
 - Generates a Handoff Evidence Pack with gate status, Top blockers, reviewer notes, evidence references, and non-investment-advice notice for final local review.
 - Lets the dashboard generate or copy the Handoff Evidence Pack workflow, show output file paths, and point to missing evidence files before handoff.
-- Shows a dashboard industry rotation map that groups research items by category, exposes stock-level evidence tasks in the selected sector, and ranks research-delivery pressure from blockers, evidence gaps, and open review actions without creating investment advice.
+- Shows a dashboard industry rotation map that groups research items by category, exposes stock-level evidence tasks in the selected sector, and validates the served HTTP evidence-update path without creating investment advice.
 - Prunes stale review-action state entries explicitly with a dry-run-by-default CLI command.
 - Backs up existing review-action state files before CLI writes.
 - Lists available review-action state backup files before restore.
@@ -204,7 +204,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.44.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.45.0
 ```
 
 ## Example Files
@@ -311,6 +311,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.45.0 release notes](docs/releases/v0.45.0.md)
 - [v0.44.0 release notes](docs/releases/v0.44.0.md)
 - [v0.43.0 release notes](docs/releases/v0.43.0.md)
 - [v0.42.0 release notes](docs/releases/v0.42.0.md)

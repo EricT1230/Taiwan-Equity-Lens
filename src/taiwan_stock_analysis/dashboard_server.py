@@ -17,6 +17,7 @@ from taiwan_stock_analysis.review_action_state import (
 )
 
 DashboardOpener = Callable[[str], object]
+DashboardServer = ThreadingHTTPServer
 
 
 def set_review_action_status_from_payload(
@@ -123,11 +124,7 @@ def serve_dashboard(
     open_browser: bool = False,
     opener: DashboardOpener | None = None,
 ) -> str:
-    roots = [directory.resolve() for directory in search_dirs]
-    handler = _build_handler(roots)
-    server = ThreadingHTTPServer((host, port), handler)
-    actual_host, actual_port = server.server_address[:2]
-    url = f"http://{actual_host}:{actual_port}/"
+    server, url = create_dashboard_server(search_dirs, host=host, port=port)
     if open_browser:
         (opener or webbrowser.open)(url)
     try:
@@ -135,6 +132,19 @@ def serve_dashboard(
     finally:
         server.server_close()
     return url
+
+
+def create_dashboard_server(
+    search_dirs: list[Path],
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+) -> tuple[DashboardServer, str]:
+    roots = [directory.resolve() for directory in search_dirs]
+    handler = _build_handler(roots)
+    server = ThreadingHTTPServer((host, port), handler)
+    actual_host, actual_port = server.server_address[:2]
+    return server, f"http://{actual_host}:{actual_port}/"
 
 
 def _build_handler(search_dirs: list[Path]) -> type[BaseHTTPRequestHandler]:
