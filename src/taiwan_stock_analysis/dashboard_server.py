@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import webbrowser
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
-from taiwan_stock_analysis.handoff import build_handoff_quality_gate
+from taiwan_stock_analysis.handoff import NON_ADVICE_NOTICE, build_handoff_quality_gate
 from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
 from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
@@ -64,6 +65,61 @@ def set_review_action_status_from_payload(
         "stale_count": report.get("stale_count", 0),
         "stock_id": stock_id,
         "updated_at": report.get("last_updated", "-"),
+    }
+
+
+def compose_evidence_from_payload(
+    payload: dict[str, Any],
+    *,
+    allowed_roots: list[Path],
+) -> dict[str, Any]:
+    state_path = _allowed_state_path(str(payload.get("state_path") or ""), allowed_roots)
+    stock_id = _required_text(payload, "stock_id")
+    action_id = _required_text(payload, "action_id")
+    status = str(payload.get("status") or "done").strip()
+    if status == "open":
+        raise ValueError("evidence composer status must be done, deferred, or ignored")
+    note = _required_text(payload, "note")
+    reviewer = _required_text(payload, "reviewer")
+    evidence_summary = _required_text(payload, "evidence_summary")
+    evidence_url = str(payload.get("evidence_url") or "").strip() or _default_evidence_url(stock_id, action_id)
+    evidence_path = _allowed_evidence_path(evidence_url, state_path, allowed_roots)
+
+    evidence_created = not evidence_path.exists()
+    overwrite = _payload_bool(payload.get("overwrite"))
+    if evidence_created or overwrite:
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text(
+            _compose_evidence_markdown(
+                stock_id=stock_id,
+                action_id=action_id,
+                status=status,
+                note=note,
+                reviewer=reviewer,
+                evidence_summary=evidence_summary,
+            ),
+            encoding="utf-8",
+        )
+
+    state_result = set_review_action_status_from_payload(
+        {
+            **payload,
+            "state_path": str(state_path),
+            "stock_id": stock_id,
+            "action_id": action_id,
+            "status": status,
+            "note": note,
+            "reviewer": reviewer,
+            "evidence_url": evidence_url,
+        },
+        allowed_roots=allowed_roots,
+    )
+    return {
+        **state_result,
+        "evidence_created": evidence_created,
+        "evidence_path": str(evidence_path),
+        "evidence_updated": bool(overwrite and not evidence_created),
+        "evidence_url": evidence_url,
     }
 
 
@@ -168,15 +224,21 @@ def _build_handler(search_dirs: list[Path]) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(body)
 
         def do_POST(self) -> None:
-            if self.path not in {"/api/review-actions/set", "/api/handoff-pack/write"}:
+            if self.path not in {
+                "/api/review-actions/set",
+                "/api/handoff-pack/write",
+                "/api/evidence/compose-and-set",
+            }:
                 self._send_json({"error": "not found", "ok": False}, status=HTTPStatus.NOT_FOUND)
                 return
             try:
                 payload = self._read_json()
                 if self.path == "/api/review-actions/set":
                     result = set_review_action_status_from_payload(payload, allowed_roots=search_dirs)
-                else:
+                elif self.path == "/api/handoff-pack/write":
                     result = write_handoff_pack_from_payload(payload, allowed_roots=search_dirs)
+                else:
+                    result = compose_evidence_from_payload(payload, allowed_roots=search_dirs)
             except ValueError as exc:
                 self._send_json({"error": str(exc), "ok": False}, status=HTTPStatus.BAD_REQUEST)
                 return
@@ -237,6 +299,72 @@ def _allowed_path(raw_path: str, allowed_roots: list[Path], *, label: str) -> Pa
         if any(_is_relative_to(candidate, root) for root in roots):
             return candidate
     raise ValueError(f"{label} is outside the served dashboard directories")
+
+
+def _allowed_evidence_path(raw_path: str, state_path: Path, allowed_roots: list[Path]) -> Path:
+    if not raw_path.strip():
+        raise ValueError("evidence_url is required")
+    if "://" in raw_path:
+        raise ValueError("evidence composer only writes local evidence files")
+    roots = [root.resolve() for root in allowed_roots]
+    raw = Path(raw_path)
+    candidates = [raw.resolve()] if raw.is_absolute() else [(state_path.parent / raw).resolve()]
+    if not raw.is_absolute():
+        candidates.extend((root / raw).resolve() for root in roots)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if any(_is_relative_to(candidate, root) for root in roots):
+            return candidate
+    raise ValueError("evidence_url is outside the served dashboard directories")
+
+
+def _compose_evidence_markdown(
+    *,
+    stock_id: str,
+    action_id: str,
+    status: str,
+    note: str,
+    reviewer: str,
+    evidence_summary: str,
+) -> str:
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return "\n".join(
+        [
+            f"# Evidence: {stock_id} / {action_id}",
+            "",
+            f"- Reviewer: {reviewer}",
+            f"- Status: {status}",
+            f"- Generated at: {generated_at}",
+            "",
+            "## Review Note",
+            note,
+            "",
+            "## Evidence Summary",
+            evidence_summary,
+            "",
+            "## Non-Investment-Advice Notice",
+            NON_ADVICE_NOTICE,
+            "",
+        ]
+    )
+
+
+def _default_evidence_url(stock_id: str, action_id: str) -> str:
+    return f"evidence/{_safe_slug(stock_id)}-{_safe_slug(action_id)}.md"
+
+
+def _safe_slug(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in "-_" else "-" for char in value.strip())
+    return cleaned.strip("-") or "evidence"
+
+
+def _payload_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _state_report_for_path(state_path: Path) -> dict[str, Any]:

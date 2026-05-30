@@ -329,6 +329,13 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .next-action-workbench[data-next-action-kind="ready"] {{ border-color: #86efac; background: #f0fdf4; }}
     .next-action-workbench[data-next-action-kind="repair"] {{ border-color: #fde68a; background: #fffbeb; }}
     .next-action-primary {{ font-weight: 700; }}
+    .evidence-composer {{ margin-top: 12px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; }}
+    .evidence-composer h5 {{ margin: 0 0 8px; font-size: 14px; color: #12355b; }}
+    .evidence-composer-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }}
+    .evidence-composer label {{ display: flex; flex-direction: column; gap: 4px; color: #475569; font-size: 13px; }}
+    .evidence-composer input, .evidence-composer textarea {{ width: 100%; min-width: 0; margin: 0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }}
+    .evidence-composer textarea {{ min-height: 72px; resize: vertical; }}
+    .evidence-composer-result {{ margin: 8px 0 0; color: #166534; font-size: 0.9rem; }}
     .expert-console-next {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     .expert-console-next:hover {{ background: #eef4fb; }}
     .expert-console-next[data-status-value="done"], .expert-console-next[data-expert-console-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
@@ -1353,6 +1360,57 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         evidence_url: evidenceUrl.trim(),
       }};
     }}
+    function applyReviewActionApiResult(button, payload, result, options = {{}}) {{
+      const section = reviewActionSectionForButton(button);
+      const row = reviewActionRowForButton(button, section);
+      if (row) {{
+        row.dataset.status = result.status || payload.status;
+        row.dataset.note = result.note || payload.note || '';
+        row.dataset.reviewer = result.reviewer || payload.reviewer || '';
+        row.dataset.evidenceUrl = result.evidence_url || payload.evidence_url || '';
+        row.dataset.updatedAt = result.updated_at || result.last_updated || row.dataset.updatedAt || '';
+        const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
+        if (statusCell) {{
+          statusCell.textContent = reviewActionStatusLabel(result.status || payload.status);
+        }}
+        const stateMeta = row.querySelector('[data-review-action-state-meta="true"]');
+        if (stateMeta) {{
+          const bits = [];
+          if (row.dataset.note) {{
+            bits.push(`note: ${{row.dataset.note}}`);
+          }}
+          if (row.dataset.reviewer) {{
+            bits.push(`reviewer: ${{row.dataset.reviewer}}`);
+          }}
+          if (row.dataset.evidenceUrl) {{
+            bits.push(`evidence: ${{row.dataset.evidenceUrl}}`);
+          }}
+          if (row.dataset.updatedAt) {{
+            bits.push(`updated: ${{row.dataset.updatedAt}}`);
+          }}
+          stateMeta.textContent = bits.join(' | ');
+        }}
+      }}
+      updateReviewActionSummary(button, result);
+      const taskResult = expertConsoleTaskResultForButton(button);
+      if (taskResult && !options.keepTaskResult) {{
+        const byStatus = result.by_status || {{}};
+        const openCount = result.open_count ?? byStatus.open ?? 0;
+        const blockerCount = result.blocker_count ?? '-';
+        taskResult.textContent = `處理結果：已標記為${{reviewActionStatusLabel(result.status || payload.status)}}；待處理剩 ${{openCount}} 件，Gate blocker 剩 ${{blockerCount}}。`;
+      }}
+      updateNextActionWorkbench(button, result);
+      if (!options.skipDetail) {{
+        showReviewActionApiResult(button, result);
+      }}
+      if (section && section.reviewActionApplyFilters) {{
+        section.reviewActionApplyFilters();
+      }}
+      if (section) {{
+        syncExpertConsole(section);
+      }}
+      return {{ section, row }};
+    }}
     async function updateReviewActionState(button, copyStatus, options = {{}}) {{
       const payload = {{
         state_path: button.dataset.statePath || '',
@@ -1401,52 +1459,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         if (!response.ok || !result.ok) {{
           throw new Error(result.error || `HTTP ${{response.status}}`);
         }}
-        if (row) {{
-          row.dataset.status = result.status || payload.status;
-          row.dataset.note = result.note || payload.note || '';
-          row.dataset.reviewer = result.reviewer || payload.reviewer || '';
-          row.dataset.evidenceUrl = result.evidence_url || payload.evidence_url || '';
-          row.dataset.updatedAt = result.updated_at || result.last_updated || row.dataset.updatedAt || '';
-          const statusCell = row.querySelector('[data-review-action-status-cell="true"]');
-          if (statusCell) {{
-            statusCell.textContent = reviewActionStatusLabel(result.status || payload.status);
-          }}
-          const stateMeta = row.querySelector('[data-review-action-state-meta="true"]');
-          if (stateMeta) {{
-            const bits = [];
-            if (row.dataset.note) {{
-              bits.push(`note: ${{row.dataset.note}}`);
-            }}
-            if (row.dataset.reviewer) {{
-              bits.push(`reviewer: ${{row.dataset.reviewer}}`);
-            }}
-            if (row.dataset.evidenceUrl) {{
-              bits.push(`evidence: ${{row.dataset.evidenceUrl}}`);
-            }}
-            if (row.dataset.updatedAt) {{
-              bits.push(`updated: ${{row.dataset.updatedAt}}`);
-            }}
-            stateMeta.textContent = bits.join(' | ');
-          }}
-        }}
-        updateReviewActionSummary(button, result);
-        const taskResult = expertConsoleTaskResultForButton(button);
-        if (taskResult) {{
-          const byStatus = result.by_status || {{}};
-          const openCount = result.open_count ?? byStatus.open ?? 0;
-          const blockerCount = result.blocker_count ?? '-';
-          taskResult.textContent = `處理結果：已標記為${{reviewActionStatusLabel(result.status || payload.status)}}；待處理剩 ${{openCount}} 件，Gate blocker 剩 ${{blockerCount}}。`;
-        }}
-        updateNextActionWorkbench(button, result);
-        if (!options.bulk) {{
-          showReviewActionApiResult(button, result);
-        }}
-        if (section && section.reviewActionApplyFilters) {{
-          section.reviewActionApplyFilters();
-        }}
-        if (section) {{
-          syncExpertConsole(section);
-        }}
+        applyReviewActionApiResult(button, payload, result, {{ skipDetail: options.bulk }});
         if (copyStatus && !options.bulk) {{
           const backupText = result.backup_path ? `，已建立備份` : '';
           const categoryLabel = row ? row.dataset.categoryLabel || row.dataset.category || payload.action_id : payload.action_id;
@@ -1509,6 +1522,85 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         summary.textContent = `已將 ${{result.stock_id}} 的 ${{categoryLabel}}標記為${{reviewActionStatusLabel(result.status)}}，待處理剩 ${{byStatus.open || 0}} 件。`;
       }}
       output.textContent = JSON.stringify(result, null, 2);
+    }}
+    function evidenceComposerField(composer, selector) {{
+      const field = composer ? composer.querySelector(selector) : null;
+      return field ? field.value.trim() : '';
+    }}
+    async function submitEvidenceComposer(button) {{
+      const composer = button.closest('[data-evidence-composer="true"]');
+      const resultBox = composer ? composer.querySelector('[data-evidence-composer-result="true"]') : null;
+      const payload = {{
+        state_path: button.dataset.statePath || '',
+        stock_id: button.dataset.stockId || '',
+        action_id: button.dataset.actionId || '',
+        status: button.dataset.statusValue || 'done',
+        note: evidenceComposerField(composer, '[data-evidence-composer-note="true"]'),
+        reviewer: evidenceComposerField(composer, '[data-evidence-composer-reviewer="true"]'),
+        evidence_url: evidenceComposerField(composer, '[data-evidence-composer-url="true"]'),
+        evidence_summary: evidenceComposerField(composer, '[data-evidence-composer-summary="true"]'),
+        overwrite: true,
+      }};
+      const missing = [];
+      if (!payload.note) {{
+        missing.push('note');
+      }}
+      if (!payload.reviewer) {{
+        missing.push('reviewer');
+      }}
+      if (!payload.evidence_url) {{
+        missing.push('evidence path');
+      }}
+      if (!payload.evidence_summary) {{
+        missing.push('evidence summary');
+      }}
+      if (!payload.state_path || !payload.stock_id || !payload.action_id || missing.length > 0) {{
+        if (resultBox) {{
+          resultBox.textContent = `缺少必要資料：${{missing.join(', ') || 'state/action'}}。`;
+        }}
+        return;
+      }}
+      button.disabled = true;
+      if (resultBox) {{
+        resultBox.textContent = '正在建立證據檔並更新 blocker...';
+      }}
+      try {{
+        const response = await fetch('/api/evidence/compose-and-set', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify(payload),
+        }});
+        const result = await response.json();
+        if (!response.ok || !result.ok) {{
+          throw new Error(result.error || `HTTP ${{response.status}}`);
+        }}
+        applyReviewActionApiResult(button, payload, result, {{ keepTaskResult: true }});
+        const byStatus = result.by_status || {{}};
+        const openCount = result.open_count ?? byStatus.open ?? 0;
+        const blockerCount = result.blocker_count ?? 0;
+        if (resultBox) {{
+          resultBox.textContent = `已建立證據：${{result.evidence_url || payload.evidence_url}}；待處理 ${{openCount}} 件，Gate blocker ${{blockerCount}} 件。`;
+        }}
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = `處理結果：已建立 evidence stub 並標記為${{reviewActionStatusLabel(result.status || payload.status)}}。`;
+        }}
+      }} catch (error) {{
+        if (resultBox) {{
+          resultBox.textContent = `建立證據失敗：${{error.message}}`;
+        }}
+        const taskResult = expertConsoleTaskResultForButton(button);
+        if (taskResult) {{
+          taskResult.textContent = `處理結果：建立證據失敗，${{error.message}}`;
+        }}
+      }} finally {{
+        button.disabled = false;
+      }}
+    }}
+    function initEvidenceComposerControls() {{
+      document.querySelectorAll('[data-evidence-composer-submit="true"]').forEach((button) => {{
+        button.addEventListener('click', () => submitEvidenceComposer(button));
+      }});
     }}
     function handoffPackResultForButton(button) {{
       const panel = button.closest('[data-handoff-pack-workflow="true"]');
@@ -1625,6 +1717,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     initExpertConsoleFocus();
     initExpertConsoleActionControls();
     initExpertConsoleBulkControls();
+    initEvidenceComposerControls();
     initHandoffPackControls();
     initReviewActionFilters();
     initIndustryMapControls();
@@ -1757,6 +1850,7 @@ def _next_action_workbench(
     evidence_missing_count = int(gate.get("evidence_missing_count") or 0)
     invalid_evidence_count = int(gate.get("invalid_evidence_count") or 0)
     next_step = str(gate.get("next_step") or "")
+    primary_blocker: dict[str, Any] | None = None
     if ready:
         kind = "ready"
         title = "交付門檻已通過"
@@ -1779,6 +1873,13 @@ def _next_action_workbench(
                 '<button type="button" class="expert-console-next next-action-primary" '
                 'data-next-action-primary="true" disabled>依照修復說明處理</button>'
             )
+    evidence_composer = (
+        _evidence_composer(summary, primary_blocker, source_path, state_path)
+        if primary_blocker
+        and action_api_enabled
+        and requires_handoff_evidence(str(primary_blocker.get("action_id") or ""))
+        else ""
+    )
     return (
         '<div class="next-action-workbench" data-next-action-workbench="true"'
         f' data-next-action-kind="{escape(kind)}" data-expert-console-task="true" data-handoff-pack-workflow="true">'
@@ -1794,6 +1895,7 @@ def _next_action_workbench(
         '<div class="expert-console-controls">'
         f"{primary}"
         "</div>"
+        f"{evidence_composer}"
         '<p class="expert-console-result" data-next-action-result="true" '
         'data-handoff-pack-result="true" data-expert-console-task-result="true">'
         "處理結果：等待按下建議主按鈕。"
@@ -1826,6 +1928,59 @@ def _next_action_blocker_button(action: dict[str, Any], source_path: str, state_
         'data-expert-console-action-command="true"',
         'data-expert-console-action-command="true" data-next-action-primary="true"',
         1,
+    )
+
+
+def _evidence_composer(
+    summary: dict[str, Any],
+    action: dict[str, Any],
+    source_path: str,
+    state_path: str,
+) -> str:
+    stock_id = str(action.get("stock_id") or "")
+    action_id = str(action.get("action_id") or "")
+    message = str(action.get("message") or "")
+    note = str(action.get("note") or "").strip() or f"Reviewed handoff blocker: {message}"
+    reviewer = str(action.get("reviewer") or "").strip() or "handoff-reviewer"
+    evidence_url = str(action.get("evidence_url") or "").strip() or _suggested_evidence_path(summary, stock_id, action_id)
+    evidence_summary = message or "Summarize the manual review evidence for this handoff blocker."
+    return (
+        '<div class="evidence-composer" data-evidence-composer="true"'
+        f' data-review-actions-source-path="{escape(source_path)}"'
+        f' data-state-path="{escape(state_path)}"'
+        f' data-stock-id="{escape(stock_id)}"'
+        f' data-action-id="{escape(action_id)}">'
+        "<h5>交付證據 Composer</h5>"
+        "<p>在 dashboard 內建立 evidence markdown，並同步把這個 blocker 標記完成；內容僅供研究交付，不構成投資建議。</p>"
+        '<div class="evidence-composer-grid">'
+        '<label>note'
+        f'<textarea data-evidence-composer-note="true">{escape(note)}</textarea>'
+        "</label>"
+        '<label>reviewer'
+        f'<input data-evidence-composer-reviewer="true" value="{escape(reviewer)}">'
+        "</label>"
+        '<label>evidence file'
+        f'<input data-evidence-composer-url="true" value="{escape(evidence_url)}">'
+        "</label>"
+        '<label>evidence summary'
+        f'<textarea data-evidence-composer-summary="true">{escape(evidence_summary)}</textarea>'
+        "</label>"
+        "</div>"
+        '<div class="expert-console-controls">'
+        '<button type="button" class="expert-console-next next-action-primary"'
+        ' data-evidence-composer-submit="true"'
+        f' data-review-actions-source-path="{escape(source_path)}"'
+        f' data-state-path="{escape(state_path)}"'
+        f' data-stock-id="{escape(stock_id)}"'
+        f' data-action-id="{escape(action_id)}"'
+        ' data-status-value="done">'
+        "建立證據並標記完成"
+        "</button>"
+        "</div>"
+        '<p class="evidence-composer-result" data-evidence-composer-result="true">'
+        "證據檔：尚未建立。"
+        "</p>"
+        "</div>"
     )
 
 

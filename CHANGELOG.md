@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.47.0 - 2026-05-29
+
+Evidence Composer release.
+
+### Added
+- Dashboard Evidence Composer inside the Next Action Workbench for evidence-required blockers in served API mode.
+- `/api/evidence/compose-and-set` endpoint that writes a local evidence markdown stub, updates `review_action_state.json`, and returns refreshed handoff gate counts.
+- Served HTTP coverage that posts to the evidence composer endpoint, verifies the evidence file is written, and confirms the dashboard re-renders to the ready Evidence Pack action.
+- v0.47.0 release notes and design spec.
+
+### Changed
+- The first-screen dashboard workflow can now clear the primary evidence-required blocker without relying on prompt dialogs or manually creating a file outside the dashboard.
+- README and usage workflow release doctor examples now target `0.47.0`.
+- Package version is now `0.47.0`.
+
+### Tests
+- Added dashboard and served-dashboard regression coverage for the evidence composer workflow.
+
 ## v0.46.0 - 2026-05-28
 
 Guided Next Action Loop release.
