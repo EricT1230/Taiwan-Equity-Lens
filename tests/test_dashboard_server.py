@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
 from taiwan_stock_analysis.dashboard_server import (
+    compose_evidence_from_payload,
     create_dashboard_server,
     set_review_action_status_from_payload,
     write_handoff_pack_from_payload,
@@ -131,6 +132,92 @@ class DashboardServerTests(unittest.TestCase):
             self.assertIn('data-next-action-kind="ready"', updated_html)
             self.assertIn('data-next-action-primary="true"', updated_html)
             self.assertIn("產出 Evidence Pack", updated_html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_compose_evidence_from_payload_writes_stub_and_updates_state(self):
+        root = Path(".tmp-cli-test/dashboard-server-evidence-composer")
+        state_path = _write_sector_evidence_fixture(root)
+        evidence_path = root / "evidence" / "2330-source-audit-manual-review.md"
+
+        result = compose_evidence_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "checked fixture source against source audit notes",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source-audit-manual-review.md",
+                "evidence_summary": "The fixture source is acceptable for handoff after manual review.",
+                "overwrite": True,
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["evidence_created"])
+        self.assertEqual(str(evidence_path.resolve()), result["evidence_path"])
+        self.assertEqual("evidence/2330-source-audit-manual-review.md", result["evidence_url"])
+        self.assertEqual("done", result["status"])
+        self.assertTrue(result["ready"])
+        self.assertEqual("ready", result["handoff_status"])
+        self.assertEqual(0, result["blocker_count"])
+        self.assertEqual(0, result["open_count"])
+        self.assertEqual(0, result["evidence_missing_count"])
+        self.assertTrue(evidence_path.exists())
+        content = evidence_path.read_text(encoding="utf-8")
+        self.assertIn("# Evidence: 2330 / source-audit-manual-review", content)
+        self.assertIn("Reviewer: source-audit-lead", content)
+        self.assertIn("checked fixture source against source audit notes", content)
+        self.assertIn("The fixture source is acceptable for handoff", content)
+        self.assertIn("不構成投資建議", content)
+        action = json.loads(state_path.read_text(encoding="utf-8"))["actions"][
+            "2330:source-audit-manual-review"
+        ]
+        self.assertEqual("done", action["status"])
+        self.assertEqual("source-audit-lead", action["reviewer"])
+        self.assertEqual("evidence/2330-source-audit-manual-review.md", action["evidence_url"])
+
+    def test_served_dashboard_http_composes_evidence_and_updates_gate(self):
+        root = Path(".tmp-cli-test/dashboard-server-evidence-composer-http")
+        _write_sector_evidence_fixture(root)
+        server, url = create_dashboard_server([root.resolve()], port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(url)
+            self.assertIn('data-evidence-composer="true"', html)
+            self.assertIn('data-evidence-composer-submit="true"', html)
+            self.assertIn("api/evidence/compose-and-set", html)
+
+            result = _http_post_json(
+                f"{url}api/evidence/compose-and-set",
+                {
+                    "state_path": "review_action_state.json",
+                    "stock_id": "2330",
+                    "action_id": "source-audit-manual-review",
+                    "status": "done",
+                    "note": "checked source filing",
+                    "reviewer": "source-audit-lead",
+                    "evidence_url": "evidence/2330-source-audit-manual-review.md",
+                    "evidence_summary": "Source audit reviewed from the dashboard evidence composer.",
+                    "overwrite": True,
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["evidence_created"])
+            self.assertEqual("ready", result["handoff_status"])
+            self.assertTrue(result["ready"])
+            self.assertEqual(0, result["blocker_count"])
+            self.assertTrue((root / "evidence" / "2330-source-audit-manual-review.md").exists())
+
+            updated_html = _http_get_text(url)
+            self.assertIn('data-next-action-kind="ready"', updated_html)
+            self.assertIn("evidence/2330-source-audit-manual-review.md", updated_html)
         finally:
             server.shutdown()
             thread.join(timeout=5)

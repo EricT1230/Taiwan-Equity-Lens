@@ -1634,6 +1634,50 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
         self.assertIn('data-output-dir="research-dist/handoff-pack"', html)
 
+    def test_render_dashboard_html_contains_api_evidence_composer(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [
+                    {
+                        "path": "research-dist/research_summary.json",
+                        "review_action_queue": [
+                            {
+                                "stock_id": "2330",
+                                "company_name": "TSMC",
+                                "priority": "high",
+                                "actions": [
+                                    {
+                                        "id": "fundamental-review-thesis-breakers",
+                                        "category": "fundamental_review",
+                                        "severity": "warning",
+                                        "message": "Review thesis breakers before handoff.",
+                                        "status": "open",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            action_api_enabled=True,
+        )
+
+        self.assertIn('data-evidence-composer="true"', html)
+        self.assertIn('data-evidence-composer-note="true"', html)
+        self.assertIn('data-evidence-composer-reviewer="true"', html)
+        self.assertIn('data-evidence-composer-url="true"', html)
+        self.assertIn('data-evidence-composer-summary="true"', html)
+        self.assertIn('data-evidence-composer-submit="true"', html)
+        self.assertIn('data-evidence-composer-result="true"', html)
+        self.assertIn("建立證據並標記完成", html)
+        self.assertIn("research-dist/evidence/2330-fundamental-review-thesis-breakers.md", html)
+        self.assertIn("const response = await fetch('/api/evidence/compose-and-set'", html)
+        self.assertIn("submitEvidenceComposer(button)", html)
+
 
 if __name__ == "__main__":
     unittest.main()
