@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.48.0 - 2026-05-30
+
+Evidence Preview Quality Gate release.
+
+### Added
+- Deterministic Reviewer Confidence checks for dashboard-created evidence files.
+- `evidence_quality` and `evidence_preview` fields in `/api/evidence/compose-and-set` responses.
+- Dashboard evidence result panel with Reviewer Confidence status, check list, next step, generated path, and markdown excerpt.
+- Regression tests for specific evidence, low-confidence default stubs, served API responses, and dashboard hooks.
+- v0.48.0 release notes and design spec.
+
+### Changed
+- Evidence Composer no longer treats a structurally valid handoff update as fully final by itself; weak reviewer, note, or summary inputs are surfaced as `needs_review`.
+- README and usage workflow release doctor examples now target `0.48.0`.
+- Package version is now `0.48.0`.
+
+### Tests
+- Added focused evidence-quality coverage and expanded dashboard/server evidence-composer coverage.
+
 ## v0.47.0 - 2026-05-29
 
 Evidence Composer release.

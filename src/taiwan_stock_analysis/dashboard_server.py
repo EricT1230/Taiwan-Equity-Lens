@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
+from taiwan_stock_analysis.evidence_quality import assess_evidence_quality
 from taiwan_stock_analysis.handoff import NON_ADVICE_NOTICE, build_handoff_quality_gate
 from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
 from taiwan_stock_analysis.review_action_state import (
@@ -114,12 +115,24 @@ def compose_evidence_from_payload(
         },
         allowed_roots=allowed_roots,
     )
+    evidence_content = _read_text(evidence_path)
+    evidence_quality = assess_evidence_quality(
+        note=note,
+        reviewer=reviewer,
+        evidence_summary=evidence_summary,
+        evidence_path=evidence_path,
+        evidence_content=evidence_content,
+    )
     return {
         **state_result,
         "evidence_created": evidence_created,
         "evidence_path": str(evidence_path),
+        "evidence_preview": _evidence_preview(evidence_path, evidence_content),
+        "evidence_quality": evidence_quality,
         "evidence_updated": bool(overwrite and not evidence_created),
         "evidence_url": evidence_url,
+        "reviewer_confidence_ready": evidence_quality["ready"],
+        "reviewer_confidence_status": evidence_quality["status"],
     }
 
 
@@ -350,6 +363,24 @@ def _compose_evidence_markdown(
             "",
         ]
     )
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _evidence_preview(evidence_path: Path, evidence_content: str, *, limit: int = 900) -> dict[str, Any]:
+    excerpt = evidence_content.strip()
+    if len(excerpt) > limit:
+        excerpt = excerpt[:limit].rstrip() + "..."
+    return {
+        "excerpt": excerpt,
+        "line_count": len(evidence_content.splitlines()),
+        "path": str(evidence_path.resolve()),
+    }
 
 
 def _default_evidence_url(stock_id: str, action_id: str) -> str:
