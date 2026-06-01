@@ -148,10 +148,10 @@ class DashboardServerTests(unittest.TestCase):
                 "stock_id": "2330",
                 "action_id": "source-audit-manual-review",
                 "status": "done",
-                "note": "checked fixture source against source audit notes",
+                "note": "Checked fixture source freshness, source mode, and the manual-review reason before handoff.",
                 "reviewer": "source-audit-lead",
                 "evidence_url": "evidence/2330-source-audit-manual-review.md",
-                "evidence_summary": "The fixture source is acceptable for handoff after manual review.",
+                "evidence_summary": "The fixture source remains acceptable for this demo handoff because the manual source-audit reason was inspected and documented.",
                 "overwrite": True,
             },
             allowed_roots=[root.resolve()],
@@ -167,12 +167,16 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(0, result["blocker_count"])
         self.assertEqual(0, result["open_count"])
         self.assertEqual(0, result["evidence_missing_count"])
+        self.assertEqual("handoff_ready", result["evidence_quality"]["status"])
+        self.assertTrue(result["evidence_quality"]["ready"])
+        self.assertIn("Evidence:", result["evidence_preview"]["excerpt"])
+        self.assertEqual(str(evidence_path.resolve()), result["evidence_preview"]["path"])
         self.assertTrue(evidence_path.exists())
         content = evidence_path.read_text(encoding="utf-8")
         self.assertIn("# Evidence: 2330 / source-audit-manual-review", content)
         self.assertIn("Reviewer: source-audit-lead", content)
-        self.assertIn("checked fixture source against source audit notes", content)
-        self.assertIn("The fixture source is acceptable for handoff", content)
+        self.assertIn("Checked fixture source freshness", content)
+        self.assertIn("The fixture source remains acceptable", content)
         self.assertIn("不構成投資建議", content)
         action = json.loads(state_path.read_text(encoding="utf-8"))["actions"][
             "2330:source-audit-manual-review"
@@ -180,6 +184,34 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("done", action["status"])
         self.assertEqual("source-audit-lead", action["reviewer"])
         self.assertEqual("evidence/2330-source-audit-manual-review.md", action["evidence_url"])
+
+    def test_compose_evidence_from_payload_flags_low_confidence_stub(self):
+        root = Path(".tmp-cli-test/dashboard-server-evidence-composer-quality")
+        _write_sector_evidence_fixture(root)
+
+        result = compose_evidence_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "Reviewed handoff blocker: Review source audit before handoff.",
+                "reviewer": "handoff-reviewer",
+                "evidence_url": "evidence/2330-source-audit-manual-review.md",
+                "evidence_summary": "Review source audit before handoff.",
+                "overwrite": True,
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["ready"])
+        self.assertEqual("needs_review", result["evidence_quality"]["status"])
+        self.assertFalse(result["evidence_quality"]["ready"])
+        issue_ids = {issue["id"] for issue in result["evidence_quality"]["issues"]}
+        self.assertIn("reviewer_named", issue_ids)
+        self.assertIn("note_specific", issue_ids)
+        self.assertIn("summary_specific", issue_ids)
 
     def test_served_dashboard_http_composes_evidence_and_updates_gate(self):
         root = Path(".tmp-cli-test/dashboard-server-evidence-composer-http")
@@ -213,6 +245,8 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual("ready", result["handoff_status"])
             self.assertTrue(result["ready"])
             self.assertEqual(0, result["blocker_count"])
+            self.assertIn("evidence_quality", result)
+            self.assertIn("evidence_preview", result)
             self.assertTrue((root / "evidence" / "2330-source-audit-manual-review.md").exists())
 
             updated_html = _http_get_text(url)

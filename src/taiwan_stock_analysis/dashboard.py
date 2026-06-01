@@ -336,6 +336,16 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .evidence-composer input, .evidence-composer textarea {{ width: 100%; min-width: 0; margin: 0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }}
     .evidence-composer textarea {{ min-height: 72px; resize: vertical; }}
     .evidence-composer-result {{ margin: 8px 0 0; color: #166534; font-size: 0.9rem; }}
+    .evidence-composer-result[data-evidence-quality-status="draft"] {{ color: #991b1b; }}
+    .evidence-composer-result[data-evidence-quality-status="needs_review"] {{ color: #92400e; }}
+    .evidence-quality-summary {{ margin: 8px 0 0; font-weight: 700; }}
+    .evidence-quality-next {{ margin: 4px 0 0; color: #475569; }}
+    .evidence-quality-checks {{ display: grid; gap: 5px; margin: 8px 0 0 18px; padding: 0; }}
+    .evidence-quality-checks li[data-check-status="fail"] {{ color: #991b1b; }}
+    .evidence-quality-checks li[data-check-status="warn"] {{ color: #92400e; }}
+    .evidence-preview {{ margin-top: 8px; border: 1px solid #d8dee8; border-radius: 8px; padding: 8px; background: #f8fafc; color: #172033; }}
+    .evidence-preview strong {{ display: block; margin-bottom: 4px; }}
+    .evidence-preview pre {{ max-height: 220px; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }}
     .expert-console-next {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #12355b; cursor: pointer; }}
     .expert-console-next:hover {{ background: #eef4fb; }}
     .expert-console-next[data-status-value="done"], .expert-console-next[data-expert-console-bulk-status="done"] {{ background: #dcfce7; border-color: #86efac; color: #166534; }}
@@ -1527,6 +1537,65 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       const field = composer ? composer.querySelector(selector) : null;
       return field ? field.value.trim() : '';
     }}
+    function evidenceQualityLabel(status) {{
+      if (status === 'handoff_ready') {{
+        return '可交付';
+      }}
+      if (status === 'needs_review') {{
+        return '需要再審查';
+      }}
+      if (status === 'draft') {{
+        return '草稿';
+      }}
+      return '未知';
+    }}
+    function renderEvidenceComposerResult(container, result) {{
+      if (!container) {{
+        return;
+      }}
+      const quality = result.evidence_quality || {{}};
+      const preview = result.evidence_preview || {{}};
+      const checks = Array.isArray(quality.checks) ? quality.checks : [];
+      const status = quality.status || 'unknown';
+      container.textContent = '';
+      container.dataset.evidenceQualityStatus = status;
+
+      const summary = document.createElement('p');
+      summary.className = 'evidence-quality-summary';
+      summary.textContent = '已建立證據：' + (result.evidence_url || '-') + '；Reviewer Confidence（審查信心）：' + evidenceQualityLabel(status) + '。';
+      container.appendChild(summary);
+
+      const nextStep = document.createElement('p');
+      nextStep.className = 'evidence-quality-next';
+      nextStep.textContent = quality.next_step || '請先檢查證據預覽再交付。';
+      container.appendChild(nextStep);
+
+      const checkList = document.createElement('ul');
+      checkList.className = 'evidence-quality-checks';
+      checkList.dataset.evidenceQualityChecks = 'true';
+      checks.forEach((check) => {{
+        const item = document.createElement('li');
+        item.dataset.checkStatus = check.status || 'unknown';
+        item.textContent = (check.label || check.id || 'check') + ': ' + (check.status || 'unknown') + ' - ' + (check.message || '');
+        checkList.appendChild(item);
+      }});
+      container.appendChild(checkList);
+
+      const previewBox = document.createElement('div');
+      previewBox.className = 'evidence-preview';
+      previewBox.dataset.evidencePreview = 'true';
+      const previewTitle = document.createElement('strong');
+      previewTitle.textContent = 'Evidence Preview（證據預覽）';
+      previewBox.appendChild(previewTitle);
+      const previewPath = document.createElement('p');
+      previewPath.textContent = preview.path || result.evidence_path || result.evidence_url || '-';
+      previewBox.appendChild(previewPath);
+      const previewContent = document.createElement('pre');
+      previewContent.dataset.evidencePreviewContent = 'true';
+      previewContent.textContent = preview.excerpt || '沒有回傳證據預覽。';
+      previewBox.appendChild(previewContent);
+      container.appendChild(previewBox);
+    }}
     async function submitEvidenceComposer(button) {{
       const composer = button.closest('[data-evidence-composer="true"]');
       const resultBox = composer ? composer.querySelector('[data-evidence-composer-result="true"]') : null;
@@ -1579,11 +1648,11 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
         const openCount = result.open_count ?? byStatus.open ?? 0;
         const blockerCount = result.blocker_count ?? 0;
         if (resultBox) {{
-          resultBox.textContent = `已建立證據：${{result.evidence_url || payload.evidence_url}}；待處理 ${{openCount}} 件，Gate blocker ${{blockerCount}} 件。`;
+          renderEvidenceComposerResult(resultBox, result);
         }}
         const taskResult = expertConsoleTaskResultForButton(button);
         if (taskResult) {{
-          taskResult.textContent = `處理結果：已建立 evidence stub 並標記為${{reviewActionStatusLabel(result.status || payload.status)}}。`;
+          taskResult.textContent = `處理結果：已建立 evidence stub 並標記為${{reviewActionStatusLabel(result.status || payload.status)}}；Reviewer Confidence ${{evidenceQualityLabel(result.reviewer_confidence_status || (result.evidence_quality || {{}}).status)}}；待處理 ${{openCount}} 件，Gate blocker ${{blockerCount}} 件。`;
         }}
       }} catch (error) {{
         if (resultBox) {{
@@ -1977,9 +2046,16 @@ def _evidence_composer(
         "建立證據並標記完成"
         "</button>"
         "</div>"
-        '<p class="evidence-composer-result" data-evidence-composer-result="true">'
-        "證據檔：尚未建立。"
-        "</p>"
+        '<div class="evidence-composer-result" data-evidence-composer-result="true"'
+        ' data-evidence-quality-status="unknown">'
+        '<p class="evidence-quality-summary">Reviewer Confidence（審查信心）：未知。</p>'
+        '<p class="evidence-quality-next">證據檔尚未建立。</p>'
+        '<ul class="evidence-quality-checks" data-evidence-quality-checks="true"></ul>'
+        '<div class="evidence-preview" data-evidence-preview="true">'
+        "<strong>Evidence Preview（證據預覽）</strong>"
+        '<p data-evidence-preview-content="true">尚無證據預覽。</p>'
+        "</div>"
+        "</div>"
         "</div>"
     )
 

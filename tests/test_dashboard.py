@@ -1673,9 +1673,15 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-evidence-composer-summary="true"', html)
         self.assertIn('data-evidence-composer-submit="true"', html)
         self.assertIn('data-evidence-composer-result="true"', html)
+        self.assertIn('data-evidence-quality-status="unknown"', html)
+        self.assertIn('data-evidence-preview="true"', html)
+        self.assertIn('data-evidence-preview-content="true"', html)
+        self.assertIn('data-evidence-quality-checks="true"', html)
         self.assertIn("建立證據並標記完成", html)
+        self.assertIn("Reviewer Confidence", html)
         self.assertIn("research-dist/evidence/2330-fundamental-review-thesis-breakers.md", html)
         self.assertIn("const response = await fetch('/api/evidence/compose-and-set'", html)
+        self.assertIn("renderEvidenceComposerResult(resultBox, result)", html)
         self.assertIn("submitEvidenceComposer(button)", html)
 
 
