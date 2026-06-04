@@ -535,6 +535,15 @@ class DashboardTests(unittest.TestCase):
                                 "attention_reasons": ["source audit requires handoff evidence"],
                                 "thesis": "foundry leader",
                                 "follow_up_questions": "check margin",
+                                "market_rotation": {
+                                    "status": "available",
+                                    "direction": "up",
+                                    "return_1d": 1.2,
+                                    "return_5d": 4.5,
+                                    "return_20d": 9.8,
+                                    "volume_signal": "volume expansion",
+                                    "note": "AI supply chain lead",
+                                },
                             },
                             {
                                 "stock_id": "2303",
@@ -545,6 +554,15 @@ class DashboardTests(unittest.TestCase):
                                 "workflow_status": "ok",
                                 "reliability_status": "ok",
                                 "attention_reasons": ["valuation output is unavailable or skipped"],
+                                "market_rotation": {
+                                    "status": "available",
+                                    "direction": "flat",
+                                    "return_1d": -0.4,
+                                    "return_5d": 0.5,
+                                    "return_20d": 1.2,
+                                    "volume_signal": "volume normal",
+                                    "note": "mature node lagging",
+                                },
                             },
                             {
                                 "stock_id": "1504",
@@ -555,6 +573,15 @@ class DashboardTests(unittest.TestCase):
                                 "workflow_status": "ok",
                                 "reliability_status": "ok",
                                 "attention_reasons": [],
+                                "market_rotation": {
+                                    "status": "missing",
+                                    "direction": "missing",
+                                    "return_1d": None,
+                                    "return_5d": None,
+                                    "return_20d": None,
+                                    "volume_signal": "",
+                                    "note": "",
+                                },
                             },
                         ],
                     }
@@ -570,10 +597,21 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-industry-map-filter-bar="true"', html)
         self.assertIn('data-industry-map-filter="status"', html)
         self.assertIn('data-industry-map-filter="evidence"', html)
+        self.assertIn('data-industry-map-filter="market"', html)
         self.assertIn('data-industry-map-filter="lens"', html)
         self.assertIn('data-industry-map-filter="search"', html)
         self.assertIn('data-industry-map-filter-reset="true"', html)
         self.assertIn('data-industry-map-count="true"', html)
+        self.assertIn('data-industry-map-market-direction="up"', html)
+        self.assertIn('data-industry-map-market-status="available"', html)
+        self.assertIn('data-industry-map-market-direction="missing"', html)
+        self.assertIn('data-industry-map-market-status="missing"', html)
+        self.assertIn("市場輪動 overlay", html)
+        self.assertIn("輪動偏強", html)
+        self.assertIn("市場資料缺口", html)
+        self.assertIn("20D", html)
+        self.assertIn("9.8%", html)
+        self.assertIn("AI supply chain lead", html)
         self.assertIn('data-industry-map-detail-panel="true"', html)
         self.assertIn('data-industry-map-detail-template=', html)
         self.assertIn('data-industry-map-detail-target=', html)
@@ -656,6 +694,15 @@ class DashboardTests(unittest.TestCase):
                                 "workflow_status": "ok",
                                 "reliability_status": "ok",
                                 "attention_reasons": [],
+                                "market_rotation": {
+                                    "status": "available",
+                                    "direction": "up",
+                                    "return_1d": 1.1,
+                                    "return_5d": 2.2,
+                                    "return_20d": 3.3,
+                                    "volume_signal": "volume <signal>",
+                                    "note": "rotation <note>",
+                                },
                             }
                         ],
                     }
@@ -666,14 +713,19 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("&lt;Sector&gt;", html)
         self.assertIn("2330&lt;script&gt;", html)
         self.assertIn("Co &lt;Name&gt;", html)
+        self.assertIn("volume &lt;signal&gt;", html)
+        self.assertIn("rotation &lt;note&gt;", html)
         self.assertIn('data-industry-name="&lt;Sector&gt;"', html)
         self.assertIn('data-industry-map-search-text="', html)
+        self.assertIn('data-industry-map-market-direction="up"', html)
         self.assertIn('data-industry-map-detail-template=', html)
         self.assertIn('data-industry-map-focus-stock="2330&lt;script&gt;"', html)
         self.assertIn("Review &lt;source&gt;.", html)
         self.assertNotIn("<Sector>", html)
         self.assertNotIn("2330<script>", html)
         self.assertNotIn("Co <Name>", html)
+        self.assertNotIn("volume <signal>", html)
+        self.assertNotIn("rotation <note>", html)
         self.assertNotIn("Review <source>.", html)
 
     def test_render_dashboard_html_contains_review_actions(self):
