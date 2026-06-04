@@ -1,3 +1,3 @@
-stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions
-2330,TSMC,Semiconductor,high,review,Add valuation assumptions before final review,Leading foundry scale,Margin compression,Revenue momentum,Are EPS assumptions current?
-2303,UMC,Semiconductor,medium,watching,Track workflow warnings,Cyclical recovery optionality,Utilization pressure,Gross margin trend,Which assumptions need confirmation?
+stock_id,company_name,category,priority,research_state,notes,thesis,key_risks,watch_triggers,follow_up_questions,market_return_1d,market_return_5d,market_return_20d,market_volume_signal,market_rotation_note
+2330,TSMC,Semiconductor,high,review,Add valuation assumptions before final review,Leading foundry scale,Margin compression,Revenue momentum,Are EPS assumptions current?,+1.2%,+4.8%,+9.6%,Volume expansion,AI supply-chain leadership in current rotation
+2303,UMC,Semiconductor,medium,watching,Track workflow warnings,Cyclical recovery optionality,Utilization pressure,Gross margin trend,Which assumptions need confirmation?,-0.4%,+0.8%,+1.5%,Volume normal,Mature-node recovery lags leading foundry peers

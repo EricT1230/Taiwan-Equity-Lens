@@ -7,7 +7,7 @@ Taiwan Equity Lens is a deterministic research workflow for Taiwan equity fundam
 - Parses annual income statement, balance sheet, and cash-flow statement pages.
 - Calculates profitability, growth, leverage, cash-flow, dividend, EPS, and valuation scenario metrics.
 - Produces JSON, HTML, Markdown, dashboard, memo, pack, and comparison outputs.
-- Preserves research notes, thesis fields, risks, triggers, and follow-up questions from the research CSV.
+- Preserves research notes, thesis fields, risks, triggers, follow-up questions, and optional market-rotation context from the research CSV.
 
 ## What The Tool Does Not Do
 
@@ -31,6 +31,13 @@ Taiwan Equity Lens is a deterministic research workflow for Taiwan equity fundam
 | `key_risks` | Main risks or uncertainty areas. |
 | `watch_triggers` | Signals that should prompt another review. |
 | `follow_up_questions` | Questions to answer before handoff. |
+| `market_return_1d` | Optional descriptive 1-day market move for the dashboard Industry Map overlay. |
+| `market_return_5d` | Optional descriptive 5-day market move for the dashboard Industry Map overlay. |
+| `market_return_20d` | Optional descriptive 20-day market move for the dashboard Industry Map overlay. |
+| `market_volume_signal` | Optional volume or liquidity observation to show in the Industry Map overlay. |
+| `market_rotation_note` | Optional analyst note explaining the market-rotation context or missing data. |
+
+Market-rotation fields are descriptive workflow inputs. They help the dashboard show coverage and recent movement context by category, but they are not recommendations, rankings, or trading signals.
 
 ## Valuation Method
 

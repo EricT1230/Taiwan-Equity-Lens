@@ -26,6 +26,18 @@ RESEARCH_COLUMNS = [
     "key_risks",
     "watch_triggers",
     "follow_up_questions",
+    "market_return_1d",
+    "market_return_5d",
+    "market_return_20d",
+    "market_volume_signal",
+    "market_rotation_note",
+]
+MARKET_ROTATION_COLUMNS = [
+    "market_return_1d",
+    "market_return_5d",
+    "market_return_20d",
+    "market_volume_signal",
+    "market_rotation_note",
 ]
 ALLOWED_PRIORITIES = {"high", "medium", "low"}
 ALLOWED_STATES = {"new", "watching", "review", "done", "blocked"}
@@ -72,6 +84,11 @@ def load_research_rows(path: Path) -> list[dict[str, str]]:
                     "key_risks": (row.get("key_risks") or "").strip(),
                     "watch_triggers": (row.get("watch_triggers") or "").strip(),
                     "follow_up_questions": (row.get("follow_up_questions") or "").strip(),
+                    "market_return_1d": (row.get("market_return_1d") or "").strip(),
+                    "market_return_5d": (row.get("market_return_5d") or "").strip(),
+                    "market_return_20d": (row.get("market_return_20d") or "").strip(),
+                    "market_volume_signal": (row.get("market_volume_signal") or "").strip(),
+                    "market_rotation_note": (row.get("market_rotation_note") or "").strip(),
                 }
             )
         return rows
@@ -94,6 +111,11 @@ def write_research_template(path: Path) -> Path:
                 "key_risks": "Cycle downturn or margin compression",
                 "watch_triggers": "Revenue momentum and capex discipline",
                 "follow_up_questions": "Are valuation assumptions still aligned with latest EPS?",
+                "market_return_1d": "+1.2%",
+                "market_return_5d": "+4.8%",
+                "market_return_20d": "+9.6%",
+                "market_volume_signal": "Volume expansion",
+                "market_rotation_note": "AI supply-chain leadership; verify with source data.",
             }
         )
         writer.writerow(
@@ -108,6 +130,11 @@ def write_research_template(path: Path) -> Path:
                 "key_risks": "Utilization and pricing pressure",
                 "watch_triggers": "Gross margin trend and workflow warnings",
                 "follow_up_questions": "Which assumptions need manual confirmation?",
+                "market_return_1d": "-0.4%",
+                "market_return_5d": "+0.8%",
+                "market_return_20d": "+1.5%",
+                "market_volume_signal": "Volume normal",
+                "market_rotation_note": "Mature node recovery is slower than leading foundry peers.",
             }
         )
     return path
@@ -160,6 +187,7 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             "workflow_status": workflow_status,
             "reliability_status": reliability_status,
             "attention_reasons": attention_reasons,
+            "market_rotation": build_market_rotation(row),
             "source_audit_status": _source_audit_status(
                 stock_source_audit,
                 has_source_audit=bool(source_audit),
@@ -188,6 +216,7 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
         },
         "items": items,
         "universe_review": build_universe_review(items),
+        "market_rotation_overlay": build_market_rotation_overlay(items),
         "review_action_summary": build_review_action_summary(items),
         "review_action_queue": build_review_action_queue(items),
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
@@ -197,6 +226,132 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
     if run_metadata:
         summary["run_metadata"] = run_metadata
     return summary
+
+
+def build_market_rotation(row: dict[str, Any]) -> dict[str, Any]:
+    return_1d = _parse_market_return(row.get("market_return_1d", ""))
+    return_5d = _parse_market_return(row.get("market_return_5d", ""))
+    return_20d = _parse_market_return(row.get("market_return_20d", ""))
+    volume_signal = str(row.get("market_volume_signal") or "").strip()
+    note = str(row.get("market_rotation_note") or "").strip()
+    has_data = any(value is not None for value in (return_1d, return_5d, return_20d)) or bool(
+        volume_signal or note
+    )
+    direction_value = return_20d
+    if direction_value is None:
+        direction_value = return_5d
+    if direction_value is None:
+        direction_value = return_1d
+    return {
+        "status": "available" if has_data else "missing",
+        "direction": _market_direction(direction_value) if has_data else "missing",
+        "return_1d": return_1d,
+        "return_5d": return_5d,
+        "return_20d": return_20d,
+        "volume_signal": volume_signal,
+        "note": note,
+    }
+
+
+def build_market_rotation_overlay(items: list[dict[str, Any]]) -> dict[str, Any]:
+    category_groups: dict[str, list[dict[str, Any]]] = {}
+    available = 0
+    missing = 0
+    for item in items:
+        rotation = item.get("market_rotation")
+        if not isinstance(rotation, dict):
+            rotation = build_market_rotation(item)
+        if str(rotation.get("status") or "") == "available":
+            available += 1
+        else:
+            missing += 1
+        category_groups.setdefault(_review_category(item), []).append(rotation)
+
+    return {
+        "coverage": {"available": available, "missing": missing, "total": len(items)},
+        "category_overlays": {
+            category: _market_rotation_category_overlay(rotations)
+            for category, rotations in sorted(category_groups.items())
+        },
+    }
+
+
+def _market_rotation_category_overlay(rotations: list[dict[str, Any]]) -> dict[str, Any]:
+    available_rotations = [
+        rotation for rotation in rotations if str(rotation.get("status") or "") == "available"
+    ]
+    averages = {
+        "average_return_1d": _average_market_return(available_rotations, "return_1d"),
+        "average_return_5d": _average_market_return(available_rotations, "return_5d"),
+        "average_return_20d": _average_market_return(available_rotations, "return_20d"),
+    }
+    direction_value = averages["average_return_20d"]
+    if direction_value is None:
+        direction_value = averages["average_return_5d"]
+    if direction_value is None:
+        direction_value = averages["average_return_1d"]
+    notes = [
+        str(rotation.get("note") or "").strip()
+        for rotation in available_rotations
+        if str(rotation.get("note") or "").strip()
+    ]
+    volume_signals = sorted(
+        {
+            str(rotation.get("volume_signal") or "").strip()
+            for rotation in available_rotations
+            if str(rotation.get("volume_signal") or "").strip()
+        }
+    )
+    status = "available" if available_rotations else "missing"
+    return {
+        "status": status,
+        "direction": _market_direction(direction_value) if status == "available" else "missing",
+        "stock_count": len(rotations),
+        "coverage_count": len(available_rotations),
+        "missing_count": len(rotations) - len(available_rotations),
+        **averages,
+        "volume_signals": volume_signals[:3],
+        "notes": notes[:3],
+    }
+
+
+def _average_market_return(rotations: list[dict[str, Any]], key: str) -> float | None:
+    values = [
+        value for value in (_coerce_market_float(rotation.get(key)) for rotation in rotations)
+        if value is not None
+    ]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _parse_market_return(value: str) -> float | None:
+    return _coerce_market_float(value)
+
+
+def _coerce_market_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.removesuffix("%").replace(",", "").strip()
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def _market_direction(value: float | None) -> str:
+    if value is None:
+        return "flat"
+    if value > 0:
+        return "up"
+    if value < 0:
+        return "down"
+    return "flat"
 
 
 def build_universe_review(items: list[dict[str, Any]]) -> dict[str, Any]:

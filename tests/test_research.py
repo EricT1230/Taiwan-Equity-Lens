@@ -55,6 +55,11 @@ class ResearchTests(unittest.TestCase):
                 "key_risks": "",
                 "watch_triggers": "",
                 "follow_up_questions": "",
+                "market_return_1d": "",
+                "market_return_5d": "",
+                "market_return_20d": "",
+                "market_volume_signal": "",
+                "market_rotation_note": "",
             },
         )
 
@@ -89,6 +94,29 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(rows[0]["key_risks"], "")
         self.assertEqual(rows[0]["watch_triggers"], "")
         self.assertEqual(rows[0]["follow_up_questions"], "")
+        self.assertEqual(rows[0]["market_return_1d"], "")
+        self.assertEqual(rows[0]["market_return_5d"], "")
+        self.assertEqual(rows[0]["market_return_20d"], "")
+        self.assertEqual(rows[0]["market_volume_signal"], "")
+        self.assertEqual(rows[0]["market_rotation_note"], "")
+
+    def test_load_research_rows_reads_market_rotation_overlay_fields(self):
+        path = Path(".tmp-research-test/market-rotation.csv")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,"
+            "market_return_1d,market_return_5d,market_return_20d,market_volume_signal,market_rotation_note\n"
+            "2330,TSMC,Semiconductor,high,review,Track rotation, +1.2% , +4.8% , +9.6% , volume expansion , AI supply chain lead \n",
+            encoding="utf-8",
+        )
+
+        rows = load_research_rows(path)
+
+        self.assertEqual(rows[0]["market_return_1d"], "+1.2%")
+        self.assertEqual(rows[0]["market_return_5d"], "+4.8%")
+        self.assertEqual(rows[0]["market_return_20d"], "+9.6%")
+        self.assertEqual(rows[0]["market_volume_signal"], "volume expansion")
+        self.assertEqual(rows[0]["market_rotation_note"], "AI supply chain lead")
 
     def test_load_research_rows_rejects_missing_stock_id_column(self):
         path = Path(".tmp-research-test/bad.csv")
@@ -145,6 +173,11 @@ class ResearchTests(unittest.TestCase):
                 "key_risks",
                 "watch_triggers",
                 "follow_up_questions",
+                "market_return_1d",
+                "market_return_5d",
+                "market_return_20d",
+                "market_volume_signal",
+                "market_rotation_note",
             ],
         )
         self.assertEqual(ALLOWED_PRIORITIES, {"high", "medium", "low"})
@@ -507,6 +540,43 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(review["review_buckets"]["blocked"], ["9999"])
         self.assertEqual(review["review_buckets"]["new"], ["1111"])
         self.assertEqual(review["review_buckets"]["active_review"], ["2330"])
+
+    def test_build_research_summary_includes_market_rotation_overlay(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-market-rotation.csv"
+        workflow_dir = root / "market-rotation-workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,"
+            "market_return_1d,market_return_5d,market_return_20d,market_volume_signal,market_rotation_note\n"
+            "2330,TSMC,Semiconductor,high,watching,,+1.0%,+5.0%,+12.0%,volume expansion,AI supply chain lead\n"
+            "2303,UMC,Semiconductor,medium,watching,,-0.5%,+1.0%,+2.0%,volume normal,Mature foundry lagging\n"
+            "1504,TECO,Power,medium,watching,,,,,\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330", "2303", "1504"],
+                    "data_reliability": {"overall_status": "ok"},
+                    "paths": {"valuation_batch_summary": "workflow/valuation.json"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(research, workflow_dir=workflow_dir)
+
+        self.assertEqual(summary["items"][0]["market_rotation"]["status"], "available")
+        self.assertEqual(summary["items"][0]["market_rotation"]["return_20d"], 12.0)
+        self.assertEqual(summary["items"][0]["market_rotation"]["direction"], "up")
+        self.assertEqual(summary["items"][2]["market_rotation"]["status"], "missing")
+        overlay = summary["market_rotation_overlay"]
+        self.assertEqual(overlay["coverage"], {"available": 2, "missing": 1, "total": 3})
+        self.assertEqual(overlay["category_overlays"]["Semiconductor"]["coverage_count"], 2)
+        self.assertEqual(overlay["category_overlays"]["Semiconductor"]["average_return_20d"], 7.0)
+        self.assertEqual(overlay["category_overlays"]["Semiconductor"]["direction"], "up")
+        self.assertEqual(overlay["category_overlays"]["Power"]["status"], "missing")
 
     def test_build_universe_review_sorts_attention_queue_by_status_priority_and_stock_id(self):
         builder = getattr(research_module, "build_universe_review", None)

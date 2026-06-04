@@ -286,6 +286,15 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-map-metrics {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }}
     .industry-map-metrics span {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; color: #475569; background: #fbfdff; }}
     .industry-map-metrics strong {{ display: block; color: #172033; font-size: 18px; }}
+    .industry-market-overlay {{ border: 1px solid #cbd5e1; border-left: 5px solid #64748b; border-radius: 8px; padding: 10px; margin: 10px 0; background: #f8fafc; }}
+    .industry-market-overlay[data-market-direction="up"] {{ border-left-color: #16a34a; background: #f7fef9; }}
+    .industry-market-overlay[data-market-direction="down"] {{ border-left-color: #dc2626; background: #fffafa; }}
+    .industry-market-overlay[data-market-direction="mixed"] {{ border-left-color: #7c3aed; background: #fbf8ff; }}
+    .industry-market-overlay[data-market-direction="flat"] {{ border-left-color: #64748b; }}
+    .industry-market-overlay[data-market-direction="missing"] {{ border-left-color: #d97706; background: #fffdf7; }}
+    .industry-market-head {{ display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }}
+    .industry-market-head strong {{ color: #12355b; }}
+    .industry-market-note {{ margin: 6px 0 0; color: #475569; font-size: 13px; overflow-wrap: anywhere; }}
     .industry-map-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .industry-map-note {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .industry-map-detail-panel {{ position: sticky; top: 12px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; background: #f8fafc; }}
@@ -589,10 +598,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     function applyIndustryMapFilters(source) {{
       const statusFilter = source.querySelector('[data-industry-map-filter="status"]');
       const evidenceFilter = source.querySelector('[data-industry-map-filter="evidence"]');
+      const marketFilter = source.querySelector('[data-industry-map-filter="market"]');
       const lensFilter = source.querySelector('[data-industry-map-filter="lens"]');
       const searchFilter = source.querySelector('[data-industry-map-filter="search"]');
       const status = statusFilter ? statusFilter.value : 'all';
       const evidence = evidenceFilter ? evidenceFilter.value : 'all';
+      const market = marketFilter ? marketFilter.value : 'all';
       const lens = lensFilter ? lensFilter.value : 'all';
       const search = searchFilter ? searchFilter.value.trim().toLowerCase() : '';
       const cards = Array.from(source.querySelectorAll('[data-industry-map-card="true"]'));
@@ -601,10 +612,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       cards.forEach((card) => {{
         const cardStatus = card.dataset.industryMapStatus || '';
         const cardEvidence = card.dataset.industryMapEvidenceStatus || '';
+        const cardMarket = card.dataset.industryMapMarketDirection || '';
         const cardLenses = (card.dataset.industryMapLenses || '').split(/\\s+/).filter(Boolean);
         const searchText = (card.dataset.industryMapSearchText || '').toLowerCase();
         const matches = (status === 'all' || cardStatus === status)
           && (evidence === 'all' || cardEvidence === evidence)
+          && (market === 'all' || cardMarket === market)
           && (lens === 'all' || cardLenses.includes(lens))
           && (!search || searchText.includes(search));
         card.hidden = !matches;
@@ -2422,6 +2435,7 @@ def _industry_map_source_block(summary: dict[str, Any]) -> str:
     blocked_industries = sum(1 for entry in entries if entry["status"] == "blocked")
     evidence_gap_total = sum(int(entry["evidence_missing_count"]) for entry in entries)
     top_lens = _industry_map_top_lens(entries)
+    market_summary = _industry_map_market_summary(entries)
     handoff_text = "可交接" if gate.get("ready") else "尚未可交接"
     next_step = str(gate.get("next_step") or "-")
     state_path = _review_action_state_path(summary)
@@ -2441,6 +2455,8 @@ def _industry_map_source_block(summary: dict[str, Any]) -> str:
         f"<span>{escape(handoff_text)}</span></div>"
         '<div class="industry-map-summary-item"><strong>最大阻塞來源</strong>'
         f"<span>{escape(top_lens)}</span></div>"
+        '<div class="industry-map-summary-item"><strong>\u5e02\u5834\u8f2a\u52d5 overlay</strong>'
+        f"<span>{escape(market_summary)}</span></div>"
         '<div class="industry-map-summary-item"><strong>最短修復路徑</strong>'
         f"<span>{escape(next_step)}</span></div>"
         '<div class="industry-map-summary-item"><strong>需優先處理</strong>'
@@ -2485,6 +2501,12 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "lens_counts": {},
                 "top_blockers": [],
                 "evidence_rows": {},
+                "market_stock_ids": set(),
+                "market_available_count": 0,
+                "market_returns": {"1d": [], "5d": [], "20d": []},
+                "market_notes": [],
+                "market_volume_signals": [],
+                "market_direction_counts": {},
             }
         return groups[clean_category]
 
@@ -2602,6 +2624,7 @@ def _industry_map_entries(summary: dict[str, Any]) -> list[dict[str, Any]]:
             "lens_counts": group["lens_counts"],
             "top_blockers": group["top_blockers"],
             "evidence_rows": _industry_evidence_rows(group["evidence_rows"]),
+            "market_overlay": _industry_market_overlay(group),
             "sample_stocks": _industry_sample_stocks(group["stocks"]),
             "score": score,
             "status": status,
@@ -2630,6 +2653,9 @@ def _industry_stock_lookup(summary: dict[str, Any]) -> dict[str, dict[str, Any]]
         record["priority"] = str(item.get("priority") or record.get("priority") or "")
         reasons = item.get("attention_reasons", record.get("attention_reasons", []))
         record["attention_reasons"] = reasons if isinstance(reasons, list) else [str(reasons)]
+        market_rotation = item.get("market_rotation")
+        if isinstance(market_rotation, dict):
+            record["market_rotation"] = market_rotation
     return records
 
 
@@ -2666,7 +2692,138 @@ def _industry_add_stock(group: dict[str, Any], stock_id: str, record: dict[str, 
     reasons = record.get("attention_reasons", [])
     if isinstance(reasons, list) and any(str(reason).strip() for reason in reasons):
         group["attention_stocks"].add(stock_id)
+    _industry_add_market_rotation(group, stock_id, record)
     _industry_stock_evidence_row(group, stock_id, record)
+
+
+def _industry_add_market_rotation(group: dict[str, Any], stock_id: str, record: dict[str, Any]) -> None:
+    seen = group["market_stock_ids"]
+    if stock_id in seen:
+        return
+    seen.add(stock_id)
+    rotation = record.get("market_rotation")
+    if not isinstance(rotation, dict):
+        rotation = {}
+    status = str(rotation.get("status") or "")
+    direction = str(rotation.get("direction") or "")
+    has_data = status == "available" or any(
+        _market_float(rotation.get(key)) is not None for key in ("return_1d", "return_5d", "return_20d")
+    ) or bool(str(rotation.get("volume_signal") or "").strip() or str(rotation.get("note") or "").strip())
+    if has_data:
+        group["market_available_count"] = int(group["market_available_count"]) + 1
+    else:
+        direction = "missing"
+    returns = group["market_returns"]
+    returns["1d"].append(_market_float(rotation.get("return_1d")))
+    returns["5d"].append(_market_float(rotation.get("return_5d")))
+    returns["20d"].append(_market_float(rotation.get("return_20d")))
+    note = str(rotation.get("note") or "").strip()
+    if has_data and len(group["market_notes"]) < 4:
+        return_20d = _market_return_text(rotation.get("return_20d"))
+        note_parts = [f"{stock_id}: 20D {return_20d}"]
+        if note:
+            note_parts.append(note)
+        group["market_notes"].append(" - ".join(note_parts))
+    volume_signal = str(rotation.get("volume_signal") or "").strip()
+    if volume_signal and volume_signal not in group["market_volume_signals"]:
+        group["market_volume_signals"].append(volume_signal)
+    clean_direction = direction if direction in {"up", "down", "flat", "mixed", "missing"} else "missing"
+    direction_counts = group["market_direction_counts"]
+    direction_counts[clean_direction] = int(direction_counts.get(clean_direction, 0)) + 1
+
+
+def _industry_market_overlay(group: dict[str, Any]) -> dict[str, Any]:
+    stock_count = len(group["market_stock_ids"])
+    coverage_count = int(group["market_available_count"])
+    average_return_1d = _market_average(group["market_returns"]["1d"])
+    average_return_5d = _market_average(group["market_returns"]["5d"])
+    average_return_20d = _market_average(group["market_returns"]["20d"])
+    direction = _industry_market_direction(
+        _dict_value(group.get("market_direction_counts")),
+        average_return_20d,
+        average_return_5d,
+        average_return_1d,
+    )
+    return {
+        "status": "available" if coverage_count > 0 else "missing",
+        "direction": direction,
+        "stock_count": stock_count,
+        "coverage_count": coverage_count,
+        "missing_count": max(0, stock_count - coverage_count),
+        "average_return_1d": average_return_1d,
+        "average_return_5d": average_return_5d,
+        "average_return_20d": average_return_20d,
+        "volume_signals": list(group["market_volume_signals"])[:3],
+        "notes": list(group["market_notes"])[:3],
+    }
+
+
+def _industry_market_direction(
+    direction_counts: dict[str, Any],
+    average_return_20d: float | None,
+    average_return_5d: float | None,
+    average_return_1d: float | None,
+) -> str:
+    available_directions = {
+        str(direction)
+        for direction, count in direction_counts.items()
+        if str(direction) != "missing" and int(count or 0) > 0
+    }
+    if "up" in available_directions and "down" in available_directions:
+        return "mixed"
+    value = average_return_20d
+    if value is None:
+        value = average_return_5d
+    if value is None:
+        value = average_return_1d
+    if value is None:
+        return "missing"
+    if value > 0:
+        return "up"
+    if value < 0:
+        return "down"
+    return "flat"
+
+
+def _market_average(values: list[Any]) -> float | None:
+    numbers = [value for value in (_market_float(value) for value in values) if value is not None]
+    if not numbers:
+        return None
+    return round(sum(numbers) / len(numbers), 2)
+
+
+def _market_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.removesuffix("%").replace(",", "").strip()
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def _market_return_text(value: Any) -> str:
+    number = _market_float(value)
+    if number is None:
+        return "-"
+    sign = "+" if number > 0 else ""
+    return f"{sign}{number:.1f}%"
+
+
+def _market_direction_label(direction: str) -> str:
+    labels = {
+        "up": "\u8f2a\u52d5\u504f\u5f37",
+        "down": "\u8f2a\u52d5\u504f\u5f31",
+        "mixed": "\u8f2a\u52d5\u5206\u6b67",
+        "flat": "\u8f2a\u52d5\u6301\u5e73",
+        "missing": "\u5e02\u5834\u8cc7\u6599\u7f3a\u53e3",
+    }
+    return labels.get(direction, direction or "-")
 
 
 def _industry_stock_evidence_row(group: dict[str, Any], stock_id: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -2802,6 +2959,9 @@ def _industry_map_card(entry: dict[str, Any], source_path: str, detail_id: str) 
     sample_stocks = _list_value(entry.get("sample_stocks"))
     focus = _industry_map_focus(entry)
     evidence_status = _industry_map_evidence_status(entry)
+    market_overlay = _dict_value(entry.get("market_overlay"))
+    market_direction = str(market_overlay.get("direction") or "missing")
+    market_status = str(market_overlay.get("status") or "missing")
     lens_keys = " ".join(sorted(str(key) for key in lens_counts)) if isinstance(lens_counts, dict) else ""
     search_text = _industry_map_search_text(entry)
     focus_button = ""
@@ -2823,6 +2983,8 @@ def _industry_map_card(entry: dict[str, Any], source_path: str, detail_id: str) 
         '<article class="industry-map-card" data-industry-map-card="true"'
         f' data-industry-map-status="{escape(status)}"'
         f' data-industry-map-evidence-status="{escape(evidence_status)}"'
+        f' data-industry-map-market-direction="{escape(market_direction)}"'
+        f' data-industry-map-market-status="{escape(market_status)}"'
         f' data-industry-map-lenses="{escape(lens_keys)}"'
         f' data-industry-map-search-text="{escape(search_text)}"'
         f' data-industry-map-detail-id="{escape(detail_id)}"'
@@ -2835,6 +2997,7 @@ def _industry_map_card(entry: dict[str, Any], source_path: str, detail_id: str) 
         f'<p class="industry-map-lead">{escape(blocker_copy)}</p>'
         f'<div class="industry-pressure" aria-label="research pressure {escape(str(pressure))}">'
         f'<span style="width: {escape(str(pressure))}%"></span></div>'
+        f'{_industry_market_overlay_block(market_overlay)}'
         '<div class="industry-map-metrics">'
         f'<span><strong>{escape(str(entry["stock_count"]))}</strong>\u80a1\u7968</span>'
         f'<span><strong>{escape(str(entry["blocker_count"]))}</strong>blockers</span>'
@@ -2867,12 +3030,21 @@ def _industry_map_filter_bar(total_entries: int) -> str:
         ("invalid", "\u8b49\u64da\u8def\u5f91\u7121\u6548"),
         ("clean", "\u8b49\u64da\u7121\u963b\u585e"),
     ]
+    market_options = [
+        ("all", "\u5168\u90e8\u8f2a\u52d5"),
+        ("up", "\u8f2a\u52d5\u504f\u5f37"),
+        ("down", "\u8f2a\u52d5\u504f\u5f31"),
+        ("mixed", "\u8f2a\u52d5\u5206\u6b67"),
+        ("flat", "\u8f2a\u52d5\u6301\u5e73"),
+        ("missing", "\u5e02\u5834\u8cc7\u6599\u7f3a\u53e3"),
+    ]
     lens_labels = dict(REVIEW_ACTION_CATEGORY_LABELS)
     lens_labels["state"] = "\u72c0\u614b\u6a94\u5c08\u5bb6"
     lens_options = [("all", "\u5168\u90e8\u5c08\u5bb6")]
     lens_options.extend((key, _review_label(key, lens_labels)) for key in (*REVIEW_ACTION_CATEGORIES, "state"))
     status_label = "\u72c0\u614b"
     evidence_label = "\u8b49\u64da"
+    market_label = "\u5e02\u5834\u8f2a\u52d5"
     lens_label = "\u5c08\u5bb6"
 
     def select(name: str, label: str, options: list[tuple[str, str]]) -> str:
@@ -2890,6 +3062,7 @@ def _industry_map_filter_bar(total_entries: int) -> str:
         '<div class="industry-map-controls" data-industry-map-filter-bar="true">'
         f'{select("status", status_label, status_options)}'
         f'{select("evidence", evidence_label, evidence_options)}'
+        f'{select("market", market_label, market_options)}'
         f'{select("lens", lens_label, lens_options)}'
         '<label class="filter-field"><span>\u641c\u5c0b</span>'
         '<input data-industry-map-filter="search" type="search" placeholder="\u7522\u696d\u3001\u80a1\u7968\u3001\u4efb\u52d9">'
@@ -2931,6 +3104,8 @@ def _industry_map_detail_body(entry: dict[str, Any], source_path: str, state_pat
         f'<span><strong>{escape(str(entry["open_count"]))}</strong>\u672a\u5b8c\u6210\u4efb\u52d9</span>'
         "</div>"
         f'<p class="status-line"><span class="badge">\u5c08\u5bb6\u963b\u585e\uff1a{lens_summary}</span></p>'
+        "<h4>\u5e02\u5834\u8f2a\u52d5 overlay</h4>"
+        f"{_industry_market_overlay_block(_dict_value(entry.get('market_overlay')))}"
         "<h4>\u7522\u696d\u8b49\u64da\u770b\u677f</h4>"
         f"{_industry_map_evidence_board(entry, source_path, state_path)}"
         "<h4>Top blockers</h4>"
@@ -2938,6 +3113,41 @@ def _industry_map_detail_body(entry: dict[str, Any], source_path: str, state_pat
         '<p class="industry-map-note" data-industry-map-non-advice="true">'
         "\u9019\u88e1\u53ea\u662f\u4ea4\u4ed8\u54c1\u8cea\u8207\u8b49\u64da\u6aa2\u67e5\u5de5\u4f5c\u6d41\uff0c\u4e0d\u69cb\u6210\u6295\u8cc7\u5efa\u8b70\u3002"
         "</p>"
+    )
+
+
+def _industry_market_overlay_block(market_overlay: dict[str, Any]) -> str:
+    direction = str(market_overlay.get("direction") or "missing")
+    status = str(market_overlay.get("status") or "missing")
+    label = _market_direction_label(direction)
+    stock_count = int(market_overlay.get("stock_count") or 0)
+    coverage_count = int(market_overlay.get("coverage_count") or 0)
+    missing_count = int(market_overlay.get("missing_count") or max(0, stock_count - coverage_count))
+    volume_signals = _list_value(market_overlay.get("volume_signals"))
+    notes = _list_value(market_overlay.get("notes"))
+    volume_text = ", ".join(volume_signals) if volume_signals else "-"
+    note_text = " | ".join(notes) if notes else (
+        "\u8acb\u5728 research CSV \u88dc market_return_1d/5d/20d\u3001"
+        "market_volume_signal \u6216 market_rotation_note\u3002"
+    )
+    return (
+        '<div class="industry-market-overlay" data-industry-market-overlay="true"'
+        f' data-market-direction="{escape(direction)}"'
+        f' data-market-status="{escape(status)}">'
+        '<div class="industry-market-head">'
+        "<strong>\u5e02\u5834\u8f2a\u52d5 overlay</strong>"
+        f'<span class="industry-status-pill">{escape(label)}</span>'
+        "</div>"
+        '<div class="industry-map-metrics">'
+        f'<span><strong>{escape(_market_return_text(market_overlay.get("average_return_20d")))}</strong>20D</span>'
+        f'<span><strong>{escape(_market_return_text(market_overlay.get("average_return_5d")))}</strong>5D</span>'
+        f'<span><strong>{escape(_market_return_text(market_overlay.get("average_return_1d")))}</strong>1D</span>'
+        f'<span><strong>{escape(str(coverage_count))}/{escape(str(stock_count))}</strong>\u5e02\u5834\u8cc7\u6599</span>'
+        "</div>"
+        f'<p class="industry-market-note"><strong>\u91cf\u80fd\uff1a</strong>{escape(volume_text)}</p>'
+        f'<p class="industry-market-note"><strong>\u8f2a\u52d5\u5099\u8a3b\uff1a</strong>{escape(note_text)}</p>'
+        f'<p class="industry-market-note"><strong>\u7f3a\u53e3\uff1a</strong>{escape(str(missing_count))} \u6a94\u5c1a\u672a\u63d0\u4f9b\u5e02\u5834 overlay \u8cc7\u6599\u3002</p>'
+        "</div>"
     )
 
 
@@ -3131,6 +3341,15 @@ def _industry_map_search_text(entry: dict[str, Any]) -> str:
         _industry_map_next_action(entry),
     ]
     parts.extend(_list_value(entry.get("sample_stocks")))
+    market_overlay = _dict_value(entry.get("market_overlay"))
+    if market_overlay:
+        parts.append(str(market_overlay.get("status") or ""))
+        parts.append(str(market_overlay.get("direction") or ""))
+        parts.append(_market_direction_label(str(market_overlay.get("direction") or "")))
+        for key in ("average_return_1d", "average_return_5d", "average_return_20d"):
+            parts.append(_market_return_text(market_overlay.get(key)))
+        parts.extend(_list_value(market_overlay.get("volume_signals")))
+        parts.extend(_list_value(market_overlay.get("notes")))
     lens_counts = entry.get("lens_counts", {})
     if isinstance(lens_counts, dict):
         for lens in lens_counts:
@@ -3227,6 +3446,22 @@ def _industry_map_top_lens(entries: list[dict[str, Any]]) -> str:
         return "-"
     lens, count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
     return f"{_review_label(lens, REVIEW_ACTION_CATEGORY_LABELS)} {count} 件"
+
+
+def _industry_map_market_summary(entries: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        overlay = _dict_value(entry.get("market_overlay"))
+        direction = str(overlay.get("direction") or "missing")
+        counts[direction] = counts.get(direction, 0) + 1
+    if not counts:
+        return "\u5c1a\u672a\u63d0\u4f9b\u5e02\u5834 overlay \u8cc7\u6599"
+    order = ["up", "down", "mixed", "flat", "missing"]
+    return " / ".join(
+        f"{_market_direction_label(direction)} {counts[direction]}"
+        for direction in order
+        if counts.get(direction, 0) > 0
+    )
 
 
 def _research_summary_section(summaries: list[dict[str, Any]]) -> str:

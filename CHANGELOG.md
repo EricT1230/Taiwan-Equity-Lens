@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.49.0 - 2026-06-04
+
+Industry Map v1 market-rotation overlay release.
+
+### Added
+- Optional research CSV market-rotation fields: `market_return_1d`, `market_return_5d`, `market_return_20d`, `market_volume_signal`, and `market_rotation_note`.
+- `market_rotation` per research item and `market_rotation_overlay` category summaries in generated research summaries.
+- Dashboard Industry Map overlay cards with 1D/5D/20D context, market coverage, volume notes, rotation notes, and missing-data guidance.
+- Industry Map market filter for `up`, `down`, `mixed`, `flat`, and missing market-data sectors.
+- Regression tests for market field loading, summary aggregation, dashboard hooks, and escaping.
+- v0.49.0 release notes and design spec.
+
+### Changed
+- README and usage workflow release doctor examples now target `0.49.0`.
+- Package version is now `0.49.0`.
+- Industry Map documentation now describes market overlay as descriptive research context, not investment advice.
+
+### Tests
+- Added focused research/dashboard coverage for Industry Map market overlay and preserved the existing handoff workflow tests.
+
 ## v0.48.0 - 2026-05-30
 
 Evidence Preview Quality Gate release.

@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.48.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.49.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -18,6 +18,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Runs a watchlist workflow from CSV to reports, valuation template, comparison, dashboard, and workflow summary.
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
 - Builds a universe-level review queue for deciding which research items need attention first.
+- Overlays optional 1D/5D/20D market-rotation context on the industry research map.
 - Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Carries working thesis, key risks, watch triggers, and follow-up questions through research summaries, memos, and packs.
@@ -207,7 +208,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.48.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.49.0
 ```
 
 ## Example Files
@@ -314,6 +315,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.49.0 release notes](docs/releases/v0.49.0.md)
 - [v0.48.0 release notes](docs/releases/v0.48.0.md)
 - [v0.47.0 release notes](docs/releases/v0.47.0.md)
 - [v0.46.0 release notes](docs/releases/v0.46.0.md)
