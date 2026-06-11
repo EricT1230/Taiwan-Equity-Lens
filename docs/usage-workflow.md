@@ -448,6 +448,21 @@ From v0.41.0 onward, the dashboard turns the Evidence Pack into a guided workflo
 
 The dashboard also includes a `產業輪動地圖` for research operations. It groups research items by `category`, shows research-delivery pressure from handoff blockers, missing or invalid evidence, stale state, and open review actions, then links back to the matching review-action rows. From v0.42.0 onward, the map has status/evidence/expert/search filters plus a right-side workflow panel: select a sector, inspect its Top blockers, read the single next action, and jump to the matching Review Actions row. From v0.43.0 onward, that panel also includes a sector evidence board showing each stock's evidence status, missing fields, suggested evidence file, and direct handling buttons. From v0.44.0 onward, the served-dashboard test suite verifies that the evidence-board button payload can update `review_action_state.json` and clear evidence gaps through the same API path used by the dashboard. From v0.45.0 onward, the suite starts an actual local HTTP dashboard, reads the rendered button from GET `/`, posts to `/api/review-actions/set`, and verifies the re-rendered dashboard state. From v0.46.0 onward, the same served HTTP coverage verifies the Next Action Workbench can update state and re-render to the ready Evidence Pack action. From v0.47.0 onward, served HTTP coverage also verifies `/api/evidence/compose-and-set` writes the local evidence markdown file and re-renders the dashboard as ready. From v0.48.0 onward, evidence-composer coverage also verifies the response includes Reviewer Confidence and an evidence preview. From v0.49.0 onward, the map can overlay optional market-rotation context from research CSV fields (`market_return_1d`, `market_return_5d`, `market_return_20d`, `market_volume_signal`, and `market_rotation_note`), add a market filter, and show missing market-data coverage by sector. The map remains a research and handoff triage view only; the market overlay is descriptive context and does not provide buy/sell/hold guidance, target prices, allocation recommendations, or investment advice.
 
+From v0.50.0 onward, the dashboard can also discover `industry-trends/industry_trend_report.json`, show an Industry Trend Report section, and use an automatically generated report as the source for research-summary `market_rotation` values.
+
+Generate the v0.50.0 industry trend report from a research CSV and price-history CSV:
+
+```powershell
+python -m taiwan_stock_analysis.cli research industry-trends research.csv --price-history industry_price_history.csv --output-dir research-dist/industry-trends
+python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json --industry-trend-report research-dist/industry-trends/industry_trend_report.json
+```
+
+`research run` can do the same in one workflow when price history is supplied:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run research.csv --fixture-root examples/fixtures --output-dir research-dist --offline-prices --industry-price-history industry_price_history.csv
+```
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -475,7 +490,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.49.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.50.0
 python -m unittest discover -s tests -v
 ```
 

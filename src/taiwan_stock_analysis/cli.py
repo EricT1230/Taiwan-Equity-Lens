@@ -22,6 +22,7 @@ from taiwan_stock_analysis.doctor import (
 )
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
+from taiwan_stock_analysis.industry_trends import write_industry_trend_report
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
 from taiwan_stock_analysis.memo import write_memo, write_research_memos
 from taiwan_stock_analysis.metrics import calculate_metrics
@@ -291,6 +292,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     demo_quickstart.add_argument("--output-dir", default=Path("demo-dist"), type=Path)
     demo_quickstart.add_argument("--research-csv", default=Path("examples/research.csv"), type=Path)
     demo_quickstart.add_argument("--fixture-root", default=Path("examples/fixtures"), type=Path)
+    demo_quickstart.add_argument("--industry-price-history", default=Path("examples/industry_price_history.csv"), type=Path)
 
     doctor_parser = subparsers.add_parser("doctor", help="Run local project health checks.")
     doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
@@ -322,6 +324,7 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_summary.add_argument("research_csv", type=Path)
     research_summary.add_argument("--workflow-dir", default=Path("research-dist"), type=Path)
     research_summary.add_argument("--output", default=Path("research_summary.json"), type=Path)
+    research_summary.add_argument("--industry-trend-report", type=Path)
 
     research_memo = research_subparsers.add_parser(
         "memo",
@@ -349,6 +352,14 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_handoff_pack.add_argument("--output-dir", type=Path)
     research_handoff_pack.add_argument("--format", choices=["both", "markdown", "html"], default="both")
     research_handoff_pack.add_argument("--blocker-limit", type=int, default=10)
+
+    research_industry_trends = research_subparsers.add_parser(
+        "industry-trends",
+        help="Generate an industry trend report from research and price-history CSV files.",
+    )
+    research_industry_trends.add_argument("research_csv", type=Path)
+    research_industry_trends.add_argument("--price-history", required=True, type=Path)
+    research_industry_trends.add_argument("--output-dir", default=Path("research-dist/industry-trends"), type=Path)
 
     research_action = research_subparsers.add_parser("action", help="Manage persisted review-action state.")
     research_action_subparsers = research_action.add_subparsers(dest="research_action_command")
@@ -393,6 +404,8 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_run.add_argument("--skip-valuation", action="store_true")
     research_run.add_argument("--skip-memos", action="store_true")
     research_run.add_argument("--skip-packs", action="store_true")
+    research_run.add_argument("--industry-price-history", type=Path)
+    research_run.add_argument("--skip-industry-trends", action="store_true")
     return parser
 
 
@@ -405,6 +418,8 @@ def _run_research_workflow_command(
     skip_valuation: bool,
     skip_memos: bool,
     skip_packs: bool,
+    industry_price_history: Path | None = None,
+    skip_industry_trends: bool = False,
 ) -> dict[str, Path | None]:
     from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
@@ -418,10 +433,18 @@ def _run_research_workflow_command(
         valuation_csv=valuation_csv,
         include_valuation=not skip_valuation,
     )
+    industry_trend_report: Path | None = None
+    if not skip_industry_trends and industry_price_history is not None and industry_price_history.exists():
+        industry_trend_report = write_industry_trend_report(
+            research_csv,
+            industry_price_history,
+            output_dir / "industry-trends",
+        )
     research_summary = write_research_summary(
         research_csv,
         output_dir,
         output_dir / "research_summary.json",
+        industry_trend_report_path=industry_trend_report,
     )
     memo_summary: Path | None = None
     if not skip_memos:
@@ -450,6 +473,7 @@ def _run_research_workflow_command(
             output_dir / "comparison",
             output_dir / "memos",
             output_dir / "packs",
+            output_dir / "industry-trends",
         ],
         output_dir / "dashboard.html",
     )
@@ -458,6 +482,7 @@ def _run_research_workflow_command(
         "research_summary": research_summary,
         "memo_summary": memo_summary,
         "pack_summary": pack_summary,
+        "industry_trend_report": industry_trend_report,
         "dashboard": output_dir / "dashboard.html",
     }
 
@@ -469,6 +494,8 @@ def _print_research_workflow_outputs(paths: dict[str, Path | None]) -> None:
         print(f"Wrote {paths['memo_summary']}")
     if paths["pack_summary"] is not None:
         print(f"Wrote {paths['pack_summary']}")
+    if paths.get("industry_trend_report") is not None:
+        print(f"Wrote {paths['industry_trend_report']}")
     print(f"Open {paths['dashboard']}")
 
 
@@ -578,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip_valuation=False,
                 skip_memos=False,
                 skip_packs=False,
+                industry_price_history=args.industry_price_history,
             )
             _print_research_workflow_outputs(paths)
             research_summary = paths["research_summary"]
@@ -685,7 +713,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote {output_path}")
             return 0
         if args.research_command == "summary":
-            output_path = write_research_summary(args.research_csv, args.workflow_dir, args.output)
+            output_path = write_research_summary(
+                args.research_csv,
+                args.workflow_dir,
+                args.output,
+                industry_trend_report_path=args.industry_trend_report,
+            )
             print(f"Wrote {output_path}")
             return 0
         if args.research_command == "memo":
@@ -736,6 +769,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Warning: {exc}")
                 return 1
             print(f"Wrote {output_path}")
+            return 0
+        if args.research_command == "industry-trends":
+            try:
+                output_path = write_industry_trend_report(
+                    args.research_csv,
+                    args.price_history,
+                    args.output_dir,
+                )
+            except ValueError as exc:
+                print(f"Warning: {exc}")
+                return 1
+            print(f"Wrote {output_path}")
+            print(f"Wrote {args.output_dir / 'industry_trend_report.md'}")
+            print(f"Wrote {args.output_dir / 'industry_trend_report.html'}")
             return 0
         if args.research_command == "action":
             if args.research_action_command == "set":
@@ -851,6 +898,8 @@ def main(argv: list[str] | None = None) -> int:
                 skip_valuation=args.skip_valuation,
                 skip_memos=args.skip_memos,
                 skip_packs=args.skip_packs,
+                industry_price_history=args.industry_price_history,
+                skip_industry_trends=args.skip_industry_trends,
             )
             _print_research_workflow_outputs(paths)
             return 0

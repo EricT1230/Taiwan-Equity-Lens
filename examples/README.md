@@ -32,7 +32,7 @@ For machine-readable output:
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --json
 ```
 
-`examples/fixtures/` contains synthetic financial-statement HTML for offline demos. It is not source data and should not be used as real company data.
+`examples/fixtures/` contains synthetic financial-statement HTML for offline demos. `examples/industry_price_history.csv` contains synthetic daily close/volume rows used to generate the demo Industry Trend Report. These files are not source data and should not be used as real company or market data.
 
 After opening the dashboard, inspect the review-action queue:
 
@@ -54,7 +54,13 @@ The first state write creates `review_action_state.json`. Later writes create ti
 Equivalent lower-level command:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices --industry-price-history examples/industry_price_history.csv
+```
+
+Generate only the industry trend report:
+
+```powershell
+python -m taiwan_stock_analysis.cli research industry-trends examples/research.csv --price-history examples/industry_price_history.csv --output-dir demo-dist/industry-trends
 ```
 
 ## Research Workbench
@@ -76,7 +82,7 @@ research-dist/dashboard.html
 
 `research run` writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/` unless `--skip-memos` or `--skip-packs` is passed. The generated summary JSON files also carry traceability metadata and a universe review queue so the run inputs, derived outputs, and next research items can be inspected later. Use `research memo` or `research pack` to regenerate those outputs from existing workflow data.
 
-`examples/research.csv` includes thesis, key risks, watch triggers, follow-up questions, and optional market-rotation fields so the offline demo shows how research-quality fields and Industry Map overlay context flow into summaries, memos, packs, and the dashboard.
+`examples/research.csv` includes thesis, key risks, watch triggers, follow-up questions, and optional market-rotation fields. From v0.50.0 onward, the offline demo also uses `examples/industry_price_history.csv` so the Industry Trend Report can feed automatic sector rotation context into summaries and the dashboard.
 
 ## Single Research Memo
 

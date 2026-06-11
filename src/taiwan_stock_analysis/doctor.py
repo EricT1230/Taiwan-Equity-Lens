@@ -55,6 +55,9 @@ DEMO_REQUIRED_FILES = (
     Path("comparison/comparison.html"),
     Path("comparison/comparison.json"),
     Path("valuation.csv"),
+    Path("industry-trends/industry_trend_report.json"),
+    Path("industry-trends/industry_trend_report.md"),
+    Path("industry-trends/industry_trend_report.html"),
 )
 
 
@@ -116,6 +119,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
         else:
             if 'data-review-actions-section="true"' not in dashboard_text:
                 failures.append(f"dashboard missing review-action section: {dashboard_path}")
+            if 'data-industry-trend-report-section="true"' not in dashboard_text:
+                failures.append(f"dashboard missing industry trend report section: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")
@@ -130,10 +135,16 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
             failures.append(f"research summary has no review-action queue: {output_dir / 'research_summary.json'}")
         else:
             messages.append("research summary has review actions")
+        industry_trend_report = research_summary.get("industry_trend_report")
+        if not isinstance(industry_trend_report, dict) or not industry_trend_report.get("path"):
+            failures.append(f"research summary has no industry trend report: {output_dir / 'research_summary.json'}")
+        else:
+            messages.append("research summary has industry trend report")
 
     if not failures:
         messages.append("required files present")
         messages.append("dashboard includes review-action section")
+        messages.append("dashboard includes industry trend report section")
 
     return DemoDoctorResult(
         ok=not failures,

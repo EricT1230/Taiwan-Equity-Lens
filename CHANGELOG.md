@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.50.0 - 2026-06-08
+
+Industry Trend Report / Sector Rotation Data Pipeline release.
+
+### Added
+- `taiwan_stock_analysis.industry_trends` for deterministic price-history CSV loading, 1D/5D/20D return calculation, volume signal classification, category aggregation, data blockers, and non-advice reporting.
+- `research industry-trends` CLI command that writes `industry_trend_report.json`, `industry_trend_report.md`, and `industry_trend_report.html`.
+- Optional `research run --industry-price-history` integration that generates the industry trend report and feeds it into `research_summary.json`.
+- Dashboard discovery and rendering for `industry-trends/industry_trend_report.json`, including stable hooks for the Sector Rotation Data Pipeline and industry trend cards.
+- Synthetic `examples/industry_price_history.csv` for the offline demo.
+- Demo doctor checks for industry trend report outputs and dashboard hooks.
+
+### Changed
+- Research summaries can use an industry trend report as the source of `market_rotation` data while preserving the v0.49 research CSV overlay fallback.
+- `demo quickstart` now generates the industry trend report by default.
+- README, examples, methodology, usage workflow, release notes, and package version now target `v0.50.0`.
+
+### Tests
+- Added coverage for industry trend calculations, output writers, CLI integration, dashboard discovery/rendering, demo doctor readiness, and research-summary trend-report overlay.
+
 ## v0.49.0 - 2026-06-04
 
 Industry Map v1 market-rotation overlay release.

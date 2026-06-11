@@ -39,6 +39,27 @@ Taiwan Equity Lens is a deterministic research workflow for Taiwan equity fundam
 
 Market-rotation fields are descriptive workflow inputs. They help the dashboard show coverage and recent movement context by category, but they are not recommendations, rankings, or trading signals.
 
+## Industry Trend Price History
+
+From v0.50.0 onward, the Industry Trend Report can calculate sector rotation context from a separate price-history CSV instead of relying only on manually filled research CSV overlay fields.
+
+Required fields:
+
+| Field | Purpose |
+| --- | --- |
+| `stock_id` | Taiwan stock identifier that matches the research CSV. |
+| `date` | ISO date, for example `2026-05-29`. |
+| `close` | Daily close price. |
+
+Optional fields:
+
+| Field | Purpose |
+| --- | --- |
+| `volume` | Daily volume used to estimate 5-day volume expansion or contraction. |
+| `source` | Local source label for traceability, for example `fixture`, `manual`, or an internal data export name. |
+
+The report calculates per-stock 1D, 5D, and 20D returns, 5-day volume ratio, category averages, leading/lagging descriptive rows, data blockers, and a non-advice notice. The output is written as JSON, Markdown, and HTML. It is still descriptive research context only; it does not rank sectors for investment action or produce buy, sell, hold, target price, or allocation recommendations.
+
 ## Valuation Method
 
 Valuation output is scenario context. EPS scenarios and target PE values are combined into low, base, and high target-price scenarios. The valuation confidence score measures assumption completeness, not investment attractiveness.
