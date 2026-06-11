@@ -74,6 +74,7 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "memo_outputs": [],
         "pack_outputs": [],
         "handoff_pack_outputs": [],
+        "industry_trend_reports": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -151,6 +152,10 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         handoff_pack_dir = directory / "handoff-pack"
         if handoff_pack_dir.exists():
             _discover_handoff_pack_outputs(handoff_pack_dir, items)
+        _discover_industry_trend_reports(directory, items)
+        industry_trends_dir = directory / "industry-trends"
+        if industry_trends_dir.exists():
+            _discover_industry_trend_reports(industry_trends_dir, items)
     return items
 
 
@@ -220,6 +225,31 @@ def _discover_handoff_pack_outputs(directory: Path, items: DashboardItems) -> No
     )
 
 
+def _discover_industry_trend_reports(directory: Path, items: DashboardItems) -> None:
+    summary_path = directory / "industry_trend_report.json"
+    if not summary_path.exists():
+        return
+    existing_paths = {
+        str(report.get("path") or "")
+        for report in items.get("industry_trend_reports", [])
+        if isinstance(report, dict)
+    }
+    if str(summary_path) in existing_paths:
+        return
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"error": "invalid JSON"}
+    if not isinstance(payload, dict):
+        payload = {"error": "invalid JSON"}
+    payload["path"] = str(summary_path)
+    markdown_path = directory / "industry_trend_report.md"
+    html_path = directory / "industry_trend_report.html"
+    payload["markdown_path"] = str(markdown_path) if markdown_path.exists() else ""
+    payload["html_path"] = str(html_path) if html_path.exists() else ""
+    items["industry_trend_reports"].append(payload)
+
+
 def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = False) -> str:
     report_count = len(items.get("reports", []))
     comparison_count = len(items.get("comparisons", []))
@@ -231,6 +261,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     memo_outputs = items.get("memo_outputs", [])
     pack_outputs = items.get("pack_outputs", [])
     handoff_pack_outputs = items.get("handoff_pack_outputs", [])
+    industry_trend_reports = items.get("industry_trend_reports", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
     action_api_flag = "true" if action_api_enabled else "false"
 
@@ -295,6 +326,13 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-market-head {{ display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }}
     .industry-market-head strong {{ color: #12355b; }}
     .industry-market-note {{ margin: 6px 0 0; color: #475569; font-size: 13px; overflow-wrap: anywhere; }}
+    .industry-trend-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .industry-trend-card {{ border: 1px solid #d8dee8; border-left: 5px solid #64748b; border-radius: 8px; padding: 14px; background: #ffffff; }}
+    .industry-trend-card[data-industry-trend-direction="up"] {{ border-left-color: #16a34a; background: #fbfffc; }}
+    .industry-trend-card[data-industry-trend-direction="down"] {{ border-left-color: #dc2626; background: #fffafa; }}
+    .industry-trend-card[data-industry-trend-direction="mixed"] {{ border-left-color: #7c3aed; background: #fbf8ff; }}
+    .industry-trend-card[data-industry-trend-direction="missing"] {{ border-left-color: #d97706; background: #fffdf7; }}
+    .industry-trend-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }}
     .industry-map-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .industry-map-note {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .industry-map-detail-panel {{ position: sticky; top: 12px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; background: #f8fafc; }}
@@ -439,6 +477,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>工作流程摘要</span></div>
     </section>
     {_expert_agent_console_section(research_summaries, action_api_enabled=action_api_enabled)}
+    {_industry_trend_report_section(industry_trend_reports)}
     {_industry_rotation_map_section(research_summaries)}
     {_research_summary_section(research_summaries)}
     {_review_actions_section(research_summaries, action_api_enabled=action_api_enabled)}
@@ -2390,6 +2429,161 @@ def _expert_agent_label(category: str) -> str:
     if category in EXPERT_AGENT_LABELS:
         return EXPERT_AGENT_LABELS[category]
     return _review_label(category, REVIEW_ACTION_CATEGORY_LABELS)
+
+
+def _industry_trend_report_section(industry_trend_reports: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    for report in industry_trend_reports:
+        if not isinstance(report, dict):
+            continue
+        blocks.append(_industry_trend_report_block(report))
+    blocks = [block for block in blocks if block]
+    if not blocks:
+        return ""
+    return (
+        '<section data-industry-trend-report-section="true">'
+        "<h2>Industry Trend Report / Sector Rotation Data Pipeline</h2>"
+        '<p class="industry-map-lead">'
+        "\u9019\u500b\u5340\u584a\u4f86\u81ea\u81ea\u52d5\u7522\u696d\u8da8\u52e2\u8cc7\u6599\u7ba1\u7dda\uff0c"
+        "\u7528 research universe \u8207 price-history CSV \u8a08\u7b97 1D/5D/20D \u7522\u696d\u8f2a\u52d5\u6458\u8981\u3002"
+        "</p>"
+        f"{''.join(blocks)}"
+        '<p class="industry-map-note" data-industry-trend-non-advice="true">'
+        "\u6240\u6709\u8da8\u52e2\u8207\u8f2a\u52d5\u8cc7\u8a0a\u90fd\u53ea\u662f\u7814\u7a76\u6d41\u7a0b\u7684\u63cf\u8ff0\u6027\u8f38\u51fa\uff0c"
+        "\u4e0d\u69cb\u6210\u6295\u8cc7\u5efa\u8b70\u3002"
+        "</p>"
+        "</section>"
+    )
+
+
+def _industry_trend_report_block(report: dict[str, Any]) -> str:
+    source_path = str(report.get("path") or "")
+    gate = _dict_value(report.get("quality_gate"))
+    coverage = _dict_value(report.get("coverage"))
+    categories = report.get("categories", [])
+    category_rows = [category for category in categories if isinstance(category, dict)] if isinstance(categories, list) else []
+    if report.get("error"):
+        return (
+            '<div class="industry-map-source" data-industry-trend-report="true">'
+            f"<p>{_link(source_path, Path(source_path).name or 'industry_trend_report.json')}</p>"
+            f'<p class="status-line"><span class="badge error">{escape(str(report.get("error")))}</span></p>'
+            "</div>"
+        )
+    card_rows = "".join(_industry_trend_category_card(category) for category in category_rows[:8])
+    card_rows = card_rows or '<p class="empty">No industry trend categories.</p>'
+    next_action = str(gate.get("next_action") or "-")
+    links = _industry_trend_report_links(report)
+    return (
+        '<div class="industry-map-source" data-industry-trend-report="true">'
+        f"<p>{_link(source_path, Path(source_path).name or 'industry_trend_report.json')}</p>"
+        f"{links}"
+        '<div class="industry-map-summary" data-sector-rotation-pipeline="true">'
+        '<div class="industry-map-summary-item"><strong>quality gate</strong>'
+        f"<span>{escape(str(gate.get('status') or '-'))}</span></div>"
+        '<div class="industry-map-summary-item"><strong>as of</strong>'
+        f"<span>{escape(str(report.get('as_of_date') or '-'))}</span></div>"
+        '<div class="industry-map-summary-item"><strong>price coverage</strong>'
+        f"<span>{escape(str(coverage.get('stocks_with_price_history', 0)))} / {escape(str(coverage.get('stocks_total', 0)))}</span></div>"
+        '<div class="industry-map-summary-item"><strong>industries</strong>'
+        f"<span>{escape(str(coverage.get('categories_total', len(category_rows))))}</span></div>"
+        '<div class="industry-map-summary-item"><strong>next action</strong>'
+        f"<span>{escape(next_action)}</span></div>"
+        "</div>"
+        '<div class="industry-trend-grid">'
+        f"{card_rows}"
+        "</div>"
+        f"{_industry_trend_blockers(gate)}"
+        f"{_industry_trend_notice(report)}"
+        "</div>"
+    )
+
+
+def _industry_trend_report_links(report: dict[str, Any]) -> str:
+    links = []
+    for field, label in [
+        ("html_path", "HTML report"),
+        ("markdown_path", "Markdown report"),
+        ("path", "JSON data"),
+    ]:
+        path = str(report.get(field) or "")
+        link = _link(path, label)
+        if link != "-":
+            links.append(link)
+    if not links:
+        return ""
+    return f'<p class="industry-trend-links">{" ".join(links)}</p>'
+
+
+def _industry_trend_category_card(category: dict[str, Any]) -> str:
+    direction = str(category.get("direction") or "missing")
+    name = str(category.get("category") or "-")
+    leading = _industry_trend_stock_text(category.get("leading_stocks"))
+    lagging = _industry_trend_stock_text(category.get("lagging_stocks"))
+    notes = category.get("notes", [])
+    note_text = " | ".join(str(note) for note in notes) if isinstance(notes, list) and notes else "-"
+    return (
+        '<article class="industry-trend-card"'
+        f' data-industry-trend-category="{escape(name)}"'
+        f' data-industry-trend-direction="{escape(direction)}">'
+        '<div class="industry-map-head">'
+        f"<h3>{escape(name)}</h3>"
+        f'<span class="industry-status-pill">{escape(_market_direction_label(direction))}</span>'
+        "</div>"
+        f'<p class="industry-map-lead">{escape(str(category.get("rotation_phase") or "-"))}</p>'
+        '<div class="industry-map-metrics">'
+        f'<span><strong>{escape(_market_return_text(category.get("average_return_20d")))}</strong>20D</span>'
+        f'<span><strong>{escape(_market_return_text(category.get("average_return_5d")))}</strong>5D</span>'
+        f'<span><strong>{escape(_market_return_text(category.get("average_return_1d")))}</strong>1D</span>'
+        f'<span><strong>{escape(str(category.get("coverage_count", 0)))}/{escape(str(category.get("stock_count", 0)))}</strong>\u50f9\u683c\u8cc7\u6599</span>'
+        "</div>"
+        f'<p class="industry-market-note"><strong>Volume:</strong> {escape(_industry_trend_ratio_text(category.get("average_volume_ratio_5d")))}</p>'
+        f'<p class="industry-market-note"><strong>Leading:</strong> {escape(leading)}</p>'
+        f'<p class="industry-market-note"><strong>Lagging:</strong> {escape(lagging)}</p>'
+        f'<p class="industry-market-note"><strong>Notes:</strong> {escape(note_text)}</p>'
+        "</article>"
+    )
+
+
+def _industry_trend_stock_text(value: Any) -> str:
+    stocks = value if isinstance(value, list) else []
+    labels: list[str] = []
+    for item in stocks[:3]:
+        if not isinstance(item, dict):
+            continue
+        stock_id = str(item.get("stock_id") or "")
+        labels.append(f"{stock_id} {_market_return_text(item.get('return_20d'))}".strip())
+    return ", ".join(labels) if labels else "-"
+
+
+def _industry_trend_ratio_text(value: Any) -> str:
+    number = _market_float(value)
+    if number is None:
+        return "-"
+    return f"{number:.2f}x"
+
+
+def _industry_trend_blockers(gate: dict[str, Any]) -> str:
+    blockers = gate.get("blockers", [])
+    if not isinstance(blockers, list) or not blockers:
+        return '<p class="status-line"><span class="badge ok">No data blockers</span></p>'
+    items = "".join(f"<li>{escape(str(blocker))}</li>" for blocker in blockers[:6])
+    return (
+        '<details class="review-action-detail" data-industry-trend-blockers="true">'
+        "<summary>Data blockers</summary>"
+        f"<ul>{items}</ul>"
+        "</details>"
+    )
+
+
+def _industry_trend_notice(report: dict[str, Any]) -> str:
+    notice = str(report.get("non_advice_notice") or "").strip()
+    if not notice:
+        return ""
+    return (
+        '<p class="industry-map-note" data-industry-trend-report-non-advice="true">'
+        f"{escape(notice)}"
+        "</p>"
+    )
 
 
 def _industry_rotation_map_section(research_summaries: list[dict[str, Any]]) -> str:
@@ -4382,6 +4576,8 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
     for output in items.get("handoff_pack_outputs", []):
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
+    for report in items.get("industry_trend_reports", []):
+        _relativize_fields(report, ["path", "markdown_path", "html_path"], base_dir)
 
 
 def _relativize_fields(target: dict[str, Any], fields: list[str], base_dir: Path) -> None:

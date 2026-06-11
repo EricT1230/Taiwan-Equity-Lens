@@ -26,7 +26,7 @@ class CliTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            exit_code = main(["doctor", "release", "--version", "0.49.0"])
+            exit_code = main(["doctor", "release", "--version", "0.50.0"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Release readiness OK", output.getvalue())
@@ -1484,6 +1484,72 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
         self.assertIn("審查動作", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
 
+    def test_main_research_industry_trends_writes_outputs(self):
+        root = Path(".tmp-cli-test/research-industry-trends")
+        research = root / "research.csv"
+        price_history = root / "industry-price-history.csv"
+        output_dir = root / "industry-trends"
+        root.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,watching,\n",
+            encoding="utf-8",
+        )
+        _write_industry_price_history(price_history, {"2330": [100 + index for index in range(21)]})
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main([
+                "research",
+                "industry-trends",
+                str(research),
+                "--price-history",
+                str(price_history),
+                "--output-dir",
+                str(output_dir),
+            ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "industry_trend_report.json").exists())
+        self.assertTrue((output_dir / "industry_trend_report.md").exists())
+        self.assertTrue((output_dir / "industry_trend_report.html").exists())
+        self.assertIn("Wrote", output.getvalue())
+
+    def test_main_research_run_writes_industry_trends_when_price_history_provided(self):
+        root = Path(".tmp-cli-test")
+        fixture_root = root / "research-run-industry-fixtures"
+        output_dir = root / "research-run-industry-dist"
+        research = root / "research-run-industry.csv"
+        price_history = root / "research-run-industry-prices.csv"
+        self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,Alpha,Semiconductor,medium,watching,Track valuation\n",
+            encoding="utf-8",
+        )
+        _write_industry_price_history(price_history, {"2330": [100 + index for index in range(21)]})
+
+        exit_code = main([
+            "research",
+            "run",
+            str(research),
+            "--fixture-root",
+            str(fixture_root),
+            "--output-dir",
+            str(output_dir),
+            "--offline-prices",
+            "--industry-price-history",
+            str(price_history),
+        ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "industry-trends" / "industry_trend_report.json").exists())
+        summary = json.loads((output_dir / "research_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["industry_trend_report"]["status"], "ready")
+        self.assertEqual(summary["items"][0]["market_rotation"]["source"], "industry_trend_report")
+        dashboard = (output_dir / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('data-industry-trend-report-section="true"', dashboard)
+
     def test_main_demo_quickstart_runs_bundled_offline_demo(self):
         output_dir = Path(".tmp-cli-test/demo-quickstart-dist")
         output = StringIO()
@@ -1507,6 +1573,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("research action report", stdout)
         self.assertIn("research action set", stdout)
         self.assertIn("research action backups", stdout)
+        self.assertTrue((output_dir / "industry-trends" / "industry_trend_report.json").exists())
 
     def test_main_research_run_writes_memos_by_default(self):
         root = Path(".tmp-cli-test")
@@ -1763,6 +1830,38 @@ def _write_handoff_cli_fixture(root: Path) -> Path:
         encoding="utf-8",
     )
     return research_summary
+
+
+def _write_industry_price_history(path: Path, closes_by_stock: dict[str, list[float]]) -> None:
+    dates = [
+        "2026-05-01",
+        "2026-05-04",
+        "2026-05-05",
+        "2026-05-06",
+        "2026-05-07",
+        "2026-05-08",
+        "2026-05-11",
+        "2026-05-12",
+        "2026-05-13",
+        "2026-05-14",
+        "2026-05-15",
+        "2026-05-18",
+        "2026-05-19",
+        "2026-05-20",
+        "2026-05-21",
+        "2026-05-22",
+        "2026-05-25",
+        "2026-05-26",
+        "2026-05-27",
+        "2026-05-28",
+        "2026-05-29",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["stock_id,date,close,volume,source"]
+    for stock_id, closes in closes_by_stock.items():
+        for index, close in enumerate(closes):
+            lines.append(f"{stock_id},{dates[index]},{close},{1000 + index * 25},fixture")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

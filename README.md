@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.49.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.50.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -19,6 +19,7 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Tracks a research CSV with priority, research state, notes, workflow status, and reliability context.
 - Builds a universe-level review queue for deciding which research items need attention first.
 - Overlays optional 1D/5D/20D market-rotation context on the industry research map.
+- Generates an automatic Industry Trend Report from research universe and price-history CSV files, then feeds sector rotation context back into the dashboard.
 - Generates deterministic Markdown or HTML research memos with executive summary, observations, risks, open questions, and next research actions.
 - Generates consolidated Markdown and HTML research packs for local handoff and review.
 - Carries working thesis, key risks, watch triggers, and follow-up questions through research summaries, memos, and packs.
@@ -68,13 +69,13 @@ Outputs:
 
 ## One-Command Demo
 
-Use the synthetic example fixtures for a fully offline local demo:
+Use the synthetic example fixtures and industry price-history sample for a fully offline local demo:
 
 ```powershell
 python -m taiwan_stock_analysis.cli demo quickstart
 ```
 
-The command prints the dashboard path and the next review-action commands.
+The command prints the dashboard path and the next review-action commands. It also writes `demo-dist/industry-trends/industry_trend_report.json`, `.md`, and `.html`.
 
 Verify that the demo produced the expected handoff files:
 
@@ -174,6 +175,13 @@ Regenerate a research summary from existing workflow outputs:
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json
 ```
 
+Generate an industry trend report from a research universe and price-history CSV:
+
+```powershell
+python -m taiwan_stock_analysis.cli research industry-trends research.csv --price-history industry_price_history.csv --output-dir research-dist/industry-trends
+python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json --industry-trend-report research-dist/industry-trends/industry_trend_report.json
+```
+
 Generate a single research memo from existing analysis JSON:
 
 ```powershell
@@ -208,7 +216,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.49.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.50.0
 ```
 
 ## Example Files
@@ -216,6 +224,7 @@ python -m taiwan_stock_analysis.cli doctor release --version 0.49.0
 - [examples/watchlist.csv](examples/watchlist.csv): sample watchlist for batch/workflow runs.
 - [examples/valuation.csv](examples/valuation.csv): sample valuation assumptions.
 - [examples/research.csv](examples/research.csv): sample research workbench universe.
+- [examples/industry_price_history.csv](examples/industry_price_history.csv): synthetic price-history input for Industry Trend Report demos.
 - [examples/fixtures/](examples/fixtures): synthetic financial-statement HTML for offline demos.
 - [examples/README.md](examples/README.md): example command guide.
 
@@ -306,6 +315,7 @@ Current sources and inputs:
 - TPEx OTC daily close data as fallback
 - MOPS links for manual official filing verification
 - user-provided valuation CSV assumptions
+- user-provided industry price-history CSV for sector rotation reporting
 
 ## Documentation
 
@@ -315,6 +325,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.50.0 release notes](docs/releases/v0.50.0.md)
 - [v0.49.0 release notes](docs/releases/v0.49.0.md)
 - [v0.48.0 release notes](docs/releases/v0.48.0.md)
 - [v0.47.0 release notes](docs/releases/v0.47.0.md)

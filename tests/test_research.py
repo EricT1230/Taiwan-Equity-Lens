@@ -578,6 +578,77 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(overlay["category_overlays"]["Semiconductor"]["direction"], "up")
         self.assertEqual(overlay["category_overlays"]["Power"]["status"], "missing")
 
+    def test_build_research_summary_uses_industry_trend_report_for_market_rotation(self):
+        root = Path(".tmp-research-test")
+        research = root / "summary-industry-trend.csv"
+        workflow_dir = root / "industry-trend-workflow"
+        trend_report = root / "industry-trends" / "industry_trend_report.json"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        trend_report.parent.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,watching,\n"
+            "2303,UMC,Semiconductor,medium,watching,\n",
+            encoding="utf-8",
+        )
+        (workflow_dir / "workflow_summary.json").write_text(
+            json.dumps(
+                {
+                    "successful_stock_ids": ["2330", "2303"],
+                    "data_reliability": {"overall_status": "ok"},
+                    "paths": {"valuation_batch_summary": "workflow/valuation.json"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        trend_report.write_text(
+            json.dumps(
+                {
+                    "quality_gate": {"status": "ready"},
+                    "as_of_date": "2026-05-29",
+                    "stock_trends": [
+                        {
+                            "stock_id": "2330",
+                            "status": "available",
+                            "return_1d": 1.0,
+                            "return_5d": 5.0,
+                            "return_20d": 12.0,
+                            "direction": "up",
+                            "volume_signal": "expanding",
+                            "latest_date": "2026-05-29",
+                        },
+                        {
+                            "stock_id": "2303",
+                            "status": "available",
+                            "return_1d": -0.5,
+                            "return_5d": 1.0,
+                            "return_20d": 2.0,
+                            "direction": "up",
+                            "volume_signal": "normal",
+                            "latest_date": "2026-05-29",
+                        },
+                    ],
+                    "categories": [{"category": "Semiconductor"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        summary = build_research_summary(
+            research,
+            workflow_dir=workflow_dir,
+            industry_trend_report_path=trend_report,
+        )
+
+        self.assertEqual(summary["industry_trend_report"]["path"], str(trend_report))
+        self.assertEqual(summary["industry_trend_report"]["status"], "ready")
+        self.assertEqual(summary["items"][0]["market_rotation"]["source"], "industry_trend_report")
+        self.assertEqual(summary["items"][0]["market_rotation"]["return_20d"], 12.0)
+        self.assertIn("industry trend report", summary["items"][0]["market_rotation"]["note"])
+        overlay = summary["market_rotation_overlay"]
+        self.assertEqual(overlay["coverage"], {"available": 2, "missing": 0, "total": 2})
+        self.assertEqual(overlay["category_overlays"]["Semiconductor"]["average_return_20d"], 7.0)
+
     def test_build_universe_review_sorts_attention_queue_by_status_priority_and_stock_id(self):
         builder = getattr(research_module, "build_universe_review", None)
         self.assertIsNotNone(builder)

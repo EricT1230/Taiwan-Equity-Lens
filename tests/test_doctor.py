@@ -91,6 +91,7 @@ class DoctorTests(unittest.TestCase):
         self.assertIn(f"output directory {output_dir}", result.messages)
         self.assertIn("required files present", result.messages)
         self.assertIn("dashboard includes review-action section", result.messages)
+        self.assertIn("dashboard includes industry trend report section", result.messages)
 
     def test_format_demo_doctor_result_reports_success(self):
         output_dir = Path(".tmp-doctor-test/demo-format-pass")
@@ -291,8 +292,10 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "memos").mkdir(parents=True, exist_ok=True)
     (output_dir / "packs").mkdir(parents=True, exist_ok=True)
     (output_dir / "comparison").mkdir(parents=True, exist_ok=True)
+    (output_dir / "industry-trends").mkdir(parents=True, exist_ok=True)
     (output_dir / "dashboard.html").write_text(
-        '<html><body><div data-review-actions-section="true"></div></body></html>',
+        '<html><body><div data-review-actions-section="true"></div>'
+        '<section data-industry-trend-report-section="true"></section></body></html>',
         encoding="utf-8",
     )
     (output_dir / "workflow_summary.json").write_text(
@@ -300,7 +303,15 @@ def write_demo_fixture(output_dir: Path) -> None:
         encoding="utf-8",
     )
     (output_dir / "research_summary.json").write_text(
-        json.dumps({"review_action_queue": [{"stock_id": "2330", "actions": [{"id": "source-audit"}]}]}),
+        json.dumps(
+            {
+                "review_action_queue": [{"stock_id": "2330", "actions": [{"id": "source-audit"}]}],
+                "industry_trend_report": {
+                    "path": str(output_dir / "industry-trends" / "industry_trend_report.json"),
+                    "status": "ready",
+                },
+            }
+        ),
         encoding="utf-8",
     )
     (output_dir / "memos" / "memo_summary.json").write_text("{}", encoding="utf-8")
@@ -308,6 +319,9 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "comparison" / "comparison.html").write_text("<html></html>", encoding="utf-8")
     (output_dir / "comparison" / "comparison.json").write_text("{}", encoding="utf-8")
     (output_dir / "valuation.csv").write_text("stock_id\n2330\n", encoding="utf-8")
+    (output_dir / "industry-trends" / "industry_trend_report.json").write_text("{}", encoding="utf-8")
+    (output_dir / "industry-trends" / "industry_trend_report.md").write_text("# Industry Trend Report\n", encoding="utf-8")
+    (output_dir / "industry-trends" / "industry_trend_report.html").write_text("<html></html>", encoding="utf-8")
 
 
 def write_handoff_fixture(output_dir: Path) -> None:

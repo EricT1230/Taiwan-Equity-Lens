@@ -151,7 +151,12 @@ def write_watchlist_from_research(research_path: Path, output_path: Path) -> Pat
     return output_path
 
 
-def build_research_summary(research_path: Path, workflow_dir: Path | None = None) -> dict[str, Any]:
+def build_research_summary(
+    research_path: Path,
+    workflow_dir: Path | None = None,
+    *,
+    industry_trend_report_path: Path | None = None,
+) -> dict[str, Any]:
     rows = load_research_rows(research_path)
     workflow_summary_path = (workflow_dir / "workflow_summary.json") if workflow_dir is not None else None
     workflow_payload = _load_workflow_summary(workflow_summary_path)
@@ -164,6 +169,8 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
     source_audit = _workflow_source_audit(workflow_payload)
     source_audit_by_stock = _source_audit_by_stock(source_audit)
     analysis_payloads = _analysis_payloads_by_stock(workflow_dir)
+    industry_trend_report = _load_industry_trend_report(industry_trend_report_path)
+    industry_trends_by_stock = _industry_trends_by_stock(industry_trend_report)
 
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -187,7 +194,10 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
             "workflow_status": workflow_status,
             "reliability_status": reliability_status,
             "attention_reasons": attention_reasons,
-            "market_rotation": build_market_rotation(row),
+            "market_rotation": _market_rotation_for_stock(
+                row,
+                industry_trends_by_stock.get(stock_id),
+            ),
             "source_audit_status": _source_audit_status(
                 stock_source_audit,
                 has_source_audit=bool(source_audit),
@@ -222,6 +232,12 @@ def build_research_summary(research_path: Path, workflow_dir: Path | None = None
         "workflow_paths": workflow_payload.get("paths", {}) if workflow_payload else {},
         "source_audit": source_audit,
     }
+    industry_trend_summary = _industry_trend_report_summary(
+        industry_trend_report,
+        industry_trend_report_path,
+    )
+    if industry_trend_summary:
+        summary["industry_trend_report"] = industry_trend_summary
     run_metadata = read_run_metadata(workflow_payload)
     if run_metadata:
         summary["run_metadata"] = run_metadata
@@ -251,6 +267,25 @@ def build_market_rotation(row: dict[str, Any]) -> dict[str, Any]:
         "volume_signal": volume_signal,
         "note": note,
     }
+
+
+def _market_rotation_for_stock(row: dict[str, Any], stock_trend: dict[str, Any] | None) -> dict[str, Any]:
+    if stock_trend and str(stock_trend.get("status") or "") == "available":
+        latest_date = str(stock_trend.get("latest_date") or "").strip()
+        source_note = f"Generated from industry trend report as of {latest_date}".strip()
+        return {
+            "status": "available",
+            "direction": str(stock_trend.get("direction") or "missing"),
+            "return_1d": _coerce_market_float(stock_trend.get("return_1d")),
+            "return_5d": _coerce_market_float(stock_trend.get("return_5d")),
+            "return_20d": _coerce_market_float(stock_trend.get("return_20d")),
+            "volume_signal": str(stock_trend.get("volume_signal") or ""),
+            "note": source_note,
+            "source": "industry_trend_report",
+        }
+    rotation = build_market_rotation(row)
+    rotation["source"] = "research_csv"
+    return rotation
 
 
 def build_market_rotation_overlay(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -393,12 +428,24 @@ def build_universe_review(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def write_research_summary(research_path: Path, workflow_dir: Path | None, output_path: Path) -> Path:
-    summary = build_research_summary(research_path, workflow_dir=workflow_dir)
+def write_research_summary(
+    research_path: Path,
+    workflow_dir: Path | None,
+    output_path: Path,
+    *,
+    industry_trend_report_path: Path | None = None,
+) -> Path:
+    summary = build_research_summary(
+        research_path,
+        workflow_dir=workflow_dir,
+        industry_trend_report_path=industry_trend_report_path,
+    )
     workflow_summary_path = (workflow_dir / "workflow_summary.json") if workflow_dir is not None else None
     dependencies = {}
     if workflow_summary_path is not None:
         dependencies["workflow_summary"] = str(workflow_summary_path)
+    if industry_trend_report_path is not None:
+        dependencies["industry_trend_report"] = str(industry_trend_report_path)
     summary["artifact_registry"] = build_artifact_registry(
         str(output_path),
         dependencies=dependencies,
@@ -459,6 +506,49 @@ def _load_workflow_summary(path: Path | None) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _load_industry_trend_report(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _industry_trends_by_stock(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    trends: dict[str, dict[str, Any]] = {}
+    raw_trends = report.get("stock_trends", []) if report else []
+    if not isinstance(raw_trends, list):
+        return trends
+    for trend in raw_trends:
+        if not isinstance(trend, dict):
+            continue
+        stock_id = str(trend.get("stock_id") or "").strip()
+        if stock_id:
+            trends[stock_id] = trend
+    return trends
+
+
+def _industry_trend_report_summary(
+    report: dict[str, Any],
+    path: Path | None,
+) -> dict[str, Any]:
+    if not report:
+        return {}
+    gate = report.get("quality_gate", {})
+    coverage = report.get("coverage", {})
+    categories = report.get("categories", [])
+    return {
+        "path": str(path) if path is not None else "",
+        "status": str(gate.get("status") or "unknown") if isinstance(gate, dict) else "unknown",
+        "as_of_date": str(report.get("as_of_date") or ""),
+        "coverage": coverage if isinstance(coverage, dict) else {},
+        "category_count": len(categories) if isinstance(categories, list) else 0,
+        "non_advice_notice": str(report.get("non_advice_notice") or ""),
+    }
 
 
 def _analysis_payloads_by_stock(workflow_dir: Path | None) -> dict[str, tuple[dict[str, Any] | None, str]]:

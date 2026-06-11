@@ -337,6 +337,88 @@ class DashboardTests(unittest.TestCase):
             ],
         )
 
+    def test_discover_dashboard_items_finds_industry_trend_reports(self):
+        root = Path(".tmp-cli-test/dashboard-industry-trends")
+        trend_dir = root / "industry-trends"
+        trend_dir.mkdir(parents=True, exist_ok=True)
+        (trend_dir / "industry_trend_report.json").write_text(
+            json.dumps(
+                {
+                    "quality_gate": {"status": "ready"},
+                    "coverage": {"stocks_total": 2, "stocks_with_price_history": 2},
+                    "categories": [{"category": "Semiconductor", "direction": "up"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (trend_dir / "industry_trend_report.md").write_text("# Industry Trend Report", encoding="utf-8")
+        (trend_dir / "industry_trend_report.html").write_text("<html>trend</html>", encoding="utf-8")
+
+        items = discover_dashboard_items([root])
+
+        self.assertIn("industry_trend_reports", items)
+        self.assertEqual(len(items["industry_trend_reports"]), 1)
+        report = items["industry_trend_reports"][0]
+        self.assertEqual(report["path"], str(trend_dir / "industry_trend_report.json"))
+        self.assertEqual(report["markdown_path"], str(trend_dir / "industry_trend_report.md"))
+        self.assertEqual(report["html_path"], str(trend_dir / "industry_trend_report.html"))
+        self.assertEqual(report["quality_gate"]["status"], "ready")
+
+    def test_render_dashboard_html_contains_industry_trend_report(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "industry_trend_reports": [
+                    {
+                        "path": "research-dist/industry-trends/industry_trend_report.json",
+                        "markdown_path": "research-dist/industry-trends/industry_trend_report.md",
+                        "html_path": "research-dist/industry-trends/industry_trend_report.html",
+                        "as_of_date": "2026-05-29",
+                        "coverage": {
+                            "stocks_total": 2,
+                            "stocks_with_price_history": 2,
+                            "missing_price_history": 0,
+                        },
+                        "quality_gate": {
+                            "status": "ready",
+                            "next_action": "Review the strongest and weakest sector trend evidence.",
+                        },
+                        "categories": [
+                            {
+                                "category": "Semiconductor",
+                                "direction": "up",
+                                "rotation_phase": "leading",
+                                "stock_count": 2,
+                                "coverage_count": 2,
+                                "missing_count": 0,
+                                "average_return_1d": 0.5,
+                                "average_return_5d": 2.5,
+                                "average_return_20d": 8.0,
+                                "average_volume_ratio_5d": 1.3,
+                                "leading_stocks": [{"stock_id": "2330", "return_20d": 12.0}],
+                                "lagging_stocks": [{"stock_id": "2303", "return_20d": 2.0}],
+                            }
+                        ],
+                        "non_advice_notice": "This output is not investment advice.",
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-industry-trend-report-section="true"', html)
+        self.assertIn('data-sector-rotation-pipeline="true"', html)
+        self.assertIn('data-industry-trend-report="true"', html)
+        self.assertIn('data-industry-trend-category="Semiconductor"', html)
+        self.assertIn('data-industry-trend-direction="up"', html)
+        self.assertIn("industry_trend_report.html", html)
+        self.assertIn("20D", html)
+        self.assertIn("Review the strongest and weakest sector trend evidence", html)
+        self.assertIn("not investment advice", html)
+
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
             {
