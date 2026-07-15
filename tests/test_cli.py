@@ -1515,6 +1515,112 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "industry_trend_report.html").exists())
         self.assertIn("Wrote", output.getvalue())
 
+    def test_main_research_market_intelligence_writes_combined_outputs(self):
+        root = Path(".tmp-cli-test/research-market-intelligence")
+        research = root / "research.csv"
+        trend = root / "industry_trend_report.json"
+        news = root / "news.csv"
+        flow = root / "fund-flow.csv"
+        output_dir = root / "market-intelligence"
+        root.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,news_keywords\n"
+            "2330,TSMC,Semiconductor,high,watching,,台積電|AI|伺服器\n",
+            encoding="utf-8",
+        )
+        trend.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-07-10",
+                    "categories": [{"category": "Semiconductor", "direction": "up"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        news.write_text(
+            "published_at,title,summary,url,source\n"
+            "2026-07-11,台積電 AI 伺服器需求增溫,,https://example.test/news,fixture\n",
+            encoding="utf-8",
+        )
+        flow.write_text(
+            "date,stock_id,foreign_net,investment_trust_net,dealer_net,total_net,source\n"
+            "2026-07-10,2330,1000,200,-50,1150,fixture\n",
+            encoding="utf-8",
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(
+                [
+                    "research",
+                    "market-intelligence",
+                    str(research),
+                    "--industry-trend-report",
+                    str(trend),
+                    "--news-csv",
+                    str(news),
+                    "--fund-flow-csv",
+                    str(flow),
+                    "--as-of",
+                    "2026-07-12T12:00:00+08:00",
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((output_dir / "market_intelligence_report.json").exists())
+        self.assertTrue((output_dir / "market_intelligence_report.md").exists())
+        self.assertTrue((output_dir / "market_intelligence_report.html").exists())
+        self.assertIn("Wrote", output.getvalue())
+
+    @patch("taiwan_stock_analysis.cli.write_market_data_bundle")
+    def test_main_research_market_data_writes_official_bundle(self, write_bundle):
+        root = Path(".tmp-cli-test/research-market-data")
+        research = root / "research.csv"
+        output_dir = root / "market-data"
+        root.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes\n"
+            "2330,TSMC,Semiconductor,high,watching,\n",
+            encoding="utf-8",
+        )
+        outputs = {
+            "report": output_dir / "market_data_report.json",
+            "markdown": output_dir / "market_data_report.md",
+            "official_universe": output_dir / "official_universe.csv",
+            "research_csv": output_dir / "research_official.csv",
+            "price_history": output_dir / "industry_price_history.csv",
+            "fund_flow": output_dir / "fund_flow.csv",
+        }
+        write_bundle.return_value = outputs
+
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(
+                [
+                    "research",
+                    "market-data",
+                    str(research),
+                    "--output-dir",
+                    str(output_dir),
+                    "--as-of",
+                    "2026-07-12",
+                    "--history-months",
+                    "3",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        write_bundle.assert_called_once_with(
+            research,
+            output_dir,
+            as_of="2026-07-12",
+            history_months=3,
+            replace_category=False,
+        )
+        self.assertIn("market_data_report.json", output.getvalue())
+
     def test_main_research_run_writes_industry_trends_when_price_history_provided(self):
         root = Path(".tmp-cli-test")
         fixture_root = root / "research-run-industry-fixtures"

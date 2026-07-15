@@ -23,6 +23,16 @@ from taiwan_stock_analysis.doctor import (
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
 from taiwan_stock_analysis.industry_trends import write_industry_trend_report
+from taiwan_stock_analysis.market_data_importer import write_market_data_bundle
+from taiwan_stock_analysis.market_intelligence import (
+    fetch_feed_news,
+    fetch_tpex_fund_flow,
+    fetch_twse_fund_flow,
+    fetch_twse_news,
+    load_fund_flow_rows,
+    load_news_rows,
+    write_market_intelligence_report,
+)
 from taiwan_stock_analysis.market_price import offline_price, write_valuation_template
 from taiwan_stock_analysis.memo import write_memo, write_research_memos
 from taiwan_stock_analysis.metrics import calculate_metrics
@@ -293,6 +303,9 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     demo_quickstart.add_argument("--research-csv", default=Path("examples/research.csv"), type=Path)
     demo_quickstart.add_argument("--fixture-root", default=Path("examples/fixtures"), type=Path)
     demo_quickstart.add_argument("--industry-price-history", default=Path("examples/industry_price_history.csv"), type=Path)
+    demo_quickstart.add_argument("--market-news-csv", default=Path("examples/market_news.csv"), type=Path)
+    demo_quickstart.add_argument("--market-fund-flow-csv", default=Path("examples/fund_flow.csv"), type=Path)
+    demo_quickstart.add_argument("--market-as-of", default="2026-07-12T12:00:00+08:00")
 
     doctor_parser = subparsers.add_parser("doctor", help="Run local project health checks.")
     doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
@@ -361,6 +374,35 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_industry_trends.add_argument("--price-history", required=True, type=Path)
     research_industry_trends.add_argument("--output-dir", default=Path("research-dist/industry-trends"), type=Path)
 
+    research_market_intelligence = research_subparsers.add_parser(
+        "market-intelligence",
+        help="Combine industry trends, latest news keywords, and institutional fund flow.",
+    )
+    research_market_intelligence.add_argument("research_csv", type=Path)
+    research_market_intelligence.add_argument("--industry-trend-report", type=Path)
+    research_market_intelligence.add_argument("--news-csv", action="append", default=[], type=Path)
+    research_market_intelligence.add_argument("--news-feed", action="append", default=[])
+    research_market_intelligence.add_argument("--fetch-twse-news", action="store_true")
+    research_market_intelligence.add_argument("--fund-flow-csv", action="append", default=[], type=Path)
+    research_market_intelligence.add_argument("--fetch-twse-fund-flow", action="store_true")
+    research_market_intelligence.add_argument("--fetch-tpex-fund-flow", action="store_true")
+    research_market_intelligence.add_argument("--as-of", help="ISO date or datetime used for freshness checks.")
+    research_market_intelligence.add_argument(
+        "--output-dir",
+        default=Path("research-dist/market-intelligence"),
+        type=Path,
+    )
+
+    research_market_data = research_subparsers.add_parser(
+        "market-data",
+        help="Fetch official TWSE/TPEx profiles, industries, prices, and institutional flow.",
+    )
+    research_market_data.add_argument("research_csv", type=Path)
+    research_market_data.add_argument("--output-dir", default=Path("research-dist/market-data"), type=Path)
+    research_market_data.add_argument("--as-of", help="ISO date used for price history and freshness.")
+    research_market_data.add_argument("--history-months", type=int, default=3)
+    research_market_data.add_argument("--replace-category", action="store_true")
+
     research_action = research_subparsers.add_parser("action", help="Manage persisted review-action state.")
     research_action_subparsers = research_action.add_subparsers(dest="research_action_command")
 
@@ -406,7 +448,66 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_run.add_argument("--skip-packs", action="store_true")
     research_run.add_argument("--industry-price-history", type=Path)
     research_run.add_argument("--skip-industry-trends", action="store_true")
+    research_run.add_argument("--market-news-csv", action="append", default=[], type=Path)
+    research_run.add_argument("--market-news-feed", action="append", default=[])
+    research_run.add_argument("--fetch-twse-news", action="store_true")
+    research_run.add_argument("--market-fund-flow-csv", action="append", default=[], type=Path)
+    research_run.add_argument("--fetch-twse-fund-flow", action="store_true")
+    research_run.add_argument("--fetch-tpex-fund-flow", action="store_true")
+    research_run.add_argument("--market-as-of", help="ISO date or datetime used for freshness checks.")
+    research_run.add_argument("--skip-market-intelligence", action="store_true")
+    research_run.add_argument("--fetch-market-data", action="store_true")
+    research_run.add_argument("--market-data-as-of", help="ISO date used for official market-data import.")
+    research_run.add_argument("--market-data-history-months", type=int, default=3)
+    research_run.add_argument("--replace-category-with-official", action="store_true")
     return parser
+
+
+def _collect_market_intelligence_inputs(
+    *,
+    news_csv_paths: list[Path],
+    news_feed_urls: list[str],
+    include_twse_news: bool,
+    fund_flow_csv_paths: list[Path],
+    include_twse_fund_flow: bool,
+    include_tpex_fund_flow: bool,
+    as_of: str | None,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, str], list[str]]:
+    news_rows: list[dict[str, object]] = []
+    fund_flow_rows: list[dict[str, object]] = []
+    dependencies: dict[str, str] = {}
+    source_errors: list[str] = []
+    for index, path in enumerate(news_csv_paths, start=1):
+        news_rows.extend(load_news_rows(path))
+        dependencies[f"news_csv_{index}"] = str(path)
+    for index, url in enumerate(news_feed_urls, start=1):
+        dependencies[f"news_feed_{index}"] = url
+        try:
+            news_rows.extend(fetch_feed_news(url))
+        except (OSError, ValueError) as exc:
+            source_errors.append(f"news feed {url}: {exc}")
+    if include_twse_news:
+        dependencies["twse_news"] = "https://openapi.twse.com.tw/v1/news/newsList"
+        try:
+            news_rows.extend(fetch_twse_news())
+        except (OSError, ValueError) as exc:
+            source_errors.append(f"TWSE news: {exc}")
+    for index, path in enumerate(fund_flow_csv_paths, start=1):
+        fund_flow_rows.extend(load_fund_flow_rows(path))
+        dependencies[f"fund_flow_csv_{index}"] = str(path)
+    if include_twse_fund_flow:
+        dependencies["twse_fund_flow"] = "https://www.twse.com.tw/rwd/zh/fund/T86"
+        try:
+            fund_flow_rows.extend(fetch_twse_fund_flow(as_of=as_of))
+        except (OSError, ValueError) as exc:
+            source_errors.append(f"TWSE fund flow: {exc}")
+    if include_tpex_fund_flow:
+        dependencies["tpex_fund_flow"] = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"
+        try:
+            fund_flow_rows.extend(fetch_tpex_fund_flow())
+        except (OSError, ValueError) as exc:
+            source_errors.append(f"TPEx fund flow: {exc}")
+    return news_rows, fund_flow_rows, dependencies, source_errors
 
 
 def _run_research_workflow_command(
@@ -420,11 +521,40 @@ def _run_research_workflow_command(
     skip_packs: bool,
     industry_price_history: Path | None = None,
     skip_industry_trends: bool = False,
+    market_news_csv: list[Path] | None = None,
+    market_news_feed: list[str] | None = None,
+    fetch_twse_news_enabled: bool = False,
+    market_fund_flow_csv: list[Path] | None = None,
+    fetch_twse_fund_flow_enabled: bool = False,
+    fetch_tpex_fund_flow_enabled: bool = False,
+    market_as_of: str | None = None,
+    skip_market_intelligence: bool = False,
+    fetch_market_data_enabled: bool = False,
+    market_data_as_of: str | None = None,
+    market_data_history_months: int = 3,
+    replace_category_with_official: bool = False,
 ) -> dict[str, Path | None]:
     from taiwan_stock_analysis.workflow import run_watchlist_workflow
 
+    effective_research_csv = research_csv
+    market_data_outputs: dict[str, Path] | None = None
+    effective_market_fund_flow_csv = list(market_fund_flow_csv or [])
+    if fetch_market_data_enabled:
+        market_data_outputs = write_market_data_bundle(
+            research_csv,
+            output_dir / "market-data",
+            as_of=market_data_as_of,
+            history_months=market_data_history_months,
+            replace_category=replace_category_with_official,
+        )
+        effective_research_csv = market_data_outputs["research_csv"]
+        industry_price_history = market_data_outputs["price_history"]
+        effective_market_fund_flow_csv.append(market_data_outputs["fund_flow"])
+        fetch_twse_news_enabled = True
+        market_as_of = market_as_of or market_data_as_of
+
     watchlist_path = output_dir / "research_watchlist.csv"
-    write_watchlist_from_research(research_csv, watchlist_path)
+    write_watchlist_from_research(effective_research_csv, watchlist_path)
     workflow_summary = run_watchlist_workflow(
         watchlist_path,
         output_dir,
@@ -436,12 +566,43 @@ def _run_research_workflow_command(
     industry_trend_report: Path | None = None
     if not skip_industry_trends and industry_price_history is not None and industry_price_history.exists():
         industry_trend_report = write_industry_trend_report(
-            research_csv,
+            effective_research_csv,
             industry_price_history,
             output_dir / "industry-trends",
         )
+    market_intelligence_report: Path | None = None
+    market_inputs_requested = any(
+        [
+            market_news_csv,
+            market_news_feed,
+            fetch_twse_news_enabled,
+            effective_market_fund_flow_csv,
+            fetch_twse_fund_flow_enabled,
+            fetch_tpex_fund_flow_enabled,
+        ]
+    )
+    if not skip_market_intelligence and market_inputs_requested:
+        news_rows, fund_flow_rows, dependencies, source_errors = _collect_market_intelligence_inputs(
+            news_csv_paths=market_news_csv or [],
+            news_feed_urls=market_news_feed or [],
+            include_twse_news=fetch_twse_news_enabled,
+            fund_flow_csv_paths=effective_market_fund_flow_csv,
+            include_twse_fund_flow=fetch_twse_fund_flow_enabled,
+            include_tpex_fund_flow=fetch_tpex_fund_flow_enabled,
+            as_of=market_as_of,
+        )
+        market_intelligence_report = write_market_intelligence_report(
+            effective_research_csv,
+            output_dir / "market-intelligence",
+            news_rows=news_rows,
+            fund_flow_rows=fund_flow_rows,
+            industry_trend_report_path=industry_trend_report,
+            as_of=market_as_of,
+            dependencies=dependencies,
+            source_errors=source_errors,
+        )
     research_summary = write_research_summary(
-        research_csv,
+        effective_research_csv,
         output_dir,
         output_dir / "research_summary.json",
         industry_trend_report_path=industry_trend_report,
@@ -460,7 +621,7 @@ def _run_research_workflow_command(
         pack_summary = write_research_pack(
             research_summary,
             output_dir / "packs",
-            research_csv_path=research_csv,
+            research_csv_path=effective_research_csv,
             workflow_summary_path=output_dir / "workflow_summary.json",
             memo_summary_path=(output_dir / "memos" / "memo_summary.json") if not skip_memos else None,
             dashboard_path=output_dir / "dashboard.html",
@@ -474,6 +635,8 @@ def _run_research_workflow_command(
             output_dir / "memos",
             output_dir / "packs",
             output_dir / "industry-trends",
+            output_dir / "market-intelligence",
+            output_dir / "market-data",
         ],
         output_dir / "dashboard.html",
     )
@@ -483,6 +646,8 @@ def _run_research_workflow_command(
         "memo_summary": memo_summary,
         "pack_summary": pack_summary,
         "industry_trend_report": industry_trend_report,
+        "market_intelligence_report": market_intelligence_report,
+        "market_data_report": market_data_outputs["report"] if market_data_outputs else None,
         "dashboard": output_dir / "dashboard.html",
     }
 
@@ -496,6 +661,10 @@ def _print_research_workflow_outputs(paths: dict[str, Path | None]) -> None:
         print(f"Wrote {paths['pack_summary']}")
     if paths.get("industry_trend_report") is not None:
         print(f"Wrote {paths['industry_trend_report']}")
+    if paths.get("market_intelligence_report") is not None:
+        print(f"Wrote {paths['market_intelligence_report']}")
+    if paths.get("market_data_report") is not None:
+        print(f"Wrote {paths['market_data_report']}")
     print(f"Open {paths['dashboard']}")
 
 
@@ -606,6 +775,9 @@ def main(argv: list[str] | None = None) -> int:
                 skip_memos=False,
                 skip_packs=False,
                 industry_price_history=args.industry_price_history,
+                market_news_csv=[args.market_news_csv],
+                market_fund_flow_csv=[args.market_fund_flow_csv],
+                market_as_of=args.market_as_of,
             )
             _print_research_workflow_outputs(paths)
             research_summary = paths["research_summary"]
@@ -784,6 +956,51 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote {args.output_dir / 'industry_trend_report.md'}")
             print(f"Wrote {args.output_dir / 'industry_trend_report.html'}")
             return 0
+        if args.research_command == "market-data":
+            try:
+                outputs = write_market_data_bundle(
+                    args.research_csv,
+                    args.output_dir,
+                    as_of=args.as_of,
+                    history_months=args.history_months,
+                    replace_category=args.replace_category,
+                )
+            except (OSError, ValueError) as exc:
+                print(f"Warning: {exc}")
+                return 1
+            for output_path in outputs.values():
+                print(f"Wrote {output_path}")
+            return 0
+        if args.research_command == "market-intelligence":
+            try:
+                news_rows, fund_flow_rows, dependencies, source_errors = _collect_market_intelligence_inputs(
+                    news_csv_paths=args.news_csv,
+                    news_feed_urls=args.news_feed,
+                    include_twse_news=args.fetch_twse_news,
+                    fund_flow_csv_paths=args.fund_flow_csv,
+                    include_twse_fund_flow=args.fetch_twse_fund_flow,
+                    include_tpex_fund_flow=args.fetch_tpex_fund_flow,
+                    as_of=args.as_of,
+                )
+                output_path = write_market_intelligence_report(
+                    args.research_csv,
+                    args.output_dir,
+                    news_rows=news_rows,
+                    fund_flow_rows=fund_flow_rows,
+                    industry_trend_report_path=args.industry_trend_report,
+                    as_of=args.as_of,
+                    dependencies=dependencies,
+                    source_errors=source_errors,
+                )
+            except (OSError, ValueError) as exc:
+                print(f"Warning: {exc}")
+                return 1
+            print(f"Wrote {output_path}")
+            print(f"Wrote {args.output_dir / 'market_intelligence_report.md'}")
+            print(f"Wrote {args.output_dir / 'market_intelligence_report.html'}")
+            for source_error in source_errors:
+                print(f"Warning: {source_error}")
+            return 0
         if args.research_command == "action":
             if args.research_action_command == "set":
                 try:
@@ -900,6 +1117,18 @@ def main(argv: list[str] | None = None) -> int:
                 skip_packs=args.skip_packs,
                 industry_price_history=args.industry_price_history,
                 skip_industry_trends=args.skip_industry_trends,
+                market_news_csv=args.market_news_csv,
+                market_news_feed=args.market_news_feed,
+                fetch_twse_news_enabled=args.fetch_twse_news,
+                market_fund_flow_csv=args.market_fund_flow_csv,
+                fetch_twse_fund_flow_enabled=args.fetch_twse_fund_flow,
+                fetch_tpex_fund_flow_enabled=args.fetch_tpex_fund_flow,
+                market_as_of=args.market_as_of,
+                skip_market_intelligence=args.skip_market_intelligence,
+                fetch_market_data_enabled=args.fetch_market_data,
+                market_data_as_of=args.market_data_as_of,
+                market_data_history_months=args.market_data_history_months,
+                replace_category_with_official=args.replace_category_with_official,
             )
             _print_research_workflow_outputs(paths)
             return 0

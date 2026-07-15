@@ -60,6 +60,10 @@ class ResearchTests(unittest.TestCase):
                 "market_return_20d": "",
                 "market_volume_signal": "",
                 "market_rotation_note": "",
+                "news_keywords": "",
+                "official_market": "",
+                "official_industry_code": "",
+                "official_industry_name": "",
             },
         )
 
@@ -99,6 +103,7 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(rows[0]["market_return_20d"], "")
         self.assertEqual(rows[0]["market_volume_signal"], "")
         self.assertEqual(rows[0]["market_rotation_note"], "")
+        self.assertEqual(rows[0]["news_keywords"], "")
 
     def test_load_research_rows_reads_market_rotation_overlay_fields(self):
         path = Path(".tmp-research-test/market-rotation.csv")
@@ -178,6 +183,10 @@ class ResearchTests(unittest.TestCase):
                 "market_return_20d",
                 "market_volume_signal",
                 "market_rotation_note",
+                "news_keywords",
+                "official_market",
+                "official_industry_code",
+                "official_industry_name",
             ],
         )
         self.assertEqual(ALLOWED_PRIORITIES, {"high", "medium", "low"})

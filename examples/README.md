@@ -32,7 +32,7 @@ For machine-readable output:
 python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --json
 ```
 
-`examples/fixtures/` contains synthetic financial-statement HTML for offline demos. `examples/industry_price_history.csv` contains synthetic daily close/volume rows used to generate the demo Industry Trend Report. These files are not source data and should not be used as real company or market data.
+`examples/fixtures/` contains synthetic financial-statement HTML for offline demos. `examples/industry_price_history.csv` contains synthetic daily close/volume rows used to generate the demo Industry Trend Report. `examples/market_news.csv` and `examples/fund_flow.csv` provide synthetic event and institutional-flow context for the Market Intelligence map. These files are not source data and should not be used as real company or market data.
 
 After opening the dashboard, inspect the review-action queue:
 
@@ -54,13 +54,19 @@ The first state write creates `review_action_state.json`. Later writes create ti
 Equivalent lower-level command:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices --industry-price-history examples/industry_price_history.csv
+python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices --industry-price-history examples/industry_price_history.csv --market-news-csv examples/market_news.csv --market-fund-flow-csv examples/fund_flow.csv --market-as-of 2026-07-12T12:00:00+08:00
 ```
 
 Generate only the industry trend report:
 
 ```powershell
 python -m taiwan_stock_analysis.cli research industry-trends examples/research.csv --price-history examples/industry_price_history.csv --output-dir demo-dist/industry-trends
+```
+
+Validate official listed and OTC coverage with the cross-market universe:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-data examples/research_cross_market.csv --output-dir market-data-dist --history-months 3
 ```
 
 ## Research Workbench
@@ -82,7 +88,7 @@ research-dist/dashboard.html
 
 `research run` writes memo files under `research-dist/memos/` and handoff packs under `research-dist/packs/` unless `--skip-memos` or `--skip-packs` is passed. The generated summary JSON files also carry traceability metadata and a universe review queue so the run inputs, derived outputs, and next research items can be inspected later. Use `research memo` or `research pack` to regenerate those outputs from existing workflow data.
 
-`examples/research.csv` includes thesis, key risks, watch triggers, follow-up questions, and optional market-rotation fields. From v0.50.0 onward, the offline demo also uses `examples/industry_price_history.csv` so the Industry Trend Report can feed automatic sector rotation context into summaries and the dashboard.
+`examples/research.csv` includes thesis, key risks, watch triggers, follow-up questions, optional market-rotation fields, and `news_keywords` aliases. The offline demo combines `examples/industry_price_history.csv`, `examples/market_news.csv`, and `examples/fund_flow.csv` so price trend, event keywords, and institutional flow can be reviewed together.
 
 ## Single Research Memo
 

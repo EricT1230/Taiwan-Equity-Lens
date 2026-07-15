@@ -47,6 +47,8 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Opens the demo dashboard after a passing readiness check with `doctor demo --open`.
 - Creates valuation CSV templates with TWSE first and TPEx fallback close-price lookup.
 - Keeps reports fully local as static HTML and JSON.
+- Builds a Market Intelligence Industry Map that joins price trend, current news keywords, and institutional fund flow with separate freshness gates.
+- Imports official TWSE and TPEx company profiles, industry identity, daily price history, and institutional flow into one traceable market-data bundle.
 
 ## Quick Start
 
@@ -112,6 +114,9 @@ Demo outputs:
 - `demo-dist/dashboard.html`
 - `demo-dist/workflow_summary.json`
 - `demo-dist/research_summary.json`
+- `demo-dist/market-intelligence/market_intelligence_report.json`
+- `demo-dist/market-intelligence/market_intelligence_report.md`
+- `demo-dist/market-intelligence/market_intelligence_report.html`
 
 First review-action checks:
 
@@ -182,6 +187,34 @@ python -m taiwan_stock_analysis.cli research industry-trends research.csv --pric
 python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir research-dist --output research-dist/research_summary.json --industry-trend-report research-dist/industry-trends/industry_trend_report.json
 ```
 
+Combine the industry trend report with news, automatic keyword matching, and institutional fund flow:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-intelligence research.csv --industry-trend-report research-dist/industry-trends/industry_trend_report.json --news-csv market_news.csv --fund-flow-csv fund_flow.csv --output-dir research-dist/market-intelligence
+```
+
+Use the official TWSE news and T86 adapters, plus any additional RSS/Atom feeds:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-intelligence research.csv --industry-trend-report research-dist/industry-trends/industry_trend_report.json --fetch-twse-news --fetch-twse-fund-flow --news-feed https://example.com/feed.xml --output-dir research-dist/market-intelligence
+```
+
+Add `news_keywords` to the research CSV as a `|`-separated alias list, for example `TSMC|台積電|晶圓代工|AI|CoWoS`. The report preserves unmapped news so taxonomy gaps remain visible.
+
+Fetch an official cross-market data bundle for the research universe:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-data research.csv --output-dir research-dist/market-data --history-months 3
+```
+
+Run the full workflow with automatic official price refresh, industry identity, listed/OTC institutional flow, baseline TWSE news, Industry Trend, and Market Intelligence:
+
+```powershell
+python -m taiwan_stock_analysis.cli research run research.csv --output-dir research-dist --fetch-market-data --market-data-history-months 3
+```
+
+The importer writes `research_official.csv` with `official_market`, `official_industry_code`, and `official_industry_name`. Custom research categories are preserved unless `--replace-category` or `--replace-category-with-official` is explicitly used.
+
 Generate a single research memo from existing analysis JSON:
 
 ```powershell
@@ -225,6 +258,7 @@ python -m taiwan_stock_analysis.cli doctor release --version 0.50.0
 - [examples/valuation.csv](examples/valuation.csv): sample valuation assumptions.
 - [examples/research.csv](examples/research.csv): sample research workbench universe.
 - [examples/industry_price_history.csv](examples/industry_price_history.csv): synthetic price-history input for Industry Trend Report demos.
+- [examples/research_cross_market.csv](examples/research_cross_market.csv): listed plus OTC universe for live official-import validation.
 - [examples/fixtures/](examples/fixtures): synthetic financial-statement HTML for offline demos.
 - [examples/README.md](examples/README.md): example command guide.
 
@@ -316,6 +350,11 @@ Current sources and inputs:
 - MOPS links for manual official filing verification
 - user-provided valuation CSV assumptions
 - user-provided industry price-history CSV for sector rotation reporting
+- user-provided news and institutional fund-flow CSV snapshots
+- configurable RSS/Atom news feeds
+- TWSE News OpenAPI and TWSE T86 institutional trading report
+- TWSE company profile, industry EPS classification, and monthly `STOCK_DAY` history
+- TPEx company profile, industry EPS classification, monthly `tradingStock` history, and three-institution daily trading
 
 ## Documentation
 
@@ -395,6 +434,8 @@ src/taiwan_stock_analysis/
 |-- fetcher.py        # Goodinfo network boundary
 |-- insights.py       # Traditional Chinese trend observations
 |-- market_price.py   # TWSE/TPEx valuation price template helper
+|-- market_data_importer.py # official TWSE/TPEx taxonomy, price history, and flow importer
+|-- market_intelligence.py  # news, keywords, trend, and capital-flow industry context
 |-- memo.py           # Markdown and HTML research memo renderer
 |-- pack.py           # consolidated research pack renderer
 |-- traceability.py   # run metadata and artifact registry helpers
