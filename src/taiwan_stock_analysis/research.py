@@ -31,6 +31,10 @@ RESEARCH_COLUMNS = [
     "market_return_20d",
     "market_volume_signal",
     "market_rotation_note",
+    "news_keywords",
+    "official_market",
+    "official_industry_code",
+    "official_industry_name",
 ]
 MARKET_ROTATION_COLUMNS = [
     "market_return_1d",
@@ -89,6 +93,10 @@ def load_research_rows(path: Path) -> list[dict[str, str]]:
                     "market_return_20d": (row.get("market_return_20d") or "").strip(),
                     "market_volume_signal": (row.get("market_volume_signal") or "").strip(),
                     "market_rotation_note": (row.get("market_rotation_note") or "").strip(),
+                    "news_keywords": (row.get("news_keywords") or "").strip(),
+                    "official_market": (row.get("official_market") or "").strip(),
+                    "official_industry_code": (row.get("official_industry_code") or "").strip(),
+                    "official_industry_name": (row.get("official_industry_name") or "").strip(),
                 }
             )
         return rows
@@ -116,6 +124,10 @@ def write_research_template(path: Path) -> Path:
                 "market_return_20d": "+9.6%",
                 "market_volume_signal": "Volume expansion",
                 "market_rotation_note": "AI supply-chain leadership; verify with source data.",
+                "news_keywords": "TSMC|台積電|晶圓代工|AI|CoWoS",
+                "official_market": "TWSE",
+                "official_industry_code": "24",
+                "official_industry_name": "半導體業",
             }
         )
         writer.writerow(
@@ -135,6 +147,10 @@ def write_research_template(path: Path) -> Path:
                 "market_return_20d": "+1.5%",
                 "market_volume_signal": "Volume normal",
                 "market_rotation_note": "Mature node recovery is slower than leading foundry peers.",
+                "news_keywords": "UMC|聯電|成熟製程|晶圓代工",
+                "official_market": "TWSE",
+                "official_industry_code": "24",
+                "official_industry_name": "半導體業",
             }
         )
     return path

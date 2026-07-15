@@ -1,0 +1,3 @@
+date,stock_id,company_name,foreign_net,investment_trust_net,dealer_net,total_net,source
+2026-07-10,2330,台積電,1200000,180000,-50000,1330000,synthetic-demo
+2026-07-10,2303,聯電,-200000,50000,25000,-125000,synthetic-demo

@@ -419,6 +419,146 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Review the strongest and weakest sector trend evidence", html)
         self.assertIn("not investment advice", html)
 
+    def test_discover_dashboard_items_finds_market_intelligence_report(self):
+        root = Path(".tmp-cli-test/dashboard-market-intelligence")
+        report_dir = root / "market-intelligence"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "market_intelligence_report.json").write_text(
+            json.dumps(
+                {
+                    "quality_gate": {"status": "ready"},
+                    "coverage": {"industries_total": 1},
+                    "industries": [{"category": "Semiconductor"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (report_dir / "market_intelligence_report.md").write_text("# report", encoding="utf-8")
+        (report_dir / "market_intelligence_report.html").write_text("<html></html>", encoding="utf-8")
+
+        items = discover_dashboard_items([root])
+
+        self.assertEqual(len(items["market_intelligence_reports"]), 1)
+        report = items["market_intelligence_reports"][0]
+        self.assertEqual(report["path"], str(report_dir / "market_intelligence_report.json"))
+        self.assertEqual(report["quality_gate"]["status"], "ready")
+
+    def test_render_dashboard_html_contains_market_intelligence_map(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "market_intelligence_reports": [
+                    {
+                        "path": "research-dist/market-intelligence/market_intelligence_report.json",
+                        "markdown_path": "research-dist/market-intelligence/market_intelligence_report.md",
+                        "html_path": "research-dist/market-intelligence/market_intelligence_report.html",
+                        "quality_gate": {"status": "ready", "blockers": []},
+                        "freshness": {
+                            "news": {"status": "fresh"},
+                            "fund_flow": {"status": "fresh"},
+                            "industry_trend": {"status": "fresh"},
+                        },
+                        "coverage": {
+                            "news_total": 2,
+                            "news_mapped": 2,
+                            "stocks_total": 2,
+                            "stocks_with_fund_flow": 2,
+                            "industries_total": 1,
+                        },
+                        "industries": [
+                            {
+                                "category": "Semiconductor",
+                                "market_trend": {"direction": "up"},
+                                "news_count": 2,
+                                "top_keywords": ["AI", "伺服器"],
+                                "fund_flow": {
+                                    "foreign_net": 1000,
+                                    "investment_trust_net": 200,
+                                    "dealer_net": -50,
+                                    "total_net": 1150,
+                                    "direction": "net_inflow",
+                                },
+                                "latest_news": [
+                                    {
+                                        "title": "台積電 AI 伺服器需求增溫",
+                                        "url": "https://example.test/news",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-market-intelligence-section="true"', html)
+        self.assertIn('data-market-intelligence-report="true"', html)
+        self.assertIn('data-market-intelligence-freshness-gate="true"', html)
+        self.assertIn('data-market-intelligence-industry="Semiconductor"', html)
+        self.assertIn('data-market-intelligence-flow="net_inflow"', html)
+        self.assertIn("台積電 AI 伺服器需求增溫", html)
+        self.assertIn("1,150", html)
+        self.assertIn("不是產業排名", html)
+
+    def test_discover_and_render_dashboard_market_data_report(self):
+        root = Path(".tmp-cli-test/dashboard-market-data")
+        report_dir = root / "market-data"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "market_data_report.json").write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-07-12",
+                    "quality_gate": {"status": "ready", "blockers": []},
+                    "coverage": {
+                        "stocks_total": 2,
+                        "official_profile_count": 2,
+                        "price_ready_count": 2,
+                        "fund_flow_count": 2,
+                    },
+                    "items": [
+                        {
+                            "stock_id": "6223",
+                            "market": "TPEX",
+                            "industry_name": "半導體業",
+                            "price_points": 42,
+                            "price_latest_date": "2026-07-09",
+                            "fund_flow_available": True,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (report_dir / "market_data_report.md").write_text("# report", encoding="utf-8")
+
+        items = discover_dashboard_items([root])
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "market_data_reports": items["market_data_reports"],
+            }
+        )
+
+        self.assertEqual(len(items["market_data_reports"]), 1)
+        self.assertIn('data-market-data-section="true"', html)
+        self.assertIn('data-market-data-report="true"', html)
+        self.assertIn('data-market-data-freshness-gate="true"', html)
+        self.assertIn('class="market-data-table-scroll"', html)
+        self.assertIn('class="market-data-table"', html)
+        self.assertIn(".market-data-table-scroll { max-width: 100%; overflow-x: auto;", html)
+        self.assertIn(".market-data-table { min-width: 680px; }", html)
+        self.assertIn("TPEX", html)
+        self.assertIn("半導體業", html)
+        self.assertIn("42", html)
+
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
             {

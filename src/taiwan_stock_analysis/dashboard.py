@@ -75,6 +75,8 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         "pack_outputs": [],
         "handoff_pack_outputs": [],
         "industry_trend_reports": [],
+        "market_intelligence_reports": [],
+        "market_data_reports": [],
     }
     for directory in search_dirs:
         if not directory.exists():
@@ -156,6 +158,14 @@ def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
         industry_trends_dir = directory / "industry-trends"
         if industry_trends_dir.exists():
             _discover_industry_trend_reports(industry_trends_dir, items)
+        _discover_market_intelligence_reports(directory, items)
+        market_intelligence_dir = directory / "market-intelligence"
+        if market_intelligence_dir.exists():
+            _discover_market_intelligence_reports(market_intelligence_dir, items)
+        _discover_market_data_reports(directory, items)
+        market_data_dir = directory / "market-data"
+        if market_data_dir.exists():
+            _discover_market_data_reports(market_data_dir, items)
     return items
 
 
@@ -250,6 +260,54 @@ def _discover_industry_trend_reports(directory: Path, items: DashboardItems) -> 
     items["industry_trend_reports"].append(payload)
 
 
+def _discover_market_intelligence_reports(directory: Path, items: DashboardItems) -> None:
+    summary_path = directory / "market_intelligence_report.json"
+    if not summary_path.exists():
+        return
+    existing_paths = {
+        str(report.get("path") or "")
+        for report in items.get("market_intelligence_reports", [])
+        if isinstance(report, dict)
+    }
+    if str(summary_path) in existing_paths:
+        return
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"error": "invalid JSON"}
+    if not isinstance(payload, dict):
+        payload = {"error": "invalid JSON"}
+    payload["path"] = str(summary_path)
+    markdown_path = directory / "market_intelligence_report.md"
+    html_path = directory / "market_intelligence_report.html"
+    payload["markdown_path"] = str(markdown_path) if markdown_path.exists() else ""
+    payload["html_path"] = str(html_path) if html_path.exists() else ""
+    items["market_intelligence_reports"].append(payload)
+
+
+def _discover_market_data_reports(directory: Path, items: DashboardItems) -> None:
+    report_path = directory / "market_data_report.json"
+    if not report_path.exists():
+        return
+    existing = {
+        str(report.get("path") or "")
+        for report in items.get("market_data_reports", [])
+        if isinstance(report, dict)
+    }
+    if str(report_path) in existing:
+        return
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"error": "invalid JSON"}
+    if not isinstance(payload, dict):
+        payload = {"error": "invalid JSON"}
+    payload["path"] = str(report_path)
+    markdown_path = directory / "market_data_report.md"
+    payload["markdown_path"] = str(markdown_path) if markdown_path.exists() else ""
+    items["market_data_reports"].append(payload)
+
+
 def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = False) -> str:
     report_count = len(items.get("reports", []))
     comparison_count = len(items.get("comparisons", []))
@@ -262,6 +320,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     pack_outputs = items.get("pack_outputs", [])
     handoff_pack_outputs = items.get("handoff_pack_outputs", [])
     industry_trend_reports = items.get("industry_trend_reports", [])
+    market_intelligence_reports = items.get("market_intelligence_reports", [])
+    market_data_reports = items.get("market_data_reports", [])
     watchlist_template = "data:text/csv;charset=utf-8,stock_id%2Ccompany_name%0A2330%2C%E5%8F%B0%E7%A9%8D%E9%9B%BB%0A2303%2C%E8%81%AF%E9%9B%BB%0A"
     action_api_flag = "true" if action_api_enabled else "false"
 
@@ -448,6 +508,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .workflow-tools {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }}
     .tool {{ border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; background: #fbfdff; }}
     table {{ width: 100%; border-collapse: collapse; }}
+    .market-data-table-scroll {{ max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+    .market-data-table {{ min-width: 680px; }}
     th, td {{ border-bottom: 1px solid #d8dee8; padding: 10px; text-align: left; vertical-align: top; }}
     th {{ background: #e8eef7; color: #172033; }}
     .empty {{ color: #64748b; }}
@@ -477,6 +539,8 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       <div id="summaryWorkflows"><strong>{workflow_count}</strong><span>工作流程摘要</span></div>
     </section>
     {_expert_agent_console_section(research_summaries, action_api_enabled=action_api_enabled)}
+    {_market_data_section(market_data_reports)}
+    {_market_intelligence_section(market_intelligence_reports)}
     {_industry_trend_report_section(industry_trend_reports)}
     {_industry_rotation_map_section(research_summaries)}
     {_research_summary_section(research_summaries)}
@@ -2429,6 +2493,176 @@ def _expert_agent_label(category: str) -> str:
     if category in EXPERT_AGENT_LABELS:
         return EXPERT_AGENT_LABELS[category]
     return _review_label(category, REVIEW_ACTION_CATEGORY_LABELS)
+
+
+def _market_data_section(reports: list[dict[str, Any]]) -> str:
+    blocks = []
+    for report in reports:
+        if not isinstance(report, dict):
+            continue
+        path = str(report.get("path") or "")
+        if report.get("error"):
+            blocks.append(
+                '<div class="industry-map-source" data-market-data-report="true">'
+                f"<p>{_link(path, Path(path).name or 'market_data_report.json')}</p>"
+                f'<p class="status-line"><span class="badge error">{escape(str(report.get("error")))}</span></p>'
+                "</div>"
+            )
+            continue
+        coverage = _dict_value(report.get("coverage"))
+        gate = _dict_value(report.get("quality_gate"))
+        items = report.get("items", [])
+        rows = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+        row_html = "".join(
+            "<tr>"
+            f"<td>{escape(str(item.get('stock_id') or '-'))}</td>"
+            f"<td>{escape(str(item.get('market') or '-'))}</td>"
+            f"<td>{escape(str(item.get('industry_name') or '-'))}</td>"
+            f"<td>{escape(str(item.get('price_points') or 0))}</td>"
+            f"<td>{escape(str(item.get('price_latest_date') or '-'))}</td>"
+            f"<td>{'yes' if item.get('fund_flow_available') else 'no'}</td>"
+            "</tr>"
+            for item in rows
+        ) or '<tr><td colspan="6" class="empty">No official market-data rows.</td></tr>'
+        blockers = gate.get("blockers", [])
+        blocker_html = ""
+        if isinstance(blockers, list) and blockers:
+            blocker_html = (
+                '<details class="review-action-detail" data-market-data-blockers="true">'
+                "<summary>Data blockers</summary><ul>"
+                + "".join(f"<li>{escape(str(value))}</li>" for value in blockers[:8])
+                + "</ul></details>"
+            )
+        blocks.append(
+            '<div class="industry-map-source" data-market-data-report="true">'
+            f"<p>{_link(path, Path(path).name or 'market_data_report.json')} {_link(str(report.get('markdown_path') or ''), 'Markdown report')}</p>"
+            '<div class="industry-map-summary" data-market-data-freshness-gate="true">'
+            f'<div class="industry-map-summary-item"><strong>quality gate</strong><span>{escape(str(gate.get("status") or "-"))}</span></div>'
+            f'<div class="industry-map-summary-item"><strong>as of</strong><span>{escape(str(report.get("as_of_date") or "-"))}</span></div>'
+            f'<div class="industry-map-summary-item"><strong>profiles</strong><span>{escape(str(coverage.get("official_profile_count", 0)))} / {escape(str(coverage.get("stocks_total", 0)))}</span></div>'
+            f'<div class="industry-map-summary-item"><strong>price ready</strong><span>{escape(str(coverage.get("price_ready_count", 0)))} / {escape(str(coverage.get("stocks_total", 0)))}</span></div>'
+            f'<div class="industry-map-summary-item"><strong>fund flow</strong><span>{escape(str(coverage.get("fund_flow_count", 0)))} / {escape(str(coverage.get("stocks_total", 0)))}</span></div>'
+            "</div>"
+            '<div class="market-data-table-scroll"><table class="market-data-table"><thead><tr><th>Stock</th><th>Market</th><th>Official industry</th><th>Price points</th><th>Latest</th><th>Flow</th></tr></thead>'
+            f"<tbody>{row_html}</tbody></table></div>{blocker_html}</div>"
+        )
+    if not blocks:
+        return ""
+    return (
+        '<section data-market-data-section="true">'
+        "<h2>Official Market Data / 上市櫃產業與行情覆蓋</h2>"
+        '<p class="industry-map-lead">先確認官方市場、產業分類、價格歷史與法人資料覆蓋，再閱讀趨勢。</p>'
+        f"{''.join(blocks)}"
+        "</section>"
+    )
+
+
+def _market_intelligence_section(reports: list[dict[str, Any]]) -> str:
+    blocks = [_market_intelligence_block(report) for report in reports if isinstance(report, dict)]
+    blocks = [block for block in blocks if block]
+    if not blocks:
+        return ""
+    return (
+        '<section data-market-intelligence-section="true">'
+        "<h2>Market Intelligence / 產業時事與資金流</h2>"
+        '<p class="industry-map-lead">整合價格趨勢、最新新聞關鍵字與三大法人流向；先檢查 freshness gate，再閱讀產業脈絡。</p>'
+        f"{''.join(blocks)}"
+        '<p class="industry-map-note" data-market-intelligence-non-advice="true">'
+        "此區塊是描述性研究材料，不是產業排名、買賣建議或資產配置指示。"
+        "</p>"
+        "</section>"
+    )
+
+
+def _market_intelligence_block(report: dict[str, Any]) -> str:
+    source_path = str(report.get("path") or "")
+    if report.get("error"):
+        return (
+            '<div class="industry-map-source" data-market-intelligence-report="true">'
+            f"<p>{_link(source_path, Path(source_path).name or 'market_intelligence_report.json')}</p>"
+            f'<p class="status-line"><span class="badge error">{escape(str(report.get("error")))}</span></p>'
+            "</div>"
+        )
+    gate = _dict_value(report.get("quality_gate"))
+    coverage = _dict_value(report.get("coverage"))
+    freshness = _dict_value(report.get("freshness"))
+    industries = [row for row in report.get("industries", []) if isinstance(row, dict)] if isinstance(report.get("industries"), list) else []
+    cards = "".join(_market_intelligence_industry_card(row) for row in industries[:12])
+    cards = cards or '<p class="empty">No mapped industries.</p>'
+    freshness_text = " / ".join(
+        f"{label}: {_dict_value(freshness.get(key)).get('status', 'missing')}"
+        for key, label in (("news", "news"), ("fund_flow", "flow"), ("industry_trend", "price"))
+    )
+    blockers = gate.get("blockers", [])
+    blocker_html = ""
+    if isinstance(blockers, list) and blockers:
+        blocker_html = (
+            '<details class="review-action-detail" data-market-intelligence-blockers="true">'
+            "<summary>Data blockers</summary><ul>"
+            + "".join(f"<li>{escape(str(blocker))}</li>" for blocker in blockers[:8])
+            + "</ul></details>"
+        )
+    return (
+        '<div class="industry-map-source" data-market-intelligence-report="true">'
+        f"<p>{_link(source_path, Path(source_path).name or 'market_intelligence_report.json')}</p>"
+        f"{_market_intelligence_links(report)}"
+        '<div class="industry-map-summary" data-market-intelligence-freshness-gate="true">'
+        f'<div class="industry-map-summary-item"><strong>quality gate</strong><span>{escape(str(gate.get("status") or "-"))}</span></div>'
+        f'<div class="industry-map-summary-item"><strong>freshness</strong><span>{escape(freshness_text)}</span></div>'
+        f'<div class="industry-map-summary-item"><strong>mapped news</strong><span>{escape(str(coverage.get("news_mapped", 0)))} / {escape(str(coverage.get("news_total", 0)))}</span></div>'
+        f'<div class="industry-map-summary-item"><strong>fund-flow coverage</strong><span>{escape(str(coverage.get("stocks_with_fund_flow", 0)))} / {escape(str(coverage.get("stocks_total", 0)))}</span></div>'
+        f'<div class="industry-map-summary-item"><strong>industries</strong><span>{escape(str(coverage.get("industries_total", len(industries))))}</span></div>'
+        "</div>"
+        f'<div class="industry-trend-grid">{cards}</div>'
+        f"{blocker_html}"
+        "</div>"
+    )
+
+
+def _market_intelligence_links(report: dict[str, Any]) -> str:
+    links = []
+    for field, label in (("html_path", "HTML report"), ("markdown_path", "Markdown report"), ("path", "JSON data")):
+        link = _link(str(report.get(field) or ""), label)
+        if link != "-":
+            links.append(link)
+    return f'<p class="industry-trend-links">{" ".join(links)}</p>' if links else ""
+
+
+def _market_intelligence_industry_card(industry: dict[str, Any]) -> str:
+    category = str(industry.get("category") or "-")
+    trend = _dict_value(industry.get("market_trend"))
+    flow = _dict_value(industry.get("fund_flow"))
+    keywords = industry.get("top_keywords", [])
+    keyword_text = ", ".join(str(value) for value in keywords[:8]) if isinstance(keywords, list) else "-"
+    latest_news = industry.get("latest_news", [])
+    news_rows = [row for row in latest_news if isinstance(row, dict)] if isinstance(latest_news, list) else []
+    news_html = "".join(
+        f'<li>{_link(str(row.get("url") or ""), str(row.get("title") or "-"))}</li>'
+        for row in news_rows[:3]
+    ) or "<li>No mapped news.</li>"
+    return (
+        '<article class="industry-trend-card"'
+        f' data-market-intelligence-industry="{escape(category)}"'
+        f' data-market-intelligence-flow="{escape(str(flow.get("direction") or "missing"))}">'
+        f'<div class="industry-map-head"><h3>{escape(category)}</h3><span class="industry-status-pill">{escape(str(trend.get("direction") or "missing"))}</span></div>'
+        f'<p class="industry-market-note"><strong>Keywords:</strong> {escape(keyword_text or "-")}</p>'
+        '<div class="industry-map-metrics">'
+        f'<span><strong>{escape(_market_intelligence_number(flow.get("foreign_net")))}</strong>外資</span>'
+        f'<span><strong>{escape(_market_intelligence_number(flow.get("investment_trust_net")))}</strong>投信</span>'
+        f'<span><strong>{escape(_market_intelligence_number(flow.get("dealer_net")))}</strong>自營商</span>'
+        f'<span><strong>{escape(_market_intelligence_number(flow.get("total_net")))}</strong>合計</span>'
+        "</div>"
+        f'<p class="industry-market-note"><strong>News:</strong> {escape(str(industry.get("news_count", 0)))}</p>'
+        f"<ul>{news_html}</ul>"
+        "</article>"
+    )
+
+
+def _market_intelligence_number(value: Any) -> str:
+    try:
+        return f"{int(float(value or 0)):,}"
+    except (TypeError, ValueError):
+        return "-"
 
 
 def _industry_trend_report_section(industry_trend_reports: list[dict[str, Any]]) -> str:
@@ -4578,6 +4812,10 @@ def _make_links_relative(items: DashboardItems, base_dir: Path) -> None:
         _relativize_fields(output, ["markdown_path", "html_path", "summary_path"], base_dir)
     for report in items.get("industry_trend_reports", []):
         _relativize_fields(report, ["path", "markdown_path", "html_path"], base_dir)
+    for report in items.get("market_intelligence_reports", []):
+        _relativize_fields(report, ["path", "markdown_path", "html_path"], base_dir)
+    for report in items.get("market_data_reports", []):
+        _relativize_fields(report, ["path", "markdown_path"], base_dir)
 
 
 def _relativize_fields(target: dict[str, Any], fields: list[str], base_dir: Path) -> None:

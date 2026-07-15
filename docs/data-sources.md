@@ -67,3 +67,30 @@ The review checks moat evidence, fundamental quality, bear-case risk, and valuat
 - Diagnostics are shown when key fields or metrics are missing.
 - Batch analysis records per-stock failures instead of stopping the whole run.
 - Outputs should be checked against official filings before use.
+
+## Market Intelligence Sources
+
+The Market Intelligence Industry Map supports deterministic local CSV inputs and optional network adapters:
+
+- TWSE News OpenAPI (`/v1/news/newsList`) for exchange announcements and news.
+- TWSE T86 for daily listed-market foreign, investment-trust, dealer, and combined net trading by security.
+- User-configured RSS or Atom feeds for broader current-events coverage.
+- User-provided `market_news.csv` and `fund_flow.csv` snapshots for reproducible research and testing.
+
+The TWSE news adapter is not a complete financial-news corpus, and T86 covers the TWSE listed market rather than every TPEx security. The report therefore shows source coverage, unmapped news, and missing research-stock flow rows instead of implying complete market coverage.
+
+News freshness, fund-flow freshness, and industry-price freshness are evaluated independently. A combined report with missing or stale source families is marked `needs_data`.
+
+## Official Market Data Importer
+
+`research market-data` resolves each research stock against both official markets:
+
+- TWSE `t187ap03_L` company profiles and `t187ap14_L` industry names.
+- TWSE monthly `STOCK_DAY` daily price history.
+- TPEx `mopsfin_t187ap03_O` company profiles and `mopsfin_t187ap14_O` industry names.
+- TPEx monthly `tradingStock` daily price history.
+- TWSE T86 and TPEx `tpex_3insti_daily_trading` institutional flow.
+
+The importer preserves both research taxonomy and official taxonomy. It writes official market, industry code, and industry name into a separate enriched research CSV. Blank or `Uncategorized` categories adopt the official industry name; existing analytical categories are only replaced when explicitly requested.
+
+The official-import quality gate requires at least 21 price points per research stock because the Industry Trend Report needs a complete 20-trading-day comparison window.
