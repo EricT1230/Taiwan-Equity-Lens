@@ -914,6 +914,7 @@ class CompositeSentimentTests(unittest.TestCase):
             for stock_id in ("1111", "2222")
         ]
         trend = {
+            "category": "Semiconductor",
             "average_return_5d": 4.0,
             "average_return_20d": 7.5,
             "positive_breadth_5d": 0.75,
@@ -942,9 +943,36 @@ class CompositeSentimentTests(unittest.TestCase):
 
         self.assertEqual(assessment["methodology_version"], "industry-sentiment-v1")
         self.assertEqual(assessment["as_of_date"], "2026-07-17")
+        self.assertEqual(assessment["category"], "Semiconductor")
         self.assertEqual(set(assessment["components"]), {"news", "price", "fund_flow"})
         self.assertEqual(assessment["status"], "ready")
         self.assertEqual(assessment["confidence"], "high")
+
+        finalized = finalize_industry_sentiment(
+            assessment,
+            prior_history=[],
+            rank=1,
+            ranked_count=1,
+        )
+
+        self.assertEqual(finalized["category"], "Semiconductor")
+        self.assertEqual(finalized["forecast"]["status"], "insufficient_history")
+        self.assertEqual(
+            finalized["turning_risk"]["status"], "insufficient_history"
+        )
+
+    def test_build_base_normalizes_invalid_category_to_none(self):
+        assessment = build_industry_sentiment_base(
+            news_rows=[],
+            trend={"category": "   "},
+            flow_rows=[],
+            expected_session_dates=[],
+            freshness={},
+            source_errors=[],
+            as_of=AS_OF,
+        )
+
+        self.assertIsNone(assessment["category"])
 
     def test_build_preserves_specific_source_freshness_states(self):
         assessment = build_industry_sentiment_base(
@@ -1060,6 +1088,8 @@ class SentimentCycleTests(unittest.TestCase):
         ranked_count: int = 8,
     ) -> dict[str, object]:
         return {
+            "as_of_date": "2026-09-01",
+            "category": "Semiconductor",
             "methodology_version": "industry-sentiment-v1",
             "score_5d": score,
             "change": change,
@@ -1083,10 +1113,14 @@ class SentimentCycleTests(unittest.TestCase):
         rank: int = 1,
         ranked_count: int = 8,
         methodology_version: str = "industry-sentiment-v1",
+        category: str = "Semiconductor",
     ) -> list[dict[str, object]]:
         return [
             {
-                "as_of_date": f"2026-07-{index + 1:02d}",
+                "as_of_date": (
+                    datetime(2026, 1, 1) + timedelta(days=index)
+                ).date().isoformat(),
+                "category": category,
                 "methodology_version": methodology_version,
                 "score_5d": score,
                 "rank": rank,
@@ -1269,7 +1303,6 @@ class SentimentCycleTests(unittest.TestCase):
 
     def test_current_forecast_snapshot_uses_the_stable_history_shape(self):
         assessment = self.assessment(35.0)
-        assessment["category"] = "Semiconductor"
 
         snapshot = _current_sentiment_snapshot(assessment)
 
@@ -1333,6 +1366,51 @@ class SentimentCycleTests(unittest.TestCase):
         self.assertIsNone(
             finalized["turning_risk"]["calibrated_probability"]
         )
+
+    def test_finalize_suppresses_shadow_payloads_for_invalid_current_identity(self):
+        cases = (
+            ("category", {"category": None}, "category"),
+            ("date", {"as_of_date": "2026-9-1"}, "as_of_date"),
+            (
+                "methodology",
+                {"methodology_version": ""},
+                "methodology_version",
+            ),
+        )
+        for name, updates, warning_fragment in cases:
+            with self.subTest(name=name):
+                assessment = self.assessment(35.0)
+                assessment.update(
+                    {
+                        "status": "ready",
+                        "baseline_20d": 20.0,
+                        "confidence": "medium",
+                        "warnings": [],
+                        "reasons": [],
+                        **updates,
+                    }
+                )
+
+                finalized = finalize_industry_sentiment(
+                    assessment,
+                    prior_history=self.history([20.0] * 60),
+                    rank=2,
+                    ranked_count=8,
+                )
+
+                self.assertEqual(finalized["score_5d"], 35.0)
+                self.assertEqual(finalized["forecast"]["status"], "insufficient_data")
+                self.assertEqual(
+                    finalized["turning_risk"]["status"], "insufficient_data"
+                )
+                self.assertIsNone(finalized["forecast"]["forecast_1d"])
+                self.assertIsNone(finalized["turning_risk"]["peak_risk"])
+                self.assertTrue(
+                    any(
+                        warning_fragment in warning
+                        for warning in finalized["forecast"]["warnings"]
+                    )
+                )
 
 
 if __name__ == "__main__":

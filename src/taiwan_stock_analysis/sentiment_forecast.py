@@ -1,6 +1,7 @@
 """Deterministic sentiment projection and turning-risk shadow diagnostics."""
 
 from collections.abc import Mapping, Sequence
+from datetime import date
 import math
 from statistics import median
 from typing import Any
@@ -22,6 +23,20 @@ RISK_AGREEMENT_THRESHOLDS = {
     "flow": 6.0,
     "crowding": 6.0,
 }
+_PROJECTION_RELEVANT_FIELDS = ("score_5d", "baseline_20d")
+_RISK_RELEVANT_FIELDS = (
+    "score_5d",
+    "breadth_5d",
+    "breadth_20d",
+    "fund_flow_score_5d",
+    "fund_flow_score_20d",
+    "rank",
+    "ranked_count",
+    "news_positive_topic_concentration_5d",
+    "news_negative_topic_concentration_5d",
+    "volume_ratio_5d",
+    "price_return_5d",
+)
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -36,6 +51,175 @@ def _finite_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _strict_date(value: Any) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+def _identity_text(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _relevant_value(value: Any) -> tuple[Any, ...]:
+    number = _finite_float(value)
+    if number is not None:
+        return ("number", number)
+    if value is None or value == "":
+        return ("missing",)
+    return ("invalid", type(value).__name__, repr(value))
+
+
+def _row_fingerprint(
+    row: Mapping[str, Any], relevant_fields: Sequence[str]
+) -> tuple[tuple[Any, ...], ...]:
+    return tuple(_relevant_value(row.get(field)) for field in relevant_fields)
+
+
+def _count_warning(count: int, singular: str, plural: str | None = None) -> str:
+    noun = singular if count == 1 or plural is None else plural
+    return f"excluded {count} {noun}"
+
+
+def _canonicalize_history(
+    history_with_current: Sequence[Mapping[str, Any]],
+    *,
+    relevant_fields: Sequence[str],
+) -> tuple[list[Mapping[str, Any]], list[str], bool]:
+    if not history_with_current:
+        return [], ["current snapshot unavailable: history is empty"], False
+
+    current = history_with_current[-1]
+    current_date = _strict_date(current.get("as_of_date"))
+    current_category = _identity_text(current.get("category"))
+    current_methodology = _identity_text(current.get("methodology_version"))
+    current_warnings: list[str] = []
+    if current_date is None:
+        current_warnings.append(
+            "current snapshot invalid: as_of_date must be strict ISO YYYY-MM-DD"
+        )
+    if current_category is None:
+        current_warnings.append(
+            "current snapshot invalid: category must be a nonempty string"
+        )
+    if current_methodology is None:
+        current_warnings.append(
+            "current snapshot invalid: methodology_version must be a nonempty string"
+        )
+    if current_warnings:
+        return [], current_warnings, False
+
+    by_date: dict[date, list[Mapping[str, Any]]] = {}
+    excluded = {
+        "malformed": 0,
+        "current": 0,
+        "future": 0,
+        "category": 0,
+        "methodology": 0,
+    }
+    for row in history_with_current[:-1]:
+        row_date = _strict_date(row.get("as_of_date"))
+        if row_date is None:
+            excluded["malformed"] += 1
+            continue
+        row_category = _identity_text(row.get("category"))
+        if row_category != current_category:
+            excluded["category"] += 1
+            continue
+        row_methodology = _identity_text(row.get("methodology_version"))
+        if row_methodology != current_methodology:
+            excluded["methodology"] += 1
+            continue
+        if row_date == current_date:
+            excluded["current"] += 1
+            continue
+        if row_date > current_date:
+            excluded["future"] += 1
+            continue
+        by_date.setdefault(row_date, []).append(row)
+
+    warnings: list[str] = []
+    if excluded["malformed"]:
+        warnings.append(
+            _count_warning(
+                excluded["malformed"],
+                "prior snapshot with malformed as_of_date",
+                "prior snapshots with malformed as_of_date",
+            )
+        )
+    if excluded["current"]:
+        warnings.append(
+            _count_warning(
+                excluded["current"],
+                "prior snapshot on current date",
+                "prior snapshots on current date",
+            )
+        )
+    if excluded["future"]:
+        warnings.append(
+            _count_warning(
+                excluded["future"],
+                "future prior snapshot",
+                "future prior snapshots",
+            )
+        )
+    if excluded["category"]:
+        warnings.append(
+            _count_warning(
+                excluded["category"],
+                "prior snapshot with category mismatch",
+                "prior snapshots with category mismatch",
+            )
+        )
+    if excluded["methodology"]:
+        warnings.append(
+            _count_warning(
+                excluded["methodology"],
+                "prior snapshot with methodology mismatch",
+                "prior snapshots with methodology mismatch",
+            )
+        )
+
+    canonical_prior: list[Mapping[str, Any]] = []
+    for row_date in sorted(by_date):
+        rows = by_date[row_date]
+        fingerprints = {
+            _row_fingerprint(row, relevant_fields) for row in rows
+        }
+        if len(fingerprints) > 1:
+            canonical_prior.append(
+                {
+                    "as_of_date": row_date.isoformat(),
+                    "category": current_category,
+                    "methodology_version": current_methodology,
+                }
+            )
+            warnings.append(
+                "conflicting duplicate prior snapshots rejected for "
+                f"{row_date.isoformat()}"
+            )
+            continue
+        canonical_prior.append(rows[0])
+        if len(rows) > 1:
+            warnings.append(
+                "collapsed duplicate prior snapshots for "
+                f"{row_date.isoformat()}"
+            )
+    return [*canonical_prior, current], warnings, True
+
+
+def _with_warnings(result: dict[str, Any], warnings: Sequence[str]) -> dict[str, Any]:
+    if warnings:
+        result["warnings"] = [*result["warnings"], *warnings]
+    return result
 
 
 def _weighted_slope(values: list[float], half_life: float = 3.0) -> float:
@@ -94,6 +278,13 @@ def _empty_projection(history_days: int) -> dict[str, Any]:
     }
 
 
+def _invalid_projection(history_days: int, warning: str) -> dict[str, Any]:
+    result = _empty_projection(history_days)
+    result["status"] = "insufficient_data"
+    result["warnings"] = [warning]
+    return result
+
+
 def _one_step_residuals(
     rows: Sequence[tuple[Mapping[str, Any], float, float]],
 ) -> list[float]:
@@ -125,10 +316,40 @@ def project_sentiment(
     history_with_current: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Return a bounded deterministic projection, never a calibrated probability."""
-    rows = _projection_rows(history_with_current)
+    canonical, canonical_warnings, current_contract_valid = _canonicalize_history(
+        history_with_current,
+        relevant_fields=_PROJECTION_RELEVANT_FIELDS,
+    )
+    if not current_contract_valid:
+        return _with_warnings(
+            _invalid_projection(0, "current snapshot contract is invalid"),
+            canonical_warnings,
+        )
+    rows = _projection_rows(canonical)
     history_days = len(rows)
+    current = canonical[-1]
+    current_score = _finite_float(current.get("score_5d"))
+    current_baseline = _finite_float(current.get("baseline_20d"))
+    if current_score is None:
+        return _with_warnings(
+            _invalid_projection(
+                history_days,
+                "current snapshot invalid: score_5d must be finite",
+            ),
+            canonical_warnings,
+        )
+    if current_baseline is None:
+        return _with_warnings(
+            _invalid_projection(
+                history_days,
+                "current snapshot invalid: baseline_20d must be finite",
+            ),
+            canonical_warnings,
+        )
     if history_days < PROJECTION_HISTORY_DAYS:
-        return _empty_projection(history_days)
+        return _with_warnings(
+            _empty_projection(history_days), canonical_warnings
+        )
 
     scores = [score for _, score, _ in rows]
     score = scores[-1]
@@ -158,7 +379,7 @@ def project_sentiment(
         warnings.append(
             "projection interval unavailable: fewer than 10 one-step residuals"
         )
-    return {
+    return _with_warnings({
         "status": "experimental",
         "history_days": history_days,
         "forecast_1d": forecast_1d,
@@ -170,7 +391,7 @@ def project_sentiment(
         "residual_count": len(residuals),
         "robust_sigma": robust_sigma,
         "warnings": warnings,
-    }
+    }, canonical_warnings)
 
 
 def _empty_risk(history_days: int) -> dict[str, Any]:
@@ -193,6 +414,13 @@ def _empty_risk(history_days: int) -> dict[str, Any]:
     }
 
 
+def _invalid_risk(history_days: int, warning: str) -> dict[str, Any]:
+    result = _empty_risk(history_days)
+    result["status"] = "insufficient_data"
+    result["warnings"] = [warning]
+    return result
+
+
 def _positive_int(value: Any) -> int | None:
     number = _finite_float(value)
     if number is None or number <= 0.0 or not number.is_integer():
@@ -201,10 +429,12 @@ def _positive_int(value: Any) -> int | None:
 
 
 def _quartile_streak(
-    rows: Sequence[tuple[Mapping[str, Any], float]], *, top: bool
+    rows: Sequence[Mapping[str, Any]], *, top: bool
 ) -> int:
     streak = 0
-    for row, _ in reversed(rows):
+    for row in reversed(rows):
+        if _finite_float(row.get("score_5d")) is None:
+            break
         rank = _positive_int(row.get("rank"))
         ranked_count = _positive_int(row.get("ranked_count"))
         if rank is None or ranked_count is None or rank > ranked_count:
@@ -227,6 +457,15 @@ def _risk_window(risk: float, agreeing_families: int) -> str:
     if 50.0 <= risk < 70.0 and agreeing_families >= 2:
         return "4_to_7_days"
     return "unclear"
+
+
+def _meets_agreement_threshold(contribution: float, threshold: float) -> bool:
+    return contribution >= threshold or math.isclose(
+        contribution,
+        threshold,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    )
 
 
 def _resolve_turning_signal(
@@ -260,26 +499,22 @@ def _resolve_turning_signal(
     return "unclear", "unclear", []
 
 
-def _risk_contributions(
-    rows: Sequence[tuple[Mapping[str, Any], float]],
-) -> tuple[dict[str, float], dict[str, float], dict[str, Any], list[str]]:
-    current, score = rows[-1]
-    scores = [value for _, value in rows[-60:]]
-    percentile = 100.0 * sum(value <= score for value in scores) / len(scores)
-    slope_now = (scores[-1] - scores[-3]) / 2.0
-    slope_prior = (scores[-4] - scores[-6]) / 2.0
-
-    peak = {name: 0.0 for name in RISK_FAMILY_MAXIMUMS}
-    trough = {name: 0.0 for name in RISK_FAMILY_MAXIMUMS}
-    peak["level"] = (
+def _level_family(score: float, percentile: float) -> tuple[float, float]:
+    peak = (
         15.0 * _clamp((score - 50.0) / 30.0, 0.0, 1.0)
         + 10.0 * _clamp((percentile - 80.0) / 15.0, 0.0, 1.0)
     )
-    trough["level"] = (
+    trough = (
         15.0 * _clamp((-score - 40.0) / 30.0, 0.0, 1.0)
         + 10.0 * _clamp((20.0 - percentile) / 15.0, 0.0, 1.0)
     )
-    peak["momentum"] = (
+    return peak, trough
+
+
+def _momentum_family(
+    slope_now: float, slope_prior: float
+) -> tuple[float, float]:
+    peak = (
         25.0
         * _clamp(
             (slope_prior - slope_now) / max(abs(slope_prior), 2.0),
@@ -289,7 +524,7 @@ def _risk_contributions(
         if slope_prior > 0.0
         else 0.0
     )
-    trough["momentum"] = (
+    trough = (
         25.0
         * _clamp(
             (slope_now - slope_prior) / max(abs(slope_prior), 2.0),
@@ -299,7 +534,12 @@ def _risk_contributions(
         if slope_prior < 0.0
         else 0.0
     )
+    return peak, trough
 
+
+def _breadth_family(
+    current: Mapping[str, Any], score: float
+) -> tuple[float, float, list[str]]:
     warnings: list[str] = []
     breadth_5d = _finite_float(current.get("breadth_5d"))
     breadth_20d = _finite_float(current.get("breadth_20d"))
@@ -308,20 +548,24 @@ def _risk_contributions(
             "breadth diagnostic unavailable: missing breadth_5d or breadth_20d; "
             "family contributes zero"
         )
-    else:
-        peak["breadth"] = (
-            20.0
-            * _clamp((breadth_20d - breadth_5d) / 0.20, 0.0, 1.0)
-            if score > 20.0
-            else 0.0
-        )
-        trough["breadth"] = (
-            20.0
-            * _clamp((breadth_5d - breadth_20d) / 0.20, 0.0, 1.0)
-            if score < -20.0
-            else 0.0
-        )
+        return 0.0, 0.0, warnings
+    peak = (
+        20.0 * _clamp((breadth_20d - breadth_5d) / 0.20, 0.0, 1.0)
+        if score > 20.0
+        else 0.0
+    )
+    trough = (
+        20.0 * _clamp((breadth_5d - breadth_20d) / 0.20, 0.0, 1.0)
+        if score < -20.0
+        else 0.0
+    )
+    return peak, trough, warnings
 
+
+def _flow_family(
+    current: Mapping[str, Any], score: float
+) -> tuple[float, float, list[str]]:
+    warnings: list[str] = []
     flow_5d = _finite_float(current.get("fund_flow_score_5d"))
     flow_20d = _finite_float(current.get("fund_flow_score_20d"))
     if flow_5d is None or flow_20d is None:
@@ -329,20 +573,26 @@ def _risk_contributions(
             "flow diagnostic unavailable: missing fund_flow_score_5d or "
             "fund_flow_score_20d; family contributes zero"
         )
-    else:
-        peak["flow"] = (
-            15.0 * _clamp((flow_20d - flow_5d) / 40.0, 0.0, 1.0)
-            if score > 20.0
-            else 0.0
-        )
-        trough["flow"] = (
-            15.0 * _clamp((flow_5d - flow_20d) / 40.0, 0.0, 1.0)
-            if score < -20.0
-            else 0.0
-        )
+        return 0.0, 0.0, warnings
+    peak = (
+        15.0 * _clamp((flow_20d - flow_5d) / 40.0, 0.0, 1.0)
+        if score > 20.0
+        else 0.0
+    )
+    trough = (
+        15.0 * _clamp((flow_5d - flow_20d) / 40.0, 0.0, 1.0)
+        if score < -20.0
+        else 0.0
+    )
+    return peak, trough, warnings
 
-    top_quartile_streak = _quartile_streak(rows[-60:], top=True)
-    bottom_quartile_streak = _quartile_streak(rows[-60:], top=False)
+
+def _crowding_family(
+    current: Mapping[str, Any],
+    canonical_rows: Sequence[Mapping[str, Any]],
+) -> tuple[float, float, int, int]:
+    top_quartile_streak = _quartile_streak(canonical_rows, top=True)
+    bottom_quartile_streak = _quartile_streak(canonical_rows, top=False)
     positive_concentration = _finite_float(
         current.get("news_positive_topic_concentration_5d")
     )
@@ -351,7 +601,7 @@ def _risk_contributions(
     )
     volume_ratio = _finite_float(current.get("volume_ratio_5d"))
     price_return = _finite_float(current.get("price_return_5d"))
-    peak["crowding"] = sum(
+    peak = sum(
         (
             5.0 if top_quartile_streak >= 5 else 0.0,
             5.0
@@ -366,7 +616,7 @@ def _risk_contributions(
             else 0.0,
         )
     )
-    trough["crowding"] = sum(
+    trough = sum(
         (
             5.0 if bottom_quartile_streak >= 5 else 0.0,
             5.0
@@ -381,6 +631,50 @@ def _risk_contributions(
             else 0.0,
         )
     )
+    return peak, trough, top_quartile_streak, bottom_quartile_streak
+
+
+def _risk_contributions(
+    rows: Sequence[tuple[Mapping[str, Any], float]],
+    *,
+    canonical_rows: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, float], dict[str, float], dict[str, Any], list[str]]:
+    current, score = rows[-1]
+    scores = [value for _, value in rows[-60:]]
+    percentile = 100.0 * sum(value <= score for value in scores) / len(scores)
+    slope_now = (scores[-1] - scores[-3]) / 2.0
+    slope_prior = (scores[-4] - scores[-6]) / 2.0
+
+    peak_level, trough_level = _level_family(score, percentile)
+    peak_momentum, trough_momentum = _momentum_family(
+        slope_now,
+        slope_prior,
+    )
+    peak_breadth, trough_breadth, breadth_warnings = _breadth_family(
+        current,
+        score,
+    )
+    peak_flow, trough_flow, flow_warnings = _flow_family(current, score)
+    (
+        peak_crowding,
+        trough_crowding,
+        top_quartile_streak,
+        bottom_quartile_streak,
+    ) = _crowding_family(current, canonical_rows)
+    peak = {
+        "level": peak_level,
+        "momentum": peak_momentum,
+        "breadth": peak_breadth,
+        "flow": peak_flow,
+        "crowding": peak_crowding,
+    }
+    trough = {
+        "level": trough_level,
+        "momentum": trough_momentum,
+        "breadth": trough_breadth,
+        "flow": trough_flow,
+        "crowding": trough_crowding,
+    }
 
     for family, maximum in RISK_FAMILY_MAXIMUMS.items():
         peak[family] = _clamp(peak[family], 0.0, maximum)
@@ -392,31 +686,51 @@ def _risk_contributions(
         "top_quartile_streak": top_quartile_streak,
         "bottom_quartile_streak": bottom_quartile_streak,
     }
-    return peak, trough, context, warnings
+    return peak, trough, context, [*breadth_warnings, *flow_warnings]
 
 
 def calculate_turning_risk(
     history_with_current: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Return descriptive peak/trough risk values in experimental shadow mode."""
+    canonical, canonical_warnings, current_contract_valid = _canonicalize_history(
+        history_with_current,
+        relevant_fields=_RISK_RELEVANT_FIELDS,
+    )
+    if not current_contract_valid:
+        return _with_warnings(
+            _invalid_risk(0, "current snapshot contract is invalid"),
+            canonical_warnings,
+        )
     rows = [
         (row, score)
-        for row in history_with_current
+        for row in canonical
         if (score := _finite_float(row.get("score_5d"))) is not None
     ]
     history_days = len(rows)
+    if _finite_float(canonical[-1].get("score_5d")) is None:
+        return _with_warnings(
+            _invalid_risk(
+                history_days,
+                "current snapshot invalid: score_5d must be finite",
+            ),
+            canonical_warnings,
+        )
     if history_days < TURNING_RISK_HISTORY_DAYS:
-        return _empty_risk(history_days)
+        return _with_warnings(_empty_risk(history_days), canonical_warnings)
 
-    peak, trough, context, diagnostic_warnings = _risk_contributions(rows)
+    peak, trough, context, diagnostic_warnings = _risk_contributions(
+        rows,
+        canonical_rows=canonical,
+    )
     peak_risk = _clamp(sum(peak.values()), 0.0, 100.0)
     trough_risk = _clamp(sum(trough.values()), 0.0, 100.0)
     peak_agreeing_families = sum(
-        peak[family] >= threshold
+        _meets_agreement_threshold(peak[family], threshold)
         for family, threshold in RISK_AGREEMENT_THRESHOLDS.items()
     )
     trough_agreeing_families = sum(
-        trough[family] >= threshold
+        _meets_agreement_threshold(trough[family], threshold)
         for family, threshold in RISK_AGREEMENT_THRESHOLDS.items()
     )
     direction, window, conflict_warnings = _resolve_turning_signal(
@@ -425,7 +739,7 @@ def calculate_turning_risk(
         trough_risk=trough_risk,
         trough_agreeing_families=trough_agreeing_families,
     )
-    return {
+    return _with_warnings({
         "status": "experimental",
         "history_days": history_days,
         "peak_risk": peak_risk,
@@ -445,4 +759,4 @@ def calculate_turning_risk(
             *conflict_warnings,
         ],
         "calibrated_probability": None,
-    }
+    }, canonical_warnings)

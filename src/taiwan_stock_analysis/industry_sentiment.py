@@ -617,6 +617,12 @@ def build_industry_sentiment_base(
         freshness=local_freshness,
         source_errors=source_errors,
     )
+    category = trend.get("category")
+    assessment["category"] = (
+        category.strip()
+        if isinstance(category, str) and category.strip()
+        else None
+    )
     assessment["as_of_date"] = as_of.date().isoformat()
     return assessment
 
