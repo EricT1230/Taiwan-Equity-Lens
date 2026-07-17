@@ -471,6 +471,47 @@ class DashboardTests(unittest.TestCase):
                         },
                         "industries": [
                             {
+                                "category": "Legacy Partial <script>alert(1)</script>",
+                                "market_trend": {"direction": "mixed"},
+                                "news_count": 0,
+                                "top_keywords": [],
+                                "fund_flow": {"direction": "missing"},
+                                "latest_news": [],
+                                "sentiment": {
+                                    "status": "partial",
+                                    "score_5d": None,
+                                    "baseline_20d": None,
+                                    "change": None,
+                                    "temperature": "stable",
+                                    "label": "neutral",
+                                    "cycle_phase": "insufficient_history",
+                                    "confidence": "medium",
+                                    "components": {
+                                        "news": {
+                                            "configured_weight": 0.4,
+                                            "effective_weight": 0.5714,
+                                            "contribution_5d": None,
+                                        }
+                                    },
+                                    "forecast": {
+                                        "status": "insufficient_history",
+                                        "forecast_1d": None,
+                                        "forecast_5d": None,
+                                        "warnings": [],
+                                    },
+                                    "turning_risk": {
+                                        "status": "insufficient_history",
+                                        "peak_risk": None,
+                                        "trough_risk": None,
+                                        "warnings": [],
+                                    },
+                                    "reasons": [],
+                                    "warnings": [
+                                        "fund_flow removed <img src=x onerror=alert(1)>"
+                                    ],
+                                },
+                            },
+                            {
                                 "category": "Semiconductor",
                                 "market_trend": {"direction": "up"},
                                 "news_count": 2,
@@ -488,6 +529,54 @@ class DashboardTests(unittest.TestCase):
                                         "url": "https://example.test/news",
                                     }
                                 ],
+                                "sentiment": {
+                                    "status": "ready",
+                                    "score_5d": 34.2,
+                                    "baseline_20d": 21.0,
+                                    "change": 13.2,
+                                    "temperature": "warming",
+                                    "label": "optimistic",
+                                    "cycle_phase": "expansion",
+                                    "confidence": "high",
+                                    "components": {
+                                        "news": {
+                                            "configured_weight": 0.4,
+                                            "effective_weight": 0.4,
+                                            "contribution_5d": 12.5,
+                                        },
+                                        "price": {
+                                            "configured_weight": 0.3,
+                                            "effective_weight": 0.3,
+                                            "contribution_5d": 10.2,
+                                        },
+                                        "fund_flow": {
+                                            "configured_weight": 0.3,
+                                            "effective_weight": 0.3,
+                                            "contribution_5d": 11.5,
+                                        },
+                                    },
+                                    "forecast": {
+                                        "status": "experimental",
+                                        "forecast_1d": 35.5,
+                                        "forecast_5d": 40.0,
+                                        "interval_1d": [31.0, 40.0],
+                                        "interval_5d": [20.0, 60.0],
+                                        "warnings": ["forecast warning"],
+                                    },
+                                    "turning_risk": {
+                                        "status": "experimental",
+                                        "peak_risk": 72.0,
+                                        "trough_risk": 18.0,
+                                        "warnings": ["turning warning"],
+                                    },
+                                    "reasons": [
+                                        "news contribution +12.5",
+                                        "price contribution +10.2",
+                                        "flow contribution +11.5",
+                                        "fourth reason must be omitted",
+                                    ],
+                                    "warnings": ["confidence warning"],
+                                },
                             }
                         ],
                     }
@@ -503,6 +592,46 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("台積電 AI 伺服器需求增溫", html)
         self.assertIn("1,150", html)
         self.assertIn("不是產業排名", html)
+        self.assertIn('data-industry-sentiment="ready"', html)
+        self.assertIn('data-industry-sentiment-score="34.2"', html)
+        self.assertIn('data-industry-sentiment-change="13.2"', html)
+        self.assertIn('data-industry-sentiment-peak-risk="72.0"', html)
+        self.assertIn('data-industry-sentiment-trough-risk="18.0"', html)
+        self.assertIn('data-industry-sentiment-confidence-order="3"', html)
+        self.assertIn('data-industry-sentiment-phase="expansion"', html)
+        self.assertIn('data-industry-sentiment-confidence="high"', html)
+        self.assertIn('data-industry-sentiment-forecast="experimental"', html)
+        self.assertIn('data-industry-turning-risk="experimental"', html)
+        self.assertIn('data-industry-sentiment-sort="true"', html)
+        self.assertIn('data-industry-sentiment-grid="true"', html)
+        self.assertIn('value="score" selected', html)
+        self.assertIn('value="change"', html)
+        self.assertIn('value="peak_risk"', html)
+        self.assertIn('value="trough_risk"', html)
+        self.assertIn('value="confidence"', html)
+        self.assertIn("偏多", html)
+        self.assertIn("資料不完整", html)
+        self.assertIn("experimental / 實驗訊號", html)
+        self.assertIn("35.5 [31.0, 40.0]", html)
+        self.assertIn("40.0 [20.0, 60.0]", html)
+        self.assertIn("configured 40.0% / effective 40.0%", html)
+        self.assertIn("forecast warning", html)
+        self.assertIn("turning warning", html)
+        self.assertIn("confidence warning", html)
+        self.assertIn("fund_flow removed &lt;img src=x onerror=alert(1)&gt;", html)
+        self.assertNotIn("fourth reason must be omitted", html)
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertNotIn("<img src=x onerror=alert(1)>", html)
+        self.assertLess(
+            html.index('data-market-intelligence-industry="Semiconductor"'),
+            html.index('data-market-intelligence-industry="Legacy Partial'),
+        )
+        self.assertIn("function sortIndustrySentimentCards(source, key)", html)
+        self.assertIn("sortIndustrySentimentCards(source, select.value)", html)
+        self.assertIn("@media (max-width: 640px)", html)
+        self.assertIn(".industry-sentiment-metrics { grid-template-columns: 1fr; }", html)
+        self.assertIn(".industry-sentiment-card:focus-visible", html)
+        self.assertNotIn("<canvas", html)
 
     def test_discover_and_render_dashboard_market_data_report(self):
         root = Path(".tmp-cli-test/dashboard-market-data")

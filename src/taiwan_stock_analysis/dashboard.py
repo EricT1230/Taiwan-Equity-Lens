@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from html import escape
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -393,6 +394,32 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     .industry-trend-card[data-industry-trend-direction="mixed"] {{ border-left-color: #7c3aed; background: #fbf8ff; }}
     .industry-trend-card[data-industry-trend-direction="missing"] {{ border-left-color: #d97706; background: #fffdf7; }}
     .industry-trend-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }}
+    .industry-sentiment-sort {{ display: flex; align-items: end; gap: 10px; margin: 12px 0; padding: 10px; border: 1px solid #d8dee8; border-radius: 8px; background: #fbfdff; }}
+    .industry-sentiment-sort label {{ display: flex; flex-direction: column; gap: 4px; color: #475569; font-size: 13px; font-weight: 700; }}
+    .industry-sentiment-sort select {{ min-width: 210px; padding: 8px; border: 1px solid #94a3b8; border-radius: 6px; background: white; color: #172033; font: inherit; }}
+    .industry-sentiment-sort select:focus-visible, .industry-sentiment-card:focus-visible, .industry-sentiment-card details summary:focus-visible {{ outline: 3px solid #2563eb; outline-offset: 2px; }}
+    .industry-sentiment-card {{ min-width: 0; }}
+    .industry-sentiment-card[data-industry-sentiment="ready"] {{ border-left-color: #16a34a; }}
+    .industry-sentiment-card[data-industry-sentiment="partial"] {{ border-left-color: #d97706; background: #fffdf7; }}
+    .industry-sentiment-card[data-industry-sentiment="insufficient_data"], .industry-sentiment-card[data-industry-sentiment="missing"] {{ border-left-color: #64748b; background: #f8fafc; }}
+    .industry-sentiment-status {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }}
+    .industry-sentiment-pill {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; background: #eef4fb; color: #12355b; font-size: 12px; font-weight: 700; }}
+    .industry-sentiment-pill[data-sentiment-status="ready"] {{ background: #dcfce7; color: #166534; }}
+    .industry-sentiment-pill[data-sentiment-status="partial"] {{ background: #fef3c7; color: #92400e; }}
+    .industry-sentiment-pill[data-sentiment-status="insufficient_data"], .industry-sentiment-pill[data-sentiment-status="missing"] {{ background: #e2e8f0; color: #334155; }}
+    .industry-sentiment-pill.experimental {{ background: #ede9fe; color: #5b21b6; }}
+    .industry-sentiment-metrics {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }}
+    .industry-sentiment-metrics > span {{ min-width: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfdff; color: #475569; font-size: 12px; }}
+    .industry-sentiment-metrics strong {{ display: block; color: #172033; font-size: 18px; }}
+    .industry-sentiment-sparkline {{ display: block; margin-top: 4px; color: #475569; font-size: 12px; overflow-wrap: anywhere; }}
+    .industry-sentiment-components {{ margin: 8px 0; padding-left: 20px; color: #475569; font-size: 13px; }}
+    .industry-sentiment-components li {{ margin: 4px 0; }}
+    .industry-sentiment-forecast {{ min-width: 0; margin: 8px 0; padding: 9px; border: 1px solid #ddd6fe; border-radius: 8px; background: #faf8ff; }}
+    .industry-sentiment-forecast p {{ margin: 6px 0 0; max-width: 100%; overflow-wrap: anywhere; }}
+    .industry-sentiment-details {{ margin-top: 8px; color: #475569; font-size: 13px; }}
+    .industry-sentiment-details summary {{ cursor: pointer; color: #0f5aa8; font-weight: 700; }}
+    .industry-sentiment-details h4 {{ margin: 10px 0 4px; }}
+    .industry-sentiment-details ul {{ margin: 4px 0; padding-left: 20px; }}
     .industry-map-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .industry-map-note {{ margin: 12px 0 0; padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }}
     .industry-map-detail-panel {{ position: sticky; top: 12px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; background: #f8fafc; }}
@@ -523,6 +550,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       .industry-map-metrics {{ grid-template-columns: 1fr; }}
       table {{ display: block; overflow-x: auto; }}
     }}
+    @media (max-width: 640px) {{
+      .industry-sentiment-metrics {{ grid-template-columns: 1fr; }}
+      .industry-sentiment-sort, .industry-sentiment-sort label, .industry-sentiment-sort select {{ width: 100%; min-width: 0; }}
+      .industry-sentiment-sort {{ align-items: stretch; }}
+      .industry-sentiment-forecast {{ max-width: 100%; overflow-x: auto; }}
+    }}
   </style>
 </head>
 <body>
@@ -620,6 +653,37 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     }};
     function reviewActionStatusLabel(status) {{
       return reviewActionStatusLabels[status] || status || '-';
+    }}
+    function sortIndustrySentimentCards(source, key) {{
+      const grid = source.querySelector('[data-industry-sentiment-grid="true"]');
+      if (!grid) return;
+      const attribute = {{
+        score: 'sentimentScore',
+        change: 'sentimentChange',
+        peak_risk: 'sentimentPeakRisk',
+        trough_risk: 'sentimentTroughRisk',
+        confidence: 'sentimentConfidenceOrder'
+      }}[key] || 'sentimentScore';
+      const cards = Array.from(grid.querySelectorAll('[data-industry-sentiment]'));
+      cards.sort((left, right) => {{
+        const a = Number(left.dataset[attribute]);
+        const b = Number(right.dataset[attribute]);
+        const av = Number.isFinite(a) ? a : -Infinity;
+        const bv = Number.isFinite(b) ? b : -Infinity;
+        return bv - av || left.dataset.marketIntelligenceIndustry.localeCompare(
+          right.dataset.marketIntelligenceIndustry,
+          'zh-Hant-TW'
+        );
+      }});
+      cards.forEach((card) => grid.appendChild(card));
+    }}
+    function initIndustrySentimentSorting() {{
+      document.querySelectorAll('[data-market-intelligence-report="true"]').forEach((source) => {{
+        const select = source.querySelector('[data-industry-sentiment-sort="true"]');
+        if (!select) return;
+        sortIndustrySentimentCards(source, select.value);
+        select.addEventListener('change', () => sortIndustrySentimentCards(source, select.value));
+      }});
     }}
     function attachExpertConsoleFocus(button) {{
         button.addEventListener('click', () => {{
@@ -1904,6 +1968,7 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
     initExpertConsoleBulkControls();
     initEvidenceComposerControls();
     initHandoffPackControls();
+    initIndustrySentimentSorting();
     initReviewActionFilters();
     initIndustryMapControls();
     initReviewActionCommandCopy();
@@ -2587,7 +2652,8 @@ def _market_intelligence_block(report: dict[str, Any]) -> str:
     coverage = _dict_value(report.get("coverage"))
     freshness = _dict_value(report.get("freshness"))
     industries = [row for row in report.get("industries", []) if isinstance(row, dict)] if isinstance(report.get("industries"), list) else []
-    cards = "".join(_market_intelligence_industry_card(row) for row in industries[:12])
+    visible_industries = sorted(industries, key=_market_intelligence_industry_sort_key)[:12]
+    cards = "".join(_market_intelligence_industry_card(row) for row in visible_industries)
     cards = cards or '<p class="empty">No mapped industries.</p>'
     freshness_text = " / ".join(
         f"{label}: {_dict_value(freshness.get(key)).get('status', 'missing')}"
@@ -2613,7 +2679,15 @@ def _market_intelligence_block(report: dict[str, Any]) -> str:
         f'<div class="industry-map-summary-item"><strong>fund-flow coverage</strong><span>{escape(str(coverage.get("stocks_with_fund_flow", 0)))} / {escape(str(coverage.get("stocks_total", 0)))}</span></div>'
         f'<div class="industry-map-summary-item"><strong>industries</strong><span>{escape(str(coverage.get("industries_total", len(industries))))}</span></div>'
         "</div>"
-        f'<div class="industry-trend-grid">{cards}</div>'
+        '<div class="industry-sentiment-sort">'
+        '<label>產業情緒排序<select data-industry-sentiment-sort="true" aria-label="產業情緒排序">'
+        '<option value="score" selected>目前 5D 分數</option>'
+        '<option value="change">升溫／降溫變化</option>'
+        '<option value="peak_risk">高點風險</option>'
+        '<option value="trough_risk">低點風險</option>'
+        '<option value="confidence">信心</option>'
+        "</select></label></div>"
+        f'<div class="industry-trend-grid" data-industry-sentiment-grid="true">{cards}</div>'
         f"{blocker_html}"
         "</div>"
     )
@@ -2632,6 +2706,15 @@ def _market_intelligence_industry_card(industry: dict[str, Any]) -> str:
     category = str(industry.get("category") or "-")
     trend = _dict_value(industry.get("market_trend"))
     flow = _dict_value(industry.get("fund_flow"))
+    sentiment = _dict_value(industry.get("sentiment"))
+    forecast = _dict_value(sentiment.get("forecast"))
+    turning_risk = _dict_value(sentiment.get("turning_risk"))
+    sentiment_status = str(sentiment.get("status") or "missing")
+    phase = str(sentiment.get("cycle_phase") or "missing")
+    confidence = str(sentiment.get("confidence") or "missing")
+    forecast_status = str(forecast.get("status") or "missing")
+    turning_risk_status = str(turning_risk.get("status") or "missing")
+    confidence_order = {"high": 3, "medium": 2, "low": 1}.get(confidence, 0)
     keywords = industry.get("top_keywords", [])
     keyword_text = ", ".join(str(value) for value in keywords[:8]) if isinstance(keywords, list) else "-"
     latest_news = industry.get("latest_news", [])
@@ -2641,10 +2724,21 @@ def _market_intelligence_industry_card(industry: dict[str, Any]) -> str:
         for row in news_rows[:3]
     ) or "<li>No mapped news.</li>"
     return (
-        '<article class="industry-trend-card"'
-        f' data-market-intelligence-industry="{escape(category)}"'
-        f' data-market-intelligence-flow="{escape(str(flow.get("direction") or "missing"))}">'
+        '<article class="industry-trend-card industry-sentiment-card" tabindex="0" role="group"'
+        f' data-market-intelligence-industry="{escape(category, quote=True)}"'
+        f' data-market-intelligence-flow="{escape(str(flow.get("direction") or "missing"), quote=True)}"'
+        f' data-industry-sentiment="{escape(sentiment_status, quote=True)}"'
+        f' data-industry-sentiment-score="{escape(_market_intelligence_decimal(sentiment.get("score_5d")), quote=True)}"'
+        f' data-industry-sentiment-change="{escape(_market_intelligence_decimal(sentiment.get("change")), quote=True)}"'
+        f' data-industry-sentiment-peak-risk="{escape(_market_intelligence_decimal(turning_risk.get("peak_risk")), quote=True)}"'
+        f' data-industry-sentiment-trough-risk="{escape(_market_intelligence_decimal(turning_risk.get("trough_risk")), quote=True)}"'
+        f' data-industry-sentiment-confidence-order="{confidence_order}"'
+        f' data-industry-sentiment-phase="{escape(phase, quote=True)}"'
+        f' data-industry-sentiment-confidence="{escape(confidence, quote=True)}"'
+        f' data-industry-sentiment-forecast="{escape(forecast_status, quote=True)}"'
+        f' data-industry-turning-risk="{escape(turning_risk_status, quote=True)}">'
         f'<div class="industry-map-head"><h3>{escape(category)}</h3><span class="industry-status-pill">{escape(str(trend.get("direction") or "missing"))}</span></div>'
+        f"{_market_intelligence_sentiment(sentiment)}"
         f'<p class="industry-market-note"><strong>Keywords:</strong> {escape(keyword_text or "-")}</p>'
         '<div class="industry-map-metrics">'
         f'<span><strong>{escape(_market_intelligence_number(flow.get("foreign_net")))}</strong>外資</span>'
@@ -2659,10 +2753,231 @@ def _market_intelligence_industry_card(industry: dict[str, Any]) -> str:
 
 
 def _market_intelligence_number(value: Any) -> str:
-    try:
-        return f"{int(float(value or 0)):,}"
-    except (TypeError, ValueError):
+    number = _market_intelligence_float(value)
+    if number is None:
         return "-"
+    return f"{int(number):,}"
+
+
+def _market_intelligence_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _market_intelligence_decimal(value: Any, *, signed: bool = False) -> str:
+    number = _market_intelligence_float(value)
+    if number is None:
+        return "-"
+    return f"{number:+.1f}" if signed else f"{number:.1f}"
+
+
+def _market_intelligence_percent(value: Any) -> str:
+    number = _market_intelligence_float(value)
+    return f"{number * 100.0:.1f}%" if number is not None else "-"
+
+
+def _market_intelligence_industry_sort_key(industry: dict[str, Any]) -> tuple[bool, float, str]:
+    sentiment = _dict_value(industry.get("sentiment"))
+    score = _market_intelligence_float(sentiment.get("score_5d"))
+    return (
+        score is None,
+        -(score if score is not None else 0.0),
+        str(industry.get("category") or "").casefold(),
+    )
+
+
+def _market_intelligence_sentiment(sentiment: dict[str, Any]) -> str:
+    if not sentiment:
+        return (
+            '<div class="industry-sentiment-status">'
+            '<span class="industry-sentiment-pill" data-sentiment-status="missing">尚無情緒資料</span>'
+            "</div>"
+        )
+    status = str(sentiment.get("status") or "missing")
+    label = str(sentiment.get("label") or "missing")
+    phase = str(sentiment.get("cycle_phase") or "missing")
+    confidence = str(sentiment.get("confidence") or "missing")
+    temperature = str(sentiment.get("temperature") or "missing")
+    score = _market_intelligence_decimal(sentiment.get("score_5d"))
+    baseline = _market_intelligence_decimal(sentiment.get("baseline_20d"))
+    change = _market_intelligence_decimal(sentiment.get("change"), signed=True)
+    components = _dict_value(sentiment.get("components"))
+    forecast = _dict_value(sentiment.get("forecast"))
+    turning_risk = _dict_value(sentiment.get("turning_risk"))
+    return (
+        '<div class="industry-sentiment-status">'
+        f'<span class="industry-sentiment-pill" data-sentiment-status="{escape(status, quote=True)}">{escape(_market_intelligence_sentiment_status_label(status))}</span>'
+        f'<span class="industry-sentiment-pill">{escape(_market_intelligence_sentiment_label(label))}</span>'
+        f'<span class="industry-sentiment-pill">階段：{escape(_market_intelligence_phase_label(phase))}</span>'
+        f'<span class="industry-sentiment-pill">信心：{escape(_market_intelligence_confidence_label(confidence))}</span>'
+        "</div>"
+        '<div class="industry-sentiment-metrics">'
+        f'<span><strong>{escape(score)}</strong>目前 5D 分數 / {escape(_market_intelligence_sentiment_label(label))}'
+        f'<span class="industry-sentiment-sparkline" role="img" aria-label="20D 基準 {escape(baseline, quote=True)} 到 5D 分數 {escape(score, quote=True)}">{escape(baseline)} → {escape(score)}</span></span>'
+        f'<span><strong>{escape(baseline)}</strong>20D 基準</span>'
+        f'<span><strong>{escape(change)}</strong>變化 / {escape(_market_intelligence_temperature_label(temperature))}</span>'
+        "</div>"
+        '<ul class="industry-sentiment-components">'
+        f'{_market_intelligence_component("新聞", _dict_value(components.get("news")))}'
+        f'{_market_intelligence_component("價格", _dict_value(components.get("price")))}'
+        f'{_market_intelligence_component("資金流", _dict_value(components.get("fund_flow")))}'
+        "</ul>"
+        f"{_market_intelligence_forecast(forecast)}"
+        f"{_market_intelligence_turning_risk(turning_risk)}"
+        f"{_market_intelligence_sentiment_details(sentiment, forecast, turning_risk)}"
+    )
+
+
+def _market_intelligence_sentiment_status_label(status: str) -> str:
+    return {
+        "ready": "資料完整",
+        "partial": "資料不完整",
+        "insufficient_data": "資料不足",
+        "missing": "尚無情緒資料",
+    }.get(status, status.replace("_", " ") or "-")
+
+
+def _market_intelligence_sentiment_label(label: str) -> str:
+    return {
+        "extremely_optimistic": "強烈偏多",
+        "optimistic": "偏多",
+        "neutral": "中性",
+        "pessimistic": "偏空",
+        "extremely_pessimistic": "強烈偏空",
+        "missing": "無標籤",
+    }.get(label, label.replace("_", " ") or "-")
+
+
+def _market_intelligence_phase_label(phase: str) -> str:
+    return {
+        "overheating": "過熱",
+        "capitulation": "恐慌",
+        "recovery": "復甦",
+        "ignition": "啟動",
+        "expansion": "擴張",
+        "distribution": "派發",
+        "cooling": "降溫",
+        "contraction": "收縮",
+        "insufficient_history": "歷史資料不足",
+        "missing": "-",
+    }.get(phase, phase.replace("_", " ") or "-")
+
+
+def _market_intelligence_confidence_label(confidence: str) -> str:
+    return {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "missing": "-",
+    }.get(confidence, confidence.replace("_", " ") or "-")
+
+
+def _market_intelligence_temperature_label(temperature: str) -> str:
+    return {
+        "warming": "升溫",
+        "cooling": "降溫",
+        "stable": "持平",
+        "missing": "-",
+    }.get(temperature, temperature.replace("_", " ") or "-")
+
+
+def _market_intelligence_component(label: str, component: dict[str, Any]) -> str:
+    contribution = _market_intelligence_decimal(component.get("contribution_5d"), signed=True)
+    configured = _market_intelligence_percent(component.get("configured_weight"))
+    effective = _market_intelligence_percent(component.get("effective_weight"))
+    return (
+        f"<li><strong>{escape(label)} contribution:</strong> {escape(contribution)} "
+        f"(configured {escape(configured)} / effective {escape(effective)})</li>"
+    )
+
+
+def _market_intelligence_interval(value: Any) -> str:
+    if not isinstance(value, list) or len(value) != 2:
+        return ""
+    lower = _market_intelligence_float(value[0])
+    upper = _market_intelligence_float(value[1])
+    if lower is None or upper is None:
+        return ""
+    return f" [{lower:.1f}, {upper:.1f}]"
+
+
+def _market_intelligence_forecast(forecast: dict[str, Any]) -> str:
+    status = str(forecast.get("status") or "missing")
+    status_text = _market_intelligence_experimental_status(status)
+    if status in {"insufficient_history", "insufficient_data", "missing"}:
+        forecast_text = "歷史資料不足" if status != "missing" else "-"
+    else:
+        forecast_text = " / ".join(
+            (
+                f"1D {_market_intelligence_decimal(forecast.get('forecast_1d'))}{_market_intelligence_interval(forecast.get('interval_1d'))}",
+                f"5D {_market_intelligence_decimal(forecast.get('forecast_5d'))}{_market_intelligence_interval(forecast.get('interval_5d'))}",
+            )
+        )
+    return (
+        '<div class="industry-sentiment-forecast">'
+        f'<span class="industry-sentiment-pill experimental">{escape(status_text)}</span>'
+        f'<p><strong>情緒預測：</strong> {escape(forecast_text)}</p>'
+        "</div>"
+    )
+
+
+def _market_intelligence_turning_risk(turning_risk: dict[str, Any]) -> str:
+    status = str(turning_risk.get("status") or "missing")
+    status_text = _market_intelligence_experimental_status(status)
+    if status in {"insufficient_history", "insufficient_data", "missing"}:
+        risk_text = "歷史資料不足" if status != "missing" else "-"
+    else:
+        risk_text = (
+            f"高點 {_market_intelligence_decimal(turning_risk.get('peak_risk'))} / "
+            f"低點 {_market_intelligence_decimal(turning_risk.get('trough_risk'))}"
+        )
+    return (
+        '<div class="industry-sentiment-forecast">'
+        f'<span class="industry-sentiment-pill experimental">{escape(status_text)}</span>'
+        f'<p><strong>轉折風險：</strong> {escape(risk_text)}</p>'
+        "</div>"
+    )
+
+
+def _market_intelligence_experimental_status(status: str) -> str:
+    if status == "experimental":
+        return "experimental / 實驗訊號"
+    if status in {"insufficient_history", "insufficient_data"}:
+        return "insufficient history / 歷史資料不足"
+    return status.replace("_", " ") if status != "missing" else "-"
+
+
+def _market_intelligence_sentiment_details(
+    sentiment: dict[str, Any],
+    forecast: dict[str, Any],
+    turning_risk: dict[str, Any],
+) -> str:
+    reasons = _market_intelligence_text_items(sentiment.get("reasons"))[:3]
+    warnings: list[str] = []
+    for source in (sentiment, forecast, turning_risk):
+        for warning in _market_intelligence_text_items(source.get("warnings")):
+            if warning not in warnings:
+                warnings.append(warning)
+    reasons_html = "".join(f"<li>{escape(reason)}</li>" for reason in reasons) or "<li>-</li>"
+    warnings_html = "".join(f"<li>{escape(warning)}</li>" for warning in warnings) or "<li>-</li>"
+    return (
+        '<details class="industry-sentiment-details">'
+        "<summary>依據與警告</summary>"
+        f"<h4>主要依據</h4><ul>{reasons_html}</ul>"
+        f"<h4>警告</h4><ul>{warnings_html}</ul>"
+        "</details>"
+    )
+
+
+def _market_intelligence_text_items(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
 
 
 def _industry_trend_report_section(industry_trend_reports: list[dict[str, Any]]) -> str:
