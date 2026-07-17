@@ -11,7 +11,7 @@ from html import escape
 from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -639,16 +639,27 @@ def write_market_intelligence_report(
     return json_path
 
 
+def _markdown_text(value: Any) -> str:
+    text = str(value)
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    text = escape(text, quote=False)
+    return text.replace("\\", "\\\\").replace("|", "\\|")
+
+
 def render_market_intelligence_markdown(report: dict[str, Any]) -> str:
     gate = _dict(report.get("quality_gate"))
     coverage = _dict(report.get("coverage"))
     lines = [
         "# Market Intelligence Industry Map",
         "",
-        f"- generated_at: {report.get('generated_at') or '-'}",
-        f"- quality_gate: {gate.get('status') or '-'}",
-        f"- news mapped: {coverage.get('news_mapped', 0)} / {coverage.get('news_total', 0)}",
-        f"- fund-flow coverage: {coverage.get('stocks_with_fund_flow', 0)} / {coverage.get('stocks_total', 0)} stocks",
+        f"- generated_at: {_markdown_text(report.get('generated_at') or '-')}",
+        f"- quality_gate: {_markdown_text(gate.get('status') or '-')}",
+        "- news mapped: "
+        f"{_markdown_text(coverage.get('news_mapped', 0))} / "
+        f"{_markdown_text(coverage.get('news_total', 0))}",
+        "- fund-flow coverage: "
+        f"{_markdown_text(coverage.get('stocks_with_fund_flow', 0))} / "
+        f"{_markdown_text(coverage.get('stocks_total', 0))} stocks",
         "",
         "## Industry Map",
         "",
@@ -664,7 +675,8 @@ def render_market_intelligence_markdown(report: dict[str, Any]) -> str:
         lines.append(
             "| "
             + " | ".join(
-                [
+                _markdown_text(value)
+                for value in [
                     str(industry.get("category") or "-"),
                     str(trend.get("direction") or "missing"),
                     str(industry.get("news_count", 0)),
@@ -704,36 +716,43 @@ def render_market_intelligence_markdown(report: dict[str, Any]) -> str:
             turning_risk = _dict(sentiment.get("turning_risk"))
             lines.extend(
                 [
-                    f"### {industry.get('category') or '-'}",
+                    f"### {_markdown_text(industry.get('category') or '-')}",
                     "",
                     "- Reasons:",
                 ]
             )
             reasons = sentiment.get("reasons")
             if isinstance(reasons, list) and reasons:
-                lines.extend(f"  - {reason}" for reason in reasons)
+                lines.extend(f"  - {_markdown_text(reason)}" for reason in reasons)
             else:
                 lines.append("  - none")
             lines.append("- Warnings:")
             warnings = _sentiment_warnings(sentiment)
             if warnings:
-                lines.extend(f"  - {warning}" for warning in warnings)
+                lines.extend(f"  - {_markdown_text(warning)}" for warning in warnings)
             else:
                 lines.append("  - none")
             lines.extend(
                 [
                     "- Forecast (experimental research aid): "
-                    + _forecast_text(forecast),
+                    + _markdown_text(_forecast_text(forecast)),
                     "- Turning risk (experimental research aid; not a calibrated probability): "
-                    + _turning_risk_text(turning_risk),
+                    + _markdown_text(_turning_risk_text(turning_risk)),
                     "",
                 ]
             )
     blockers = gate.get("blockers", [])
     if isinstance(blockers, list) and blockers:
         lines.extend(["", "## Data Blockers", ""])
-        lines.extend(f"- {blocker}" for blocker in blockers)
-    lines.extend(["", "## Non-Advice Boundary", "", str(report.get("non_advice_notice") or NON_ADVICE_NOTICE)])
+        lines.extend(f"- {_markdown_text(blocker)}" for blocker in blockers)
+    lines.extend(
+        [
+            "",
+            "## Non-Advice Boundary",
+            "",
+            _markdown_text(report.get("non_advice_notice") or NON_ADVICE_NOTICE),
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -833,6 +852,35 @@ def _build_industries(
                 "stock_count",
             )
         }
+        category_freshness, price_coverage_warning = _category_sentiment_freshness(
+            freshness,
+            market_trend,
+        )
+        sentiment_base = build_industry_sentiment_base(
+            news_rows=industry_news,
+            trend={"category": category, **market_trend},
+            flow_rows=industry_flows,
+            expected_session_dates=expected_session_dates,
+            freshness=category_freshness,
+            source_errors=source_errors,
+            as_of=generated_at,
+        )
+        if price_coverage_warning:
+            assessment_warnings = sentiment_base.get("warnings")
+            if isinstance(assessment_warnings, list):
+                if price_coverage_warning not in assessment_warnings:
+                    assessment_warnings.append(price_coverage_warning)
+            else:
+                sentiment_base["warnings"] = [price_coverage_warning]
+            price_component = _dict(
+                _dict(sentiment_base.get("components")).get("price")
+            )
+            component_warnings = price_component.get("warnings")
+            if isinstance(component_warnings, list):
+                if price_coverage_warning not in component_warnings:
+                    component_warnings.append(price_coverage_warning)
+            else:
+                price_component["warnings"] = [price_coverage_warning]
         industries.append(
             {
                 "category": category,
@@ -843,18 +891,61 @@ def _build_industries(
                 "latest_news": industry_news[:5],
                 "fund_flow": flow,
                 "context": _context_lines(trend, len(industry_news), flow),
-                "sentiment_base": build_industry_sentiment_base(
-                    news_rows=industry_news,
-                    trend={"category": category, **market_trend},
-                    flow_rows=industry_flows,
-                    expected_session_dates=expected_session_dates,
-                    freshness=freshness,
-                    source_errors=source_errors,
-                    as_of=generated_at,
-                ),
+                "sentiment_base": sentiment_base,
             }
         )
     return industries
+
+
+def _category_sentiment_freshness(
+    freshness: dict[str, Any],
+    trend: dict[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    category_freshness = dict(freshness)
+    coverage_values = (
+        _finite_number(trend.get("coverage_ratio_5d")),
+        _finite_number(trend.get("coverage_ratio_20d")),
+    )
+    coverage_is_sufficient = all(
+        value is not None and 0.80 <= value <= 1.0
+        for value in coverage_values
+    )
+    if coverage_is_sufficient:
+        return category_freshness, None
+
+    warning = (
+        "price excluded: insufficient category price coverage; both 5d and 20d "
+        "coverage ratios must be at least 80.0%"
+    )
+    source_freshness = freshness.get(
+        "price",
+        freshness.get("industry_trend"),
+    )
+    if _freshness_value_is_fresh(source_freshness):
+        price_freshness = (
+            dict(source_freshness)
+            if isinstance(source_freshness, Mapping)
+            else {"source": source_freshness}
+        )
+        price_freshness.update(
+            {
+                "status": "insufficient_category_price_coverage",
+                "coverage_ratio_5d": trend.get("coverage_ratio_5d"),
+                "coverage_ratio_20d": trend.get("coverage_ratio_20d"),
+            }
+        )
+        category_freshness["price"] = price_freshness
+    return category_freshness, warning
+
+
+def _freshness_value_is_fresh(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Mapping):
+        if "fresh" in value:
+            return value.get("fresh") is True
+        value = value.get("status")
+    return str(value or "").strip().lower() == "fresh"
 
 
 def _map_news(news_rows: list[dict[str, Any]], research_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -1229,7 +1320,17 @@ def _evidence_list_html(value: Any, *, empty_text: str) -> str:
 def _event_link(item: dict[str, Any]) -> str:
     title = escape(str(item.get("title") or "-"))
     url = str(item.get("url") or "").strip()
-    return f'<a href="{escape(url, quote=True)}">{title}</a>' if url else title
+    if not url or any(character.isspace() for character in url) or "\\" in url:
+        return title
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        return title
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or not hostname:
+        return title
+    return f'<a href="{escape(url, quote=True)}">{title}</a>'
 
 
 def _context_lines(trend: dict[str, Any], news_count: int, flow: dict[str, Any]) -> list[str]:

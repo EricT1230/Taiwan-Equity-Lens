@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from taiwan_stock_analysis.market_intelligence import (
+    _event_link,
     _http_post_form_json,
     build_market_intelligence_report,
     fetch_fund_flow_history,
@@ -680,6 +681,218 @@ class MarketIntelligenceTests(unittest.TestCase):
             )
         )
 
+    def test_category_price_freshness_requires_eighty_percent_in_both_windows(self):
+        research = self.root / "coverage-research.csv"
+        trend_path = self.root / "coverage-trend.json"
+        session_dates = [f"2026-07-{day:02d}" for day in range(1, 21)]
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,news_keywords\n"
+            "1111,Low 5D Co,A Low 5D Coverage,high,watching,,LOW5\n"
+            "2222,Low 20D Co,B Low 20D Coverage,high,watching,,LOW20\n"
+            "3333,Missing Co,C Missing Coverage,high,watching,,MISSING\n"
+            "4444,Invalid Co,D Invalid Coverage,high,watching,,INVALID\n"
+            "5555,High Co,E Sufficient Coverage,high,watching,,HIGH\n",
+            encoding="utf-8",
+        )
+
+        def category_trend(category, stock_id, coverage_5d, coverage_20d):
+            return {
+                "category": category,
+                "direction": "up",
+                "rotation_phase": "leading",
+                "average_return_1d": 0.8,
+                "average_return_5d": 4.0,
+                "average_return_20d": 7.5,
+                "positive_breadth_5d": 0.75,
+                "positive_breadth_20d": 0.60,
+                "coverage_ratio_5d": coverage_5d,
+                "coverage_ratio_20d": coverage_20d,
+                "high_count_20d": 1,
+                "low_count_20d": 0,
+                "average_volume_ratio_5d": 1.5,
+                "covered_stock_ids": [stock_id],
+                "coverage_count": 1,
+                "stock_count": 1,
+            }
+
+        trend_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-07-20",
+                    "session_dates": session_dates,
+                    "categories": [
+                        category_trend(
+                            "A Low 5D Coverage",
+                            "1111",
+                            0.20,
+                            1.0,
+                        ),
+                        category_trend(
+                            "B Low 20D Coverage",
+                            "2222",
+                            1.0,
+                            0.20,
+                        ),
+                        category_trend(
+                            "C Missing Coverage",
+                            "3333",
+                            None,
+                            1.0,
+                        ),
+                        category_trend(
+                            "D Invalid Coverage",
+                            "4444",
+                            1.0,
+                            "invalid",
+                        ),
+                        category_trend(
+                            "E Sufficient Coverage",
+                            "5555",
+                            1.0,
+                            1.0,
+                        ),
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        news = [
+            {
+                "published_at": f"2026-07-20T{10 - index:02d}:00:00+08:00",
+                "title": f"{alias} 強勁成長 {index}",
+                "summary": "訂單增加",
+                "url": f"https://example.test/{alias.casefold()}/{index}",
+                "source": f"fixture-{index}",
+            }
+            for alias in ("LOW5", "LOW20", "MISSING", "INVALID", "HIGH")
+            for index in range(5)
+        ]
+
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=[],
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+
+        industries = {row["category"]: row for row in report["industries"]}
+        for category in (
+            "A Low 5D Coverage",
+            "B Low 20D Coverage",
+            "C Missing Coverage",
+            "D Invalid Coverage",
+        ):
+            with self.subTest(category=category):
+                insufficient = industries[category]["sentiment"]
+                self.assertIsNotNone(
+                    insufficient["components"]["price"]["score_5d"]
+                )
+                self.assertEqual(
+                    insufficient["components"]["price"]["freshness"]["status"],
+                    "insufficient_category_price_coverage",
+                )
+                self.assertTrue(
+                    any(
+                        "insufficient category price coverage" in warning
+                        for warning in insufficient["warnings"]
+                    )
+                )
+                self.assertEqual(insufficient["status"], "insufficient_data")
+                self.assertIsNone(insufficient["score_5d"])
+                self.assertIsNone(insufficient["rank"])
+        sufficient = industries["E Sufficient Coverage"]["sentiment"]
+        self.assertEqual(sufficient["status"], "partial")
+        self.assertIsNotNone(sufficient["score_5d"])
+        self.assertEqual(sufficient["rank"], 1)
+        self.assertEqual(sufficient["ranked_count"], 1)
+        self.assertEqual(
+            sufficient["components"]["price"]["freshness"]["status"],
+            "fresh",
+        )
+
+    def test_sentiment_ranking_breaks_ties_by_industry_and_leaves_scoreless_last(self):
+        research = self.root / "ranking-research.csv"
+        trend_path = self.root / "ranking-trend.json"
+        session_dates = [f"2026-07-{day:02d}" for day in range(1, 21)]
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,news_keywords\n"
+            "1111,Alpha Co,Alpha Industry,high,watching,,ALPHA\n"
+            "2222,Beta Co,Beta Industry,high,watching,,BETA\n"
+            "3333,Scoreless Co,Scoreless Industry,high,watching,,SCORELESS\n",
+            encoding="utf-8",
+        )
+
+        def tied_trend(category, stock_id):
+            return {
+                "category": category,
+                "direction": "up",
+                "rotation_phase": "leading",
+                "average_return_1d": 0.8,
+                "average_return_5d": 4.0,
+                "average_return_20d": 7.5,
+                "positive_breadth_5d": 0.75,
+                "positive_breadth_20d": 0.60,
+                "coverage_ratio_5d": 1.0,
+                "coverage_ratio_20d": 1.0,
+                "high_count_20d": 1,
+                "low_count_20d": 0,
+                "average_volume_ratio_5d": 1.5,
+                "covered_stock_ids": [stock_id],
+                "coverage_count": 1,
+                "stock_count": 1,
+            }
+
+        trend_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-07-20",
+                    "session_dates": session_dates,
+                    "categories": [
+                        tied_trend("Beta Industry", "2222"),
+                        tied_trend("Alpha Industry", "1111"),
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        news = [
+            {
+                "published_at": f"2026-07-20T{10 - index:02d}:00:00+08:00",
+                "title": f"{alias} 強勁成長 {index}",
+                "summary": "訂單增加",
+                "url": f"https://example.test/{alias.casefold()}/{index}",
+                "source": f"fixture-{index}",
+            }
+            for alias in ("ALPHA", "BETA")
+            for index in range(5)
+        ]
+
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=[],
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+
+        self.assertEqual(
+            [row["category"] for row in report["industries"]],
+            ["Alpha Industry", "Beta Industry", "Scoreless Industry"],
+        )
+        alpha, beta, scoreless = report["industries"]
+        self.assertEqual(
+            alpha["sentiment"]["score_5d"],
+            beta["sentiment"]["score_5d"],
+        )
+        self.assertEqual(alpha["sentiment"]["rank"], 1)
+        self.assertEqual(beta["sentiment"]["rank"], 2)
+        self.assertEqual(alpha["sentiment"]["ranked_count"], 2)
+        self.assertEqual(beta["sentiment"]["ranked_count"], 2)
+        self.assertIsNone(scoreless["sentiment"]["score_5d"])
+        self.assertIsNone(scoreless["sentiment"]["rank"])
+        self.assertEqual(scoreless["sentiment"]["ranked_count"], 2)
+
     def test_renderers_show_sentiment_evidence_and_experimental_boundaries(self):
         research, trend_path, news, flows = self._sentiment_fixture()
         report = build_market_intelligence_report(
@@ -740,6 +953,69 @@ class MarketIntelligenceTests(unittest.TestCase):
         self.assertIn("Fund flow contribution", html)
         self.assertIn("experimental research aid", html)
         self.assertIn("insufficient history", html)
+
+    def test_markdown_escapes_dynamic_text_without_changing_table_structure(self):
+        research, trend_path, news, flows = self._sentiment_fixture()
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+        industry = report["industries"][0]
+        sentiment = industry["sentiment"]
+        industry["category"] = "AI | Semiconductor"
+        industry["top_keywords"] = ["chip | foundry", r"safe\path"]
+        industry["market_trend"]["direction"] = (
+            "up | down\n| forged | table | row |"
+        )
+        sentiment["reasons"] = [
+            "base reason\n- injected reason",
+            "reason\r\n### injected reason heading",
+        ]
+        sentiment["warnings"] = [
+            "base warning\r\n| injected | warning | row |",
+            "warning\n## injected warning heading",
+        ]
+        report["quality_gate"]["blockers"] = [
+            "blocked\n# injected blocker heading"
+        ]
+        report["non_advice_notice"] = "notice\n---\ninjected rule"
+
+        markdown = render_market_intelligence_markdown(report)
+        lines = markdown.splitlines()
+        table_lines = [line for line in lines if line.startswith("|")]
+
+        def unescaped_pipe_count(line):
+            count = 0
+            backslashes = 0
+            for character in line:
+                if character == "|" and backslashes % 2 == 0:
+                    count += 1
+                backslashes = backslashes + 1 if character == "\\" else 0
+            return count
+
+        self.assertEqual(len(table_lines), 3)
+        self.assertTrue(
+            all(unescaped_pipe_count(line) == 17 for line in table_lines)
+        )
+        self.assertIn(r"AI \| Semiconductor", markdown)
+        self.assertIn(r"chip \| foundry", markdown)
+        self.assertIn(r"safe\\path", markdown)
+        self.assertFalse(
+            any(
+                line in {
+                    "- injected reason",
+                    "### injected reason heading",
+                    "| injected | warning | row |",
+                    "## injected warning heading",
+                    "# injected blocker heading",
+                    "---",
+                }
+                for line in lines
+            )
+        )
 
     def test_html_renders_available_forecast_intervals_and_risk_scores(self):
         research, trend_path, news, flows = self._sentiment_fixture()
@@ -814,6 +1090,44 @@ class MarketIntelligenceTests(unittest.TestCase):
         self.assertIn("Legacy Industry", markdown)
         self.assertIn("Legacy Industry", html)
         self.assertIn("price direction: up", legacy_report["industries"][0]["context"])
+
+    def test_event_links_allow_only_absolute_http_urls_with_valid_hosts(self):
+        title = '<Unsafe & "event">'
+        escaped_title = "&lt;Unsafe &amp; &quot;event&quot;&gt;"
+        unsafe_urls = (
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///C:/Windows/System32/calc.exe",
+            "//example.test/scheme-relative",
+            "/relative/path",
+            "relative/path",
+            "not a url",
+            "https:///missing-host",
+            "https://[invalid",
+        )
+
+        for url in unsafe_urls:
+            with self.subTest(url=url):
+                self.assertEqual(
+                    _event_link({"title": title, "url": url}),
+                    escaped_title,
+                )
+
+        self.assertEqual(
+            _event_link(
+                {
+                    "title": title,
+                    "url": "https://example.test/news?left=1&right=2",
+                }
+            ),
+            '<a href="https://example.test/news?left=1&amp;right=2">'
+            + escaped_title
+            + "</a>",
+        )
+        self.assertEqual(
+            _event_link({"title": title, "url": "http://example.test/news"}),
+            '<a href="http://example.test/news">' + escaped_title + "</a>",
+        )
 
     def test_quality_gate_blocks_missing_or_stale_sources(self):
         research = self.root / "stale-research.csv"
