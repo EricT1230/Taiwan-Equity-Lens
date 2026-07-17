@@ -26,8 +26,7 @@ from taiwan_stock_analysis.industry_trends import write_industry_trend_report
 from taiwan_stock_analysis.market_data_importer import write_market_data_bundle
 from taiwan_stock_analysis.market_intelligence import (
     fetch_feed_news,
-    fetch_tpex_fund_flow,
-    fetch_twse_fund_flow,
+    fetch_fund_flow_history,
     fetch_twse_news,
     load_fund_flow_rows,
     load_news_rows,
@@ -60,6 +59,7 @@ from taiwan_stock_analysis.review_action_state import (
     write_review_action_state,
 )
 from taiwan_stock_analysis.scoring import build_scorecard
+from taiwan_stock_analysis.sentiment_validation import write_sentiment_validation_report
 from taiwan_stock_analysis.valuation import build_valuation
 from taiwan_stock_analysis.verification import build_verification
 from taiwan_stock_analysis.watchlist import load_watchlist
@@ -374,6 +374,17 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_industry_trends.add_argument("--price-history", required=True, type=Path)
     research_industry_trends.add_argument("--output-dir", default=Path("research-dist/industry-trends"), type=Path)
 
+    research_sentiment_backtest = research_subparsers.add_parser(
+        "sentiment-backtest",
+        help="Evaluate retained industry sentiment history with walk-forward validation.",
+    )
+    research_sentiment_backtest.add_argument("history_csv", type=Path)
+    research_sentiment_backtest.add_argument(
+        "--output",
+        default=Path("sentiment_backtest_report.json"),
+        type=Path,
+    )
+
     research_market_intelligence = research_subparsers.add_parser(
         "market-intelligence",
         help="Combine industry trends, latest news keywords, and institutional fund flow.",
@@ -497,16 +508,24 @@ def _collect_market_intelligence_inputs(
         dependencies[f"fund_flow_csv_{index}"] = str(path)
     if include_twse_fund_flow:
         dependencies["twse_fund_flow"] = "https://www.twse.com.tw/rwd/zh/fund/T86"
-        try:
-            fund_flow_rows.extend(fetch_twse_fund_flow(as_of=as_of))
-        except (OSError, ValueError) as exc:
-            source_errors.append(f"TWSE fund flow: {exc}")
     if include_tpex_fund_flow:
         dependencies["tpex_fund_flow"] = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"
-        try:
-            fund_flow_rows.extend(fetch_tpex_fund_flow())
-        except (OSError, ValueError) as exc:
-            source_errors.append(f"TPEx fund flow: {exc}")
+    markets = tuple(
+        market
+        for market, enabled in (
+            ("TWSE", include_twse_fund_flow),
+            ("TPEX", include_tpex_fund_flow),
+        )
+        if enabled
+    )
+    if markets:
+        official_rows, official_errors = fetch_fund_flow_history(
+            as_of=as_of,
+            session_count=20,
+            markets=markets,
+        )
+        fund_flow_rows.extend(official_rows)
+        source_errors.extend(official_errors)
     return news_rows, fund_flow_rows, dependencies, source_errors
 
 
@@ -571,6 +590,7 @@ def _run_research_workflow_command(
             output_dir / "industry-trends",
         )
     market_intelligence_report: Path | None = None
+    sentiment_history: Path | None = None
     market_inputs_requested = any(
         [
             market_news_csv,
@@ -601,6 +621,9 @@ def _run_research_workflow_command(
             dependencies=dependencies,
             source_errors=source_errors,
         )
+        sentiment_history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        if sentiment_history_path.exists():
+            sentiment_history = sentiment_history_path
     research_summary = write_research_summary(
         effective_research_csv,
         output_dir,
@@ -647,6 +670,7 @@ def _run_research_workflow_command(
         "pack_summary": pack_summary,
         "industry_trend_report": industry_trend_report,
         "market_intelligence_report": market_intelligence_report,
+        "sentiment_history": sentiment_history,
         "market_data_report": market_data_outputs["report"] if market_data_outputs else None,
         "dashboard": output_dir / "dashboard.html",
     }
@@ -663,6 +687,9 @@ def _print_research_workflow_outputs(paths: dict[str, Path | None]) -> None:
         print(f"Wrote {paths['industry_trend_report']}")
     if paths.get("market_intelligence_report") is not None:
         print(f"Wrote {paths['market_intelligence_report']}")
+    sentiment_history = paths.get("sentiment_history")
+    if sentiment_history is not None and sentiment_history.exists():
+        print(f"Wrote {sentiment_history}")
     if paths.get("market_data_report") is not None:
         print(f"Wrote {paths['market_data_report']}")
     print(f"Open {paths['dashboard']}")
@@ -956,6 +983,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote {args.output_dir / 'industry_trend_report.md'}")
             print(f"Wrote {args.output_dir / 'industry_trend_report.html'}")
             return 0
+        if args.research_command == "sentiment-backtest":
+            try:
+                write_sentiment_validation_report(args.history_csv, args.output)
+            except (OSError, ValueError) as exc:
+                print(f"Warning: {exc}")
+                return 1
+            print(f"Wrote {args.output}")
+            return 0
         if args.research_command == "market-data":
             try:
                 outputs = write_market_data_bundle(
@@ -998,6 +1033,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote {output_path}")
             print(f"Wrote {args.output_dir / 'market_intelligence_report.md'}")
             print(f"Wrote {args.output_dir / 'market_intelligence_report.html'}")
+            sentiment_history_path = args.output_dir / "industry_sentiment_history.csv"
+            if sentiment_history_path.exists():
+                print(f"Wrote {sentiment_history_path}")
             for source_error in source_errors:
                 print(f"Warning: {source_error}")
             return 0

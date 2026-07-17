@@ -1,12 +1,19 @@
+import csv
 import json
 import os
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from taiwan_stock_analysis.cli import main, run
+from taiwan_stock_analysis.cli import (
+    _print_research_workflow_outputs,
+    _run_research_workflow_command,
+    main,
+    run,
+)
 
 
 def goodinfo_html(rows: str) -> str:
@@ -1572,7 +1579,295 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "market_intelligence_report.json").exists())
         self.assertTrue((output_dir / "market_intelligence_report.md").exists())
         self.assertTrue((output_dir / "market_intelligence_report.html").exists())
+        self.assertTrue((output_dir / "industry_sentiment_history.csv").exists())
         self.assertIn("Wrote", output.getvalue())
+        self.assertIn(str(output_dir / "industry_sentiment_history.csv"), output.getvalue())
+
+    def test_main_research_sentiment_backtest_dispatches_writer(self):
+        history_path = Path(".tmp-cli-test/history.csv")
+        output_path = Path(".tmp-cli-test/validation.json")
+        output = StringIO()
+
+        with patch(
+            "taiwan_stock_analysis.cli.write_sentiment_validation_report",
+            create=True,
+            return_value={"promotion_ready": False, "failed_checks": ["minimum_sessions"]},
+        ) as write_report:
+            try:
+                with redirect_stdout(output):
+                    exit_code = main(
+                        [
+                            "research",
+                            "sentiment-backtest",
+                            str(history_path),
+                            "--output",
+                            str(output_path),
+                        ]
+                    )
+            except SystemExit as exc:
+                self.fail(f"sentiment-backtest parser rejected the command: {exc}")
+
+        self.assertEqual(exit_code, 0)
+        write_report.assert_called_once_with(history_path, output_path)
+        self.assertEqual(output.getvalue().strip(), f"Wrote {output_path}")
+
+    def test_main_research_sentiment_backtest_returns_one_for_invalid_input(self):
+        history_path = Path(".tmp-cli-test/invalid-history.csv")
+        output_path = Path(".tmp-cli-test/invalid-validation.json")
+
+        for error in (OSError("history is unreadable"), ValueError("history is invalid")):
+            with self.subTest(error=type(error).__name__):
+                output = StringIO()
+                with patch(
+                    "taiwan_stock_analysis.cli.write_sentiment_validation_report",
+                    create=True,
+                    side_effect=error,
+                ):
+                    try:
+                        with redirect_stdout(output):
+                            exit_code = main(
+                                [
+                                    "research",
+                                    "sentiment-backtest",
+                                    str(history_path),
+                                    "--output",
+                                    str(output_path),
+                                ]
+                            )
+                    except SystemExit as exc:
+                        self.fail(f"sentiment-backtest parser rejected the command: {exc}")
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(output.getvalue().strip(), f"Warning: {error}")
+
+    def test_main_research_market_intelligence_fetches_selected_market_history(self):
+        selections = (
+            ("--fetch-twse-fund-flow", ("TWSE",), "twse_fund_flow"),
+            ("--fetch-tpex-fund-flow", ("TPEX",), "tpex_fund_flow"),
+        )
+
+        for flag, markets, dependency_key in selections:
+            with self.subTest(flag=flag):
+                output_dir = Path(f".tmp-cli-test/selected-{markets[0].lower()}-history")
+                report_path = output_dir / "market_intelligence_report.json"
+                official_row = {
+                    "date": "2026-07-10",
+                    "stock_id": "2330",
+                    "foreign_net": 100,
+                    "investment_trust_net": 20,
+                    "dealer_net": -5,
+                    "total_net": 115,
+                    "source": f"{markets[0]} fixture",
+                }
+                with (
+                    patch(
+                        "taiwan_stock_analysis.cli.fetch_fund_flow_history",
+                        create=True,
+                        return_value=([official_row], []),
+                    ) as fetch_history,
+                    patch(
+                        "taiwan_stock_analysis.cli.fetch_twse_fund_flow",
+                        create=True,
+                        side_effect=AssertionError("latest TWSE wrapper must not be called"),
+                    ) as fetch_twse_latest,
+                    patch(
+                        "taiwan_stock_analysis.cli.fetch_tpex_fund_flow",
+                        create=True,
+                        side_effect=AssertionError("latest TPEx wrapper must not be called"),
+                    ) as fetch_tpex_latest,
+                    patch(
+                        "taiwan_stock_analysis.cli.write_market_intelligence_report",
+                        return_value=report_path,
+                    ) as write_report,
+                ):
+                    try:
+                        exit_code = main(
+                            [
+                                "research",
+                                "market-intelligence",
+                                ".tmp-cli-test/research.csv",
+                                flag,
+                                "--as-of",
+                                "2026-07-12",
+                                "--output-dir",
+                                str(output_dir),
+                            ]
+                        )
+                    except AssertionError as exc:
+                        self.fail(str(exc))
+
+                self.assertEqual(exit_code, 0)
+                fetch_history.assert_called_once_with(
+                    as_of="2026-07-12",
+                    session_count=20,
+                    markets=markets,
+                )
+                fetch_twse_latest.assert_not_called()
+                fetch_tpex_latest.assert_not_called()
+                self.assertEqual(write_report.call_args.kwargs["fund_flow_rows"], [official_row])
+                self.assertIn(dependency_key, write_report.call_args.kwargs["dependencies"])
+
+    def test_main_research_market_intelligence_fetches_both_markets_once_and_retains_csv_inputs(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            flow_path = root / "fund-flow.csv"
+            output_dir = root / "market-intelligence"
+            flow_path.write_text(
+                "date,stock_id,foreign_net,investment_trust_net,dealer_net,total_net,source\n"
+                "2026-07-09,2317,50,10,-2,58,csv fixture\n",
+                encoding="utf-8",
+            )
+            official_row = {
+                "date": "2026-07-10",
+                "stock_id": "2330",
+                "foreign_net": 100,
+                "investment_trust_net": 20,
+                "dealer_net": -5,
+                "total_net": 115,
+                "source": "official fixture",
+            }
+            official_errors = ["TPEX fund flow 2026-07-08: fixture unavailable"]
+            with (
+                patch(
+                    "taiwan_stock_analysis.cli.fetch_fund_flow_history",
+                    create=True,
+                    return_value=([official_row], official_errors),
+                ) as fetch_history,
+                patch(
+                    "taiwan_stock_analysis.cli.fetch_twse_fund_flow",
+                    create=True,
+                    side_effect=AssertionError("latest TWSE wrapper must not be called"),
+                ) as fetch_twse_latest,
+                patch(
+                    "taiwan_stock_analysis.cli.fetch_tpex_fund_flow",
+                    create=True,
+                    side_effect=AssertionError("latest TPEx wrapper must not be called"),
+                ) as fetch_tpex_latest,
+                patch(
+                    "taiwan_stock_analysis.cli.write_market_intelligence_report",
+                    return_value=output_dir / "market_intelligence_report.json",
+                ) as write_report,
+            ):
+                try:
+                    exit_code = main(
+                        [
+                            "research",
+                            "market-intelligence",
+                            str(root / "research.csv"),
+                            "--fund-flow-csv",
+                            str(flow_path),
+                            "--fetch-twse-fund-flow",
+                            "--fetch-tpex-fund-flow",
+                            "--as-of",
+                            "2026-07-12",
+                            "--output-dir",
+                            str(output_dir),
+                        ]
+                    )
+                except AssertionError as exc:
+                    self.fail(str(exc))
+
+            self.assertEqual(exit_code, 0)
+            fetch_history.assert_called_once_with(
+                as_of="2026-07-12",
+                session_count=20,
+                markets=("TWSE", "TPEX"),
+            )
+            fetch_twse_latest.assert_not_called()
+            fetch_tpex_latest.assert_not_called()
+            kwargs = write_report.call_args.kwargs
+            self.assertEqual([row["stock_id"] for row in kwargs["fund_flow_rows"]], ["2317", "2330"])
+            self.assertEqual(
+                kwargs["dependencies"],
+                {
+                    "fund_flow_csv_1": str(flow_path),
+                    "twse_fund_flow": "https://www.twse.com.tw/rwd/zh/fund/T86",
+                    "tpex_fund_flow": "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading",
+                },
+            )
+            self.assertEqual(kwargs["source_errors"], official_errors)
+
+    def test_run_research_workflow_persists_one_sentiment_snapshot_per_industry_date_on_rerun(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            research = root / "research.csv"
+            price_history = root / "industry-price-history.csv"
+            news = root / "news.csv"
+            flow = root / "fund-flow.csv"
+            fixture_root = root / "fixtures"
+            output_dir = root / "research-dist"
+            self._write_fixture(fixture_root / "2330", revenue=1000, gross_profit=500, net_income=250)
+            research.write_text(
+                "stock_id,company_name,category,priority,research_state,notes,news_keywords\n"
+                "2330,TSMC,Semiconductor,high,watching,,TSMC|AI\n",
+                encoding="utf-8",
+            )
+            _write_industry_price_history(price_history, {"2330": [100 + index for index in range(21)]})
+            news.write_text(
+                "published_at,title,summary,url,source\n"
+                "2026-05-29,TSMC AI demand,Strong demand,https://example.test/news,fixture\n",
+                encoding="utf-8",
+            )
+            flow.write_text(
+                "date,stock_id,foreign_net,investment_trust_net,dealer_net,total_net,source\n"
+                "2026-05-29,2330,1000,200,-50,1150,fixture\n",
+                encoding="utf-8",
+            )
+            command_kwargs = {
+                "research_csv": research,
+                "output_dir": output_dir,
+                "fixture_root": fixture_root,
+                "offline_prices": True,
+                "valuation_csv": None,
+                "skip_valuation": True,
+                "skip_memos": True,
+                "skip_packs": True,
+                "industry_price_history": price_history,
+                "market_news_csv": [news],
+                "market_fund_flow_csv": [flow],
+                "market_as_of": "2026-05-29T12:00:00+08:00",
+            }
+
+            first_paths = _run_research_workflow_command(**command_kwargs)
+            second_paths = _run_research_workflow_command(**command_kwargs)
+
+            history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+            self.assertEqual(first_paths["sentiment_history"], history_path)
+            self.assertEqual(second_paths["sentiment_history"], history_path)
+            self.assertTrue(first_paths["market_intelligence_report"].exists())
+            self.assertTrue(second_paths["market_intelligence_report"].exists())
+            with history_path.open(encoding="utf-8", newline="") as handle:
+                history_rows = list(csv.DictReader(handle))
+            keys = [(row["category"], row["as_of_date"]) for row in history_rows]
+            self.assertEqual(keys, [("Semiconductor", "2026-05-29")])
+            self.assertEqual(len(keys), len(set(keys)))
+
+    def test_print_research_workflow_outputs_prints_sentiment_history_only_when_it_exists(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            history_path = root / "industry_sentiment_history.csv"
+            paths = {
+                "workflow_summary": root / "workflow_summary.json",
+                "research_summary": root / "research_summary.json",
+                "memo_summary": None,
+                "pack_summary": None,
+                "industry_trend_report": None,
+                "market_intelligence_report": None,
+                "market_data_report": None,
+                "sentiment_history": history_path,
+                "dashboard": root / "dashboard.html",
+            }
+
+            missing_output = StringIO()
+            with redirect_stdout(missing_output):
+                _print_research_workflow_outputs(paths)
+            self.assertNotIn(str(history_path), missing_output.getvalue())
+
+            history_path.write_text("industry,date\nSemiconductor,2026-05-29\n", encoding="utf-8")
+            existing_output = StringIO()
+            with redirect_stdout(existing_output):
+                _print_research_workflow_outputs(paths)
+            self.assertIn(f"Wrote {history_path}", existing_output.getvalue())
 
     @patch("taiwan_stock_analysis.cli.write_market_data_bundle")
     def test_main_research_market_data_writes_official_bundle(self, write_bundle):
