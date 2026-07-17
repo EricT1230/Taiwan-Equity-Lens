@@ -15,7 +15,18 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
+from taiwan_stock_analysis.industry_sentiment import (
+    METHODOLOGY_VERSION,
+    build_industry_sentiment_base,
+    finalize_industry_sentiment,
+)
 from taiwan_stock_analysis.research import load_research_rows
+from taiwan_stock_analysis.sentiment_history import (
+    history_for_category,
+    load_sentiment_history,
+    sentiment_snapshot_from_industry,
+    upsert_sentiment_snapshots,
+)
 from taiwan_stock_analysis.traceability import build_artifact_registry, build_run_metadata, merge_traceability
 
 
@@ -470,6 +481,7 @@ def build_market_intelligence_report(
     fund_flow_max_age_days: int = DEFAULT_FUND_FLOW_MAX_AGE_DAYS,
     trend_max_age_days: int = DEFAULT_TREND_MAX_AGE_DAYS,
     source_errors: Iterable[str] = (),
+    sentiment_history_rows: Iterable[dict[str, Any]] = (),
 ) -> dict[str, Any]:
     research_rows = load_research_rows(research_path)
     generated_at = _as_of_datetime(as_of)
@@ -478,7 +490,6 @@ def build_market_intelligence_report(
     trend_report = _load_trend_report(industry_trend_report_path)
     mapped_news = _map_news(normalized_news, research_rows)
     mapped_flows = _map_fund_flows(normalized_flows, research_rows)
-    industries = _build_industries(research_rows, mapped_news, mapped_flows, trend_report)
     freshness = _freshness(
         generated_at,
         normalized_news,
@@ -488,12 +499,68 @@ def build_market_intelligence_report(
         fund_flow_max_age_days=fund_flow_max_age_days,
         trend_max_age_days=trend_max_age_days,
     )
-    coverage = _coverage(research_rows, mapped_news, mapped_flows, industries)
     normalized_source_errors = [str(error) for error in source_errors if str(error).strip()]
+    raw_session_dates = trend_report.get("session_dates")
+    expected_session_dates = (
+        [str(value) for value in raw_session_dates if str(value).strip()]
+        if isinstance(raw_session_dates, list)
+        else []
+    )
+    industries = _build_industries(
+        research_rows,
+        mapped_news,
+        mapped_flows,
+        trend_report,
+        expected_session_dates=expected_session_dates,
+        freshness=freshness,
+        source_errors=normalized_source_errors,
+        generated_at=generated_at,
+    )
+    rankable = sorted(
+        [
+            row
+            for row in industries
+            if _dict(row.get("sentiment_base")).get("score_5d") is not None
+        ],
+        key=lambda row: (
+            -float(_dict(row["sentiment_base"])["score_5d"]),
+            str(row["category"]),
+        ),
+    )
+    ranks = {
+        str(row["category"]): index
+        for index, row in enumerate(rankable, start=1)
+    }
+    history_rows = list(sentiment_history_rows)
+    for industry in industries:
+        category = str(industry["category"])
+        prior = history_for_category(
+            history_rows,
+            category=category,
+            methodology_version=METHODOLOGY_VERSION,
+            as_of_date=generated_at.date().isoformat(),
+        )
+        industry["sentiment"] = finalize_industry_sentiment(
+            industry.pop("sentiment_base"),
+            prior_history=prior,
+            rank=ranks.get(category),
+            ranked_count=len(rankable),
+        )
+    industries.sort(
+        key=lambda row: (
+            _dict(row.get("sentiment")).get("score_5d") is None,
+            -float(_dict(row["sentiment"])["score_5d"])
+            if _dict(row.get("sentiment")).get("score_5d") is not None
+            else 0.0,
+            str(row["category"]),
+        )
+    )
+    coverage = _coverage(research_rows, mapped_news, mapped_flows, industries)
     quality_gate = _quality_gate(freshness, coverage, normalized_source_errors)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "market_intelligence_report",
+        "sentiment_methodology_version": METHODOLOGY_VERSION,
         "generated_at": generated_at.isoformat(),
         "research_path": str(research_path),
         "industry_trend_report_path": str(industry_trend_report_path or ""),
@@ -519,11 +586,15 @@ def write_market_intelligence_report(
     as_of: date | datetime | str | None = None,
     dependencies: dict[str, str] | None = None,
     source_errors: Iterable[str] = (),
+    sentiment_history_path: Path | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "market_intelligence_report.json"
     markdown_path = output_dir / "market_intelligence_report.md"
     html_path = output_dir / "market_intelligence_report.html"
+    history_path = sentiment_history_path or output_dir / "industry_sentiment_history.csv"
+    history_existed_before = history_path.exists()
+    history_rows = load_sentiment_history(history_path)
     report = build_market_intelligence_report(
         research_path,
         news_rows=news_rows,
@@ -531,10 +602,19 @@ def write_market_intelligence_report(
         industry_trend_report_path=industry_trend_report_path,
         as_of=as_of,
         source_errors=source_errors,
+        sentiment_history_rows=history_rows,
     )
+    report_date = str(report["generated_at"])[:10]
+    snapshots = [
+        sentiment_snapshot_from_industry(report_date, industry)
+        for industry in _list_of_dicts(report.get("industries"))
+    ]
+    upsert_sentiment_snapshots(history_path, snapshots)
     dependency_map = {"research_csv": str(research_path), **(dependencies or {})}
     if industry_trend_report_path is not None:
         dependency_map["industry_trend_report"] = str(industry_trend_report_path)
+    if history_existed_before:
+        dependency_map["sentiment_history"] = str(history_path)
     report = merge_traceability(
         report,
         run_metadata=build_run_metadata(
@@ -546,7 +626,11 @@ def write_market_intelligence_report(
         artifact_registry=build_artifact_registry(
             str(json_path),
             dependencies=dependency_map,
-            outputs={"markdown": str(markdown_path), "html": str(html_path)},
+            outputs={
+                "markdown": str(markdown_path),
+                "html": str(html_path),
+                "sentiment_history": str(history_path),
+            },
         ),
     )
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -568,12 +652,15 @@ def render_market_intelligence_markdown(report: dict[str, Any]) -> str:
         "",
         "## Industry Map",
         "",
-        "| Industry | Price trend | News | Keywords | Foreign net | Trust net | Dealer net | Total net |",
-        "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: |",
+        "| Industry | Price trend | News | Keywords | Foreign net | Trust net | Dealer net | Total net | Score (5D) | Baseline (20D) | Change | Confidence | Phase | Forecast (experimental) | Peak risk (experimental) | Trough risk (experimental) |",
+        "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: |",
     ]
     for industry in _list_of_dicts(report.get("industries")):
         flow = _dict(industry.get("fund_flow"))
         trend = _dict(industry.get("market_trend"))
+        sentiment = _dict(industry.get("sentiment"))
+        forecast = _dict(sentiment.get("forecast"))
+        turning_risk = _dict(sentiment.get("turning_risk"))
         lines.append(
             "| "
             + " | ".join(
@@ -586,10 +673,62 @@ def render_market_intelligence_markdown(report: dict[str, Any]) -> str:
                     _integer_text(flow.get("investment_trust_net")),
                     _integer_text(flow.get("dealer_net")),
                     _integer_text(flow.get("total_net")),
+                    _decimal_text(sentiment.get("score_5d")),
+                    _decimal_text(sentiment.get("baseline_20d")),
+                    _signed_decimal_text(sentiment.get("change")),
+                    str(sentiment.get("confidence") or "-"),
+                    str(sentiment.get("cycle_phase") or "-"),
+                    _status_text(forecast.get("status"))
+                    if sentiment
+                    else "-",
+                    _risk_value_text(turning_risk, "peak_risk")
+                    if sentiment
+                    else "-",
+                    _risk_value_text(turning_risk, "trough_risk")
+                    if sentiment
+                    else "-",
                 ]
             )
             + " |"
         )
+    sentiment_industries = [
+        industry
+        for industry in _list_of_dicts(report.get("industries"))
+        if _dict(industry.get("sentiment"))
+    ]
+    if sentiment_industries:
+        lines.extend(["", "## Sentiment Evidence", ""])
+        for industry in sentiment_industries:
+            sentiment = _dict(industry.get("sentiment"))
+            forecast = _dict(sentiment.get("forecast"))
+            turning_risk = _dict(sentiment.get("turning_risk"))
+            lines.extend(
+                [
+                    f"### {industry.get('category') or '-'}",
+                    "",
+                    "- Reasons:",
+                ]
+            )
+            reasons = sentiment.get("reasons")
+            if isinstance(reasons, list) and reasons:
+                lines.extend(f"  - {reason}" for reason in reasons)
+            else:
+                lines.append("  - none")
+            lines.append("- Warnings:")
+            warnings = _sentiment_warnings(sentiment)
+            if warnings:
+                lines.extend(f"  - {warning}" for warning in warnings)
+            else:
+                lines.append("  - none")
+            lines.extend(
+                [
+                    "- Forecast (experimental research aid): "
+                    + _forecast_text(forecast),
+                    "- Turning risk (experimental research aid; not a calibrated probability): "
+                    + _turning_risk_text(turning_risk),
+                    "",
+                ]
+            )
     blockers = gate.get("blockers", [])
     if isinstance(blockers, list) and blockers:
         lines.extend(["", "## Data Blockers", ""])
@@ -619,6 +758,13 @@ def render_market_intelligence_html(report: dict[str, Any]) -> str:
     .summary div {{ border: 1px solid #e3eaf3; border-radius: 8px; padding: 10px; }}
     .metrics {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }}
     .metrics span {{ background: #f8fafc; border-radius: 6px; padding: 8px; }}
+    .sentiment {{ margin-top: 14px; border-top: 1px solid #e3eaf3; padding-top: 12px; }}
+    .sentiment-label {{ display: flex; align-items: center; gap: 7px; }}
+    .sentiment-swatch {{ width: 12px; height: 12px; border-radius: 50%; background: #64748b; display: inline-block; }}
+    .sentiment-extremely_optimistic {{ background: #b91c1c; }} .sentiment-optimistic {{ background: #f97316; }}
+    .sentiment-neutral {{ background: #64748b; }} .sentiment-pessimistic {{ background: #2563eb; }}
+    .sentiment-extremely_pessimistic {{ background: #1e3a8a; }}
+    .sentiment-evidence {{ font-size: 0.92rem; }}
     .notice {{ background: #fffbeb; border-color: #fde68a; color: #92400e; }}
   </style>
 </head>
@@ -646,6 +792,11 @@ def _build_industries(
     news_rows: list[dict[str, Any]],
     flow_rows: list[dict[str, Any]],
     trend_report: dict[str, Any],
+    *,
+    expected_session_dates: list[str],
+    freshness: dict[str, Any],
+    source_errors: list[str],
+    generated_at: datetime,
 ) -> list[dict[str, Any]]:
     categories = sorted({row.get("category") or "Uncategorized" for row in research_rows})
     stocks_by_category = {
@@ -662,27 +813,45 @@ def _build_industries(
         industry_flows = [row for row in flow_rows if row.get("category") == category]
         flow = _aggregate_flow(industry_flows)
         trend = trends.get(category, {})
+        market_trend = {
+            key: trend.get(key)
+            for key in (
+                "direction",
+                "rotation_phase",
+                "average_return_1d",
+                "average_return_5d",
+                "average_return_20d",
+                "positive_breadth_5d",
+                "positive_breadth_20d",
+                "coverage_ratio_5d",
+                "coverage_ratio_20d",
+                "high_count_20d",
+                "low_count_20d",
+                "average_volume_ratio_5d",
+                "covered_stock_ids",
+                "coverage_count",
+                "stock_count",
+            )
+        }
         industries.append(
             {
                 "category": category,
                 "stock_ids": stocks_by_category[category],
-                "market_trend": {
-                    key: trend.get(key)
-                    for key in (
-                        "direction",
-                        "rotation_phase",
-                        "average_return_1d",
-                        "average_return_5d",
-                        "average_return_20d",
-                        "coverage_count",
-                        "stock_count",
-                    )
-                },
+                "market_trend": market_trend,
                 "news_count": len(industry_news),
                 "top_keywords": _top_keywords(industry_news),
                 "latest_news": industry_news[:5],
                 "fund_flow": flow,
                 "context": _context_lines(trend, len(industry_news), flow),
+                "sentiment_base": build_industry_sentiment_base(
+                    news_rows=industry_news,
+                    trend={"category": category, **market_trend},
+                    flow_rows=industry_flows,
+                    expected_session_dates=expected_session_dates,
+                    freshness=freshness,
+                    source_errors=source_errors,
+                    as_of=generated_at,
+                ),
             }
         )
     return industries
@@ -868,6 +1037,95 @@ def _emerging_keywords(rows: list[dict[str, Any]]) -> list[str]:
     return selected
 
 
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _decimal_text(value: Any) -> str:
+    number = _finite_number(value)
+    return f"{number:.1f}" if number is not None else "-"
+
+
+def _signed_decimal_text(value: Any) -> str:
+    number = _finite_number(value)
+    return f"{number:+.1f}" if number is not None else "-"
+
+
+def _status_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.replace("_", " ") if text else "-"
+
+
+def _interval_text(value: Any) -> str:
+    if not isinstance(value, list) or len(value) != 2:
+        return ""
+    lower = _finite_number(value[0])
+    upper = _finite_number(value[1])
+    if lower is None or upper is None:
+        return ""
+    return f" [{lower:.1f}, {upper:.1f}]"
+
+
+def _forecast_text(forecast: dict[str, Any]) -> str:
+    status = _status_text(forecast.get("status"))
+    if status in {"insufficient history", "insufficient data"}:
+        return status
+    points = []
+    for label, value_key, interval_key in (
+        ("1D", "forecast_1d", "interval_1d"),
+        ("5D", "forecast_5d", "interval_5d"),
+    ):
+        value = _finite_number(forecast.get(value_key))
+        if value is not None:
+            points.append(
+                f"{label} {value:.1f}{_interval_text(forecast.get(interval_key))}"
+            )
+    return "; ".join(points) if points else status
+
+
+def _risk_value_text(turning_risk: dict[str, Any], key: str) -> str:
+    status = _status_text(turning_risk.get("status"))
+    if status in {"insufficient history", "insufficient data"}:
+        return status
+    return _decimal_text(turning_risk.get(key))
+
+
+def _turning_risk_text(turning_risk: dict[str, Any]) -> str:
+    status = _status_text(turning_risk.get("status"))
+    if status in {"insufficient history", "insufficient data"}:
+        return status
+    peak = _finite_number(turning_risk.get("peak_risk"))
+    trough = _finite_number(turning_risk.get("trough_risk"))
+    if peak is None and trough is None:
+        return status
+    peak_text = f"{peak:.1f}" if peak is not None else "unavailable"
+    trough_text = f"{trough:.1f}" if trough is not None else "unavailable"
+    return f"peak {peak_text}; trough {trough_text}"
+
+
+def _sentiment_warnings(sentiment: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    for payload in (
+        sentiment,
+        _dict(sentiment.get("forecast")),
+        _dict(sentiment.get("turning_risk")),
+    ):
+        values = payload.get("warnings")
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            text = str(value).strip()
+            if text and text not in warnings:
+                warnings.append(text)
+    return warnings
+
+
 def _industry_card(industry: dict[str, Any]) -> str:
     trend = _dict(industry.get("market_trend"))
     flow = _dict(industry.get("fund_flow"))
@@ -876,6 +1134,7 @@ def _industry_card(industry: dict[str, Any]) -> str:
         f'<li>{escape(str(item.get("published_at") or ""))} — {_event_link(item)}</li>'
         for item in _list_of_dicts(industry.get("latest_news"))[:3]
     ) or "<li>No mapped news.</li>"
+    sentiment_html = _industry_sentiment_html(_dict(industry.get("sentiment")))
     return (
         f'<article data-market-intelligence-industry="{escape(str(industry.get("category") or ""))}">'
         f'<h3>{escape(str(industry.get("category") or "-"))}</h3>'
@@ -888,8 +1147,83 @@ def _industry_card(industry: dict[str, Any]) -> str:
         f'<span><strong>{escape(_integer_text(flow.get("total_net")))}</strong><br>合計</span>'
         "</div>"
         f"<ul>{events}</ul>"
+        f"{sentiment_html}"
         "</article>"
     )
+
+
+def _industry_sentiment_html(sentiment: dict[str, Any]) -> str:
+    if not sentiment:
+        return ""
+    components = _dict(sentiment.get("components"))
+    forecast = _dict(sentiment.get("forecast"))
+    turning_risk = _dict(sentiment.get("turning_risk"))
+    label = str(sentiment.get("label") or "unavailable")
+    status = str(sentiment.get("status") or "unavailable")
+    score_text = _decimal_text(sentiment.get("score_5d"))
+    phase = str(sentiment.get("cycle_phase") or "unavailable")
+    confidence = str(sentiment.get("confidence") or "unavailable")
+    forecast_status = str(forecast.get("status") or "unavailable")
+    risk_status = str(turning_risk.get("status") or "unavailable")
+    component_lines = "".join(
+        _component_contribution_html(display_name, _dict(components.get(name)))
+        for name, display_name in (
+            ("news", "News"),
+            ("price", "Price"),
+            ("fund_flow", "Fund flow"),
+        )
+    )
+    reasons = _evidence_list_html(sentiment.get("reasons"), empty_text="No stated reasons.")
+    warnings = _evidence_list_html(
+        _sentiment_warnings(sentiment),
+        empty_text="No sentiment warnings.",
+    )
+    return (
+        f'<div class="sentiment" data-industry-sentiment="{escape(status, quote=True)}" '
+        f'data-industry-sentiment-score="{escape(score_text, quote=True)}" '
+        f'data-industry-sentiment-phase="{escape(phase, quote=True)}" '
+        f'data-industry-sentiment-confidence="{escape(confidence, quote=True)}" '
+        f'data-industry-sentiment-forecast="{escape(forecast_status, quote=True)}" '
+        f'data-industry-turning-risk="{escape(risk_status, quote=True)}">'
+        '<p class="sentiment-label">'
+        f'<span class="sentiment-swatch sentiment-{escape(label, quote=True)}" aria-hidden="true"></span>'
+        f'<strong>Sentiment label:</strong> {escape(label)}</p>'
+        f'<p><strong>Score (5D):</strong> {escape(score_text)}; '
+        f'<strong>baseline (20D):</strong> {escape(_decimal_text(sentiment.get("baseline_20d")))}; '
+        f'<strong>change:</strong> {escape(_signed_decimal_text(sentiment.get("change")))}</p>'
+        f'<p data-industry-sentiment-phase="{escape(phase, quote=True)}"><strong>Phase:</strong> {escape(phase)}</p>'
+        f'<p data-industry-sentiment-confidence="{escape(confidence, quote=True)}"><strong>Confidence:</strong> {escape(confidence)}</p>'
+        f'<ul class="sentiment-evidence">{component_lines}</ul>'
+        f'<p data-industry-sentiment-forecast="{escape(forecast_status, quote=True)}"><strong>Forecast (experimental research aid):</strong> {escape(_forecast_text(forecast))}</p>'
+        f'<p data-industry-turning-risk="{escape(risk_status, quote=True)}"><strong>Turning risk (experimental research aid; not a calibrated probability):</strong> {escape(_turning_risk_text(turning_risk))}</p>'
+        f'<h4>Reasons</h4>{reasons}'
+        f'<h4>Warnings</h4>{warnings}'
+        "</div>"
+    )
+
+
+def _component_contribution_html(
+    display_name: str,
+    component: dict[str, Any],
+) -> str:
+    contribution = _signed_decimal_text(component.get("contribution_5d"))
+    effective_weight = _finite_number(component.get("effective_weight"))
+    weight_text = (
+        f"{effective_weight * 100.0:.1f}%"
+        if effective_weight is not None
+        else "unavailable"
+    )
+    return (
+        f"<li><strong>{escape(display_name)} contribution:</strong> "
+        f"{escape(contribution)} (effective weight {escape(weight_text)})</li>"
+    )
+
+
+def _evidence_list_html(value: Any, *, empty_text: str) -> str:
+    items = [str(item) for item in value if str(item).strip()] if isinstance(value, list) else []
+    if not items:
+        items = [empty_text]
+    return "<ul>" + "".join(f"<li>{escape(item)}</li>" for item in items) + "</ul>"
 
 
 def _event_link(item: dict[str, Any]) -> str:

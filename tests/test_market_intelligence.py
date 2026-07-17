@@ -2,6 +2,7 @@ import json
 import unittest
 from datetime import date
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from taiwan_stock_analysis.market_intelligence import (
@@ -21,12 +22,103 @@ from taiwan_stock_analysis.market_intelligence import (
     render_market_intelligence_markdown,
     write_market_intelligence_report,
 )
+from taiwan_stock_analysis.sentiment_history import load_sentiment_history
 
 
 class MarketIntelligenceTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(".tmp-market-intelligence-test")
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.temporary_directory = TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.root = Path(self.temporary_directory.name)
+
+    def _sentiment_fixture(self, *, include_fund_flow: bool = True):
+        research = self.root / "sentiment-research.csv"
+        trend_path = self.root / "sentiment-industry-trend.json"
+        session_dates = [f"2026-07-{day:02d}" for day in range(1, 21)]
+        research.write_text(
+            "stock_id,company_name,category,priority,research_state,notes,news_keywords\n"
+            "2330,TSMC,Semiconductor,high,watching,,AI|chip\n"
+            "2303,UMC,Semiconductor,medium,watching,,AI|foundry\n",
+            encoding="utf-8",
+        )
+        trend_path.write_text(
+            json.dumps(
+                {
+                    "as_of_date": "2026-07-20",
+                    "session_dates": session_dates,
+                    "categories": [
+                        {
+                            "category": "Semiconductor",
+                            "direction": "up",
+                            "rotation_phase": "leading",
+                            "average_return_1d": 0.8,
+                            "average_return_5d": 4.0,
+                            "average_return_20d": 7.5,
+                            "positive_breadth_5d": 0.75,
+                            "positive_breadth_20d": 0.60,
+                            "coverage_ratio_5d": 1.0,
+                            "coverage_ratio_20d": 1.0,
+                            "high_count_20d": 1,
+                            "low_count_20d": 0,
+                            "average_volume_ratio_5d": 1.5,
+                            "covered_stock_ids": ["2303", "2330"],
+                            "coverage_count": 2,
+                            "stock_count": 2,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        news = [
+            {
+                "published_at": f"2026-07-20T{10 - index:02d}:00:00+08:00",
+                "title": f"AI 強勁成長 {index}",
+                "summary": "chip 訂單增加",
+                "url": f"https://example.test/sentiment/{index}",
+                "source": f"fixture-{index}",
+            }
+            for index in range(5)
+        ]
+        flows = (
+            [
+                {
+                    "date": trade_date,
+                    "stock_id": stock_id,
+                    "company_name": stock_id,
+                    "foreign_net": 10.0,
+                    "investment_trust_net": 2.0,
+                    "dealer_net": -1.0,
+                    "total_net": 11.0,
+                    "traded_shares": 1000.0,
+                    "source": "fixture",
+                }
+                for trade_date in session_dates
+                for stock_id in ("2303", "2330")
+            ]
+            if include_fund_flow
+            else []
+        )
+        return research, trend_path, news, flows
+
+    @staticmethod
+    def _prior_sentiment_rows():
+        return [
+            {
+                "as_of_date": f"2026-07-{day:02d}",
+                "category": "Semiconductor",
+                "methodology_version": "industry-sentiment-v1",
+                "status": "ready",
+                "score_5d": score,
+                "baseline_20d": score - 2.0,
+                "change": 2.0,
+                "breadth_5d": 0.70,
+                "breadth_20d": 0.60,
+                "rank": 1,
+                "ranked_count": 1,
+            }
+            for day, score in ((18, 12.0), (19, 14.0))
+        ]
 
     def test_load_csv_inputs_normalizes_news_and_fund_flow(self):
         news_path = self.root / "news.csv"
@@ -498,7 +590,7 @@ class MarketIntelligenceTests(unittest.TestCase):
             as_of="2026-07-12T12:00:00+08:00",
         )
 
-        self.assertEqual(report["schema_version"], 1)
+        self.assertEqual(report["schema_version"], 2)
         self.assertEqual(report["quality_gate"]["status"], "ready")
         self.assertEqual(report["coverage"]["news_total"], 3)
         self.assertEqual(report["coverage"]["news_mapped"], 2)
@@ -512,6 +604,216 @@ class MarketIntelligenceTests(unittest.TestCase):
         self.assertEqual(semiconductor["fund_flow"]["foreign_net"], 900)
         self.assertEqual(semiconductor["fund_flow"]["total_net"], 1125)
         self.assertEqual(semiconductor["fund_flow"]["direction"], "net_inflow")
+
+    def test_build_report_adds_complete_sentiment_with_strictly_prior_history(self):
+        research, trend_path, news, flows = self._sentiment_fixture()
+
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+            sentiment_history_rows=self._prior_sentiment_rows(),
+        )
+
+        semiconductor = report["industries"][0]
+        sentiment = semiconductor["sentiment"]
+        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(
+            report["sentiment_methodology_version"],
+            "industry-sentiment-v1",
+        )
+        self.assertEqual(sentiment["status"], "ready")
+        self.assertEqual(sentiment["components"]["news"]["configured_weight"], 0.4)
+        self.assertEqual(sentiment["components"]["price"]["configured_weight"], 0.3)
+        self.assertEqual(
+            sentiment["components"]["fund_flow"]["configured_weight"],
+            0.3,
+        )
+        self.assertEqual(sentiment["rank"], 1)
+        self.assertEqual(sentiment["ranked_count"], 1)
+        self.assertEqual(sentiment["forecast"]["status"], "insufficient_history")
+        self.assertIn(
+            sentiment["cycle_phase"],
+            {
+                "overheating",
+                "capitulation",
+                "recovery",
+                "ignition",
+                "expansion",
+                "cooling",
+                "consolidation",
+            },
+        )
+        self.assertEqual(
+            semiconductor["market_trend"]["covered_stock_ids"],
+            ["2303", "2330"],
+        )
+        self.assertEqual(len(report["fund_flows"]), 40)
+        self.assertEqual(semiconductor["fund_flow"]["as_of_date"], "2026-07-20")
+        self.assertEqual(semiconductor["fund_flow"]["stock_count"], 2)
+
+    def test_build_report_renormalizes_two_components_without_fabricating_flow(self):
+        research, trend_path, news, _ = self._sentiment_fixture(
+            include_fund_flow=False
+        )
+
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=[],
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+
+        sentiment = report["industries"][0]["sentiment"]
+        self.assertEqual(sentiment["status"], "partial")
+        self.assertAlmostEqual(sentiment["effective_weights"]["news"], 4 / 7)
+        self.assertAlmostEqual(sentiment["effective_weights"]["price"], 3 / 7)
+        self.assertNotIn("fund_flow", sentiment["effective_weights"])
+        self.assertIsNone(sentiment["components"]["fund_flow"]["score_5d"])
+        self.assertTrue(
+            any(
+                "fund_flow removed from composite" in warning
+                for warning in sentiment["warnings"]
+            )
+        )
+
+    def test_renderers_show_sentiment_evidence_and_experimental_boundaries(self):
+        research, trend_path, news, flows = self._sentiment_fixture()
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+            sentiment_history_rows=self._prior_sentiment_rows(),
+        )
+        sentiment = report["industries"][0]["sentiment"]
+
+        markdown = render_market_intelligence_markdown(report)
+        html = render_market_intelligence_html(report)
+
+        for heading in (
+            "Score (5D)",
+            "Baseline (20D)",
+            "Change",
+            "Confidence",
+            "Phase",
+            "Forecast (experimental)",
+            "Peak risk (experimental)",
+            "Trough risk (experimental)",
+        ):
+            self.assertIn(heading, markdown)
+        self.assertIn("## Sentiment Evidence", markdown)
+        self.assertIn("Reasons:", markdown)
+        self.assertIn("Warnings:", markdown)
+        self.assertIn("insufficient history", markdown)
+        self.assertIn(
+            "projection requires at least 20 valid snapshot days",
+            markdown,
+        )
+        self.assertIn(
+            "turning-risk diagnostics require at least 60 valid snapshot days",
+            html,
+        )
+        for attribute in (
+            "data-industry-sentiment",
+            "data-industry-sentiment-score",
+            "data-industry-sentiment-phase",
+            "data-industry-sentiment-confidence",
+            "data-industry-sentiment-forecast",
+            "data-industry-turning-risk",
+        ):
+            self.assertIn(attribute, html)
+        self.assertIn(
+            f'data-industry-sentiment="{sentiment["status"]}"',
+            html,
+        )
+        self.assertIn(
+            f"Sentiment label:</strong> {sentiment['label']}",
+            html,
+        )
+        self.assertIn("News contribution", html)
+        self.assertIn("Price contribution", html)
+        self.assertIn("Fund flow contribution", html)
+        self.assertIn("experimental research aid", html)
+        self.assertIn("insufficient history", html)
+
+    def test_html_renders_available_forecast_intervals_and_risk_scores(self):
+        research, trend_path, news, flows = self._sentiment_fixture()
+        report = build_market_intelligence_report(
+            research,
+            news_rows=news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+        sentiment = report["industries"][0]["sentiment"]
+        sentiment["forecast"] = {
+            "status": "experimental",
+            "forecast_1d": 12.5,
+            "forecast_5d": 16.0,
+            "interval_1d": [10.0, 15.0],
+            "interval_5d": [8.0, 24.0],
+            "warnings": ["experimental deterministic projection"],
+        }
+        sentiment["turning_risk"] = {
+            "status": "experimental",
+            "peak_risk": 72.0,
+            "trough_risk": 18.0,
+            "warnings": ["risk is not a calibrated probability"],
+        }
+
+        html = render_market_intelligence_html(report)
+
+        self.assertIn("1D 12.5 [10.0, 15.0]", html)
+        self.assertIn("5D 16.0 [8.0, 24.0]", html)
+        self.assertIn("peak 72.0", html)
+        self.assertIn("trough 18.0", html)
+        self.assertIn("experimental deterministic projection", html)
+        self.assertIn("not a calibrated probability", html)
+
+    def test_renderers_preserve_legacy_industry_context_without_sentiment(self):
+        legacy_report = {
+            "generated_at": "2026-07-20T12:00:00+08:00",
+            "quality_gate": {"status": "ready", "blockers": []},
+            "coverage": {
+                "news_mapped": 1,
+                "news_total": 1,
+                "stocks_with_fund_flow": 1,
+                "stocks_total": 1,
+                "industries_total": 1,
+            },
+            "industries": [
+                {
+                    "category": "Legacy Industry",
+                    "market_trend": {
+                        "direction": "up",
+                        "rotation_phase": "leading",
+                    },
+                    "news_count": 1,
+                    "top_keywords": ["legacy"],
+                    "latest_news": [],
+                    "fund_flow": {
+                        "foreign_net": 1,
+                        "investment_trust_net": 2,
+                        "dealer_net": 3,
+                        "total_net": 6,
+                    },
+                    "context": ["price direction: up"],
+                }
+            ],
+            "non_advice_notice": "Research aid; not investment advice.",
+        }
+
+        markdown = render_market_intelligence_markdown(legacy_report)
+        html = render_market_intelligence_html(legacy_report)
+
+        self.assertIn("Legacy Industry", markdown)
+        self.assertIn("Legacy Industry", html)
+        self.assertIn("price direction: up", legacy_report["industries"][0]["context"])
 
     def test_quality_gate_blocks_missing_or_stale_sources(self):
         research = self.root / "stale-research.csv"
@@ -593,6 +895,76 @@ class MarketIntelligenceTests(unittest.TestCase):
         self.assertEqual(rows[0]["foreign_net"], 1000.0)
         self.assertEqual(rows[0]["total_net"], 850.0)
         self.assertEqual(rows[0]["source"], "TPEx 3insti daily trading")
+
+    def test_write_report_upserts_same_day_history_before_registering_artifacts(self):
+        research, trend_path, positive_news, flows = self._sentiment_fixture()
+        output_dir = self.root / "sentiment-writer"
+        history_path = output_dir / "industry_sentiment_history.csv"
+
+        first_json_path = write_market_intelligence_report(
+            research,
+            output_dir,
+            news_rows=positive_news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+        first_payload = json.loads(first_json_path.read_text(encoding="utf-8"))
+        first_score = first_payload["industries"][0]["sentiment"]["score_5d"]
+        negative_news = [
+            {
+                **row,
+                "title": f"AI 大幅衰退 {index}",
+                "summary": "chip 訂單減少",
+            }
+            for index, row in enumerate(positive_news)
+        ]
+
+        second_json_path = write_market_intelligence_report(
+            research,
+            output_dir,
+            news_rows=negative_news,
+            fund_flow_rows=flows,
+            industry_trend_report_path=trend_path,
+            as_of="2026-07-20T12:00:00+08:00",
+        )
+
+        second_payload = json.loads(second_json_path.read_text(encoding="utf-8"))
+        second_score = second_payload["industries"][0]["sentiment"]["score_5d"]
+        history_rows = load_sentiment_history(history_path)
+        self.assertTrue(history_path.exists())
+        self.assertEqual(len(history_rows), 1)
+        self.assertNotEqual(first_score, second_score)
+        self.assertEqual(history_rows[0]["score_5d"], second_score)
+        self.assertEqual(
+            second_payload["artifact_registry"]["outputs"]["sentiment_history"],
+            str(history_path),
+        )
+        self.assertEqual(
+            second_payload["artifact_registry"]["dependencies"]["sentiment_history"],
+            str(history_path),
+        )
+
+    def test_write_report_propagates_history_failure_before_publishing_reports(self):
+        research, trend_path, news, flows = self._sentiment_fixture()
+        output_dir = self.root / "blocked-sentiment-writer"
+        blocked_history_path = self.root / "history-is-a-directory"
+        blocked_history_path.mkdir()
+
+        with self.assertRaises(OSError):
+            write_market_intelligence_report(
+                research,
+                output_dir,
+                news_rows=news,
+                fund_flow_rows=flows,
+                industry_trend_report_path=trend_path,
+                as_of="2026-07-20T12:00:00+08:00",
+                sentiment_history_path=blocked_history_path,
+            )
+
+        self.assertFalse((output_dir / "market_intelligence_report.json").exists())
+        self.assertFalse((output_dir / "market_intelligence_report.md").exists())
+        self.assertFalse((output_dir / "market_intelligence_report.html").exists())
 
     def test_write_report_outputs_traceable_json_markdown_and_html(self):
         research = self.root / "write-research.csv"
