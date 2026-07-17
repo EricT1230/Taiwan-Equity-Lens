@@ -171,10 +171,12 @@ def load_sentiment_history(path: Path) -> list[dict[str, Any]]:
         reader = csv.DictReader(handle)
         if reader.fieldnames != SENTIMENT_HISTORY_COLUMNS:
             raise _row_error(path, 1, "header", "does not match sentiment history schema")
-        return [
-            _normalize_history_row(row, path=path, row_number=row_number)
-            for row_number, row in enumerate(reader, start=2)
-        ]
+        rows = []
+        for row_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise _row_error(path, row_number, "surplus cells", "not allowed")
+            rows.append(_normalize_history_row(row, path=path, row_number=row_number))
+        return rows
 
 
 def history_for_category(
@@ -234,9 +236,9 @@ def sentiment_snapshot_from_industry(
         "fund_flow_score_5d": fund_flow.get("score_5d"),
         "fund_flow_score_20d": fund_flow.get("score_20d"),
         "price_return_5d": market_trend.get("average_return_5d"),
-        "breadth_5d": price.get("breadth_5d"),
-        "breadth_20d": price.get("breadth_20d"),
-        "volume_ratio_5d": price.get("volume_ratio_5d"),
+        "breadth_5d": market_trend.get("positive_breadth_5d"),
+        "breadth_20d": market_trend.get("positive_breadth_20d"),
+        "volume_ratio_5d": market_trend.get("average_volume_ratio_5d"),
         "flow_persistence_5d": fund_flow.get("persistence_5d"),
         "news_novelty_5d": news.get("novelty"),
         "news_topic_concentration_5d": news.get("topic_concentration"),

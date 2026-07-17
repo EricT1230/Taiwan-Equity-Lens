@@ -136,11 +136,26 @@ class SentimentHistoryTests(unittest.TestCase):
         ):
             load_sentiment_history(self.path)
 
+    def test_surplus_csv_cell_identifies_path_and_row(self) -> None:
+        with self.path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(SENTIMENT_HISTORY_COLUMNS)
+            row = self.snapshot(as_of_date="2026-07-16", category="Semiconductor")
+            writer.writerow([*(row[field] for field in SENTIMENT_HISTORY_COLUMNS), "surplus"])
+
+        with self.assertRaisesRegex(
+            ValueError, rf"{re.escape(str(self.path))}.*row 2.*surplus"
+        ):
+            load_sentiment_history(self.path)
+
     def test_snapshot_copies_only_stable_analytical_fields(self) -> None:
         industry = {
             "category": "Semiconductor",
             "market_trend": {
                 "average_return_5d": 1.5,
+                "positive_breadth_5d": 0.65,
+                "positive_breadth_20d": 0.55,
+                "average_volume_ratio_5d": 1.2,
                 "unrelated_market_detail": "discarded",
             },
             "sentiment": {
@@ -167,9 +182,9 @@ class SentimentHistoryTests(unittest.TestCase):
                     },
                     "price": {
                         "score_5d": 25.0,
-                        "breadth_5d": 0.65,
-                        "breadth_20d": 0.55,
-                        "volume_ratio_5d": 1.2,
+                        "breadth_5d": 0.15,
+                        "breadth_20d": 0.25,
+                        "volume_ratio_5d": 0.8,
                     },
                     "fund_flow": {
                         "score_5d": 20.0,
