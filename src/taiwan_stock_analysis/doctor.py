@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -77,6 +78,18 @@ DEMO_SENTIMENT_DASHBOARD_HOOKS = (
 )
 
 
+class _DashboardAttributeParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.attribute_sets: list[set[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.attribute_sets.append({name for name, _value in attrs})
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+
 def check_release_readiness(root: Path, expected_version: str | None = None) -> DoctorResult:
     root = root.resolve()
     failures: list[str] = []
@@ -130,7 +143,7 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
     if sentiment_history_path.exists():
         try:
             with sentiment_history_path.open(encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle)
+                reader = csv.DictReader(handle, strict=True)
                 headers = reader.fieldnames
                 if headers is None:
                     failures.append(f"sentiment history is empty: {sentiment_history_path}")
@@ -140,9 +153,16 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
                             failures.append(
                                 f"sentiment history missing required header {header}: {sentiment_history_path}"
                             )
-                    if next(reader, None) is None:
+                    row_count = 0
+                    for row in reader:
+                        row_count += 1
+                        if all(not str(row.get(header) or "").strip() for header in headers):
+                            failures.append(f"sentiment history has blank data row: {sentiment_history_path}")
+                    if row_count == 0:
                         failures.append(f"sentiment history has no data rows: {sentiment_history_path}")
-        except (OSError, csv.Error) as exc:
+        except csv.Error as exc:
+            failures.append(f"invalid CSV in sentiment history {sentiment_history_path}: {exc}")
+        except OSError as exc:
             failures.append(f"could not read {sentiment_history_path}: {exc}")
 
     dashboard_path = output_dir / "dashboard.html"
@@ -156,9 +176,20 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
                 failures.append(f"dashboard missing review-action section: {dashboard_path}")
             if 'data-industry-trend-report-section="true"' not in dashboard_text:
                 failures.append(f"dashboard missing industry trend report section: {dashboard_path}")
-            for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS:
-                if hook not in dashboard_text:
+            parser = _DashboardAttributeParser()
+            parser.feed(dashboard_text)
+            parser.close()
+            required_attributes = tuple(hook.removesuffix("=") for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS)
+            required_attribute_set = set(required_attributes)
+            present_attributes = set().union(*parser.attribute_sets) if parser.attribute_sets else set()
+            complete_sentiment_element = any(
+                required_attribute_set.issubset(attributes) for attributes in parser.attribute_sets
+            )
+            for hook, attribute in zip(DEMO_SENTIMENT_DASHBOARD_HOOKS, required_attributes):
+                if attribute not in present_attributes:
                     failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")
+            if required_attribute_set.issubset(present_attributes) and not complete_sentiment_element:
+                failures.append(f"dashboard missing complete industry sentiment element: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")

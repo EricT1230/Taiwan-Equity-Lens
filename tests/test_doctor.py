@@ -150,6 +150,44 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn(f"sentiment history has no data rows: {history_path}", result.failures)
 
+    def test_check_demo_readiness_reports_blank_sentiment_history_rows(self):
+        header = "methodology_version,score_5d,cycle_phase,confidence\n"
+        cases = {
+            "first": " , , , \n",
+            "later": "industry-sentiment-v1,42.5,expansion,medium\n , , , \n",
+        }
+        for case, rows in cases.items():
+            with self.subTest(case=case):
+                output_dir = Path(f".tmp-doctor-test/demo-sentiment-history-blank-row-{case}")
+                write_demo_fixture(output_dir)
+                history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+                history_path.write_text(header + rows, encoding="utf-8")
+
+                result = check_demo_readiness(output_dir)
+
+                self.assertFalse(result.ok)
+                self.assertIn(f"sentiment history has blank data row: {history_path}", result.failures)
+
+    def test_check_demo_readiness_reports_malformed_sentiment_history_csv(self):
+        output_dir = Path(".tmp-doctor-test/demo-sentiment-history-malformed-csv")
+        write_demo_fixture(output_dir)
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        history_path.write_text(
+            "methodology_version,score_5d,cycle_phase,confidence\n"
+            '"industry-sentiment-v1,42.5,expansion,medium\n',
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(
+                failure.startswith(f"invalid CSV in sentiment history {history_path}:")
+                for failure in result.failures
+            )
+        )
+
     def test_check_demo_readiness_reports_missing_sentiment_history_headers(self):
         required_headers = ("methodology_version", "score_5d", "cycle_phase", "confidence")
         for missing_header in required_headers:
@@ -244,6 +282,55 @@ class DoctorTests(unittest.TestCase):
                     f"dashboard missing industry sentiment hook {missing_hook}: {dashboard_path}",
                     result.failures,
                 )
+
+    def test_check_demo_readiness_ignores_industry_sentiment_hook_decoys(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-sentiment-hook-decoys")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        hooks = (
+            "data-industry-sentiment=",
+            "data-industry-sentiment-score=",
+            "data-industry-sentiment-phase=",
+            "data-industry-sentiment-confidence=",
+            "data-industry-turning-risk=",
+        )
+        dashboard_path.write_text(
+            '<html><body><div data-review-actions-section="true"></div>'
+            '<section data-industry-trend-report-section="true"></section>'
+            f"<!-- {' '.join(hooks)} -->"
+            f"<script>const hookNames = {list(hooks)!r};</script>"
+            "</body></html>",
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        for hook in hooks:
+            self.assertIn(
+                f"dashboard missing industry sentiment hook {hook}: {dashboard_path}",
+                result.failures,
+            )
+
+    def test_check_demo_readiness_rejects_incomplete_sentiment_start_tag(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-incomplete-sentiment-tag")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            '<html><body><div data-review-actions-section="true"></div>'
+            '<section data-industry-trend-report-section="true"></section>'
+            '<article data-industry-sentiment="ready" data-industry-sentiment-score="42.5" '
+            'data-industry-sentiment-phase="expansion" data-industry-sentiment-confidence="medium" '
+            'data-industry-turning-risk="insufficient_history"',
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("dashboard missing industry sentiment hook" in failure for failure in result.failures)
+        )
 
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
