@@ -167,10 +167,70 @@ class MarketIntelligenceTests(unittest.TestCase):
             (parse_twse_fund_flow_payload, twse_payload),
             (parse_tpex_fund_flow_payload, tpex_payload),
         ):
-            for payload_date in (None, "not-a-date", "20260715"):
+            for payload_date in (
+                None,
+                "not-a-date",
+                "20260715",
+                "2026-07-16garbage",
+                "2026-07-16T00:00:00",
+                "20260716garbage",
+                " 20260716 ",
+            ):
                 with self.subTest(parser=parser.__name__, payload_date=payload_date):
                     with self.assertRaisesRegex(ValueError, "date"):
                         parser(payload_factory(payload_date), date(2026, 7, 16))
+
+    def test_dated_fund_flow_parsers_require_explicit_list_containers(self):
+        twse_base = {
+            "stat": "OK",
+            "date": "20260716",
+            "fields": [
+                "證券代號",
+                "證券名稱",
+                "外陸資買賣超股數(不含外資自營商)",
+                "投信買賣超股數",
+                "自營商買賣超股數",
+                "三大法人買賣超股數",
+            ],
+        }
+        for label, data_value in (("missing", ...), ("null", None), ("wrong_type", {})):
+            payload = dict(twse_base)
+            if data_value is not ...:
+                payload["data"] = data_value
+            with self.subTest(parser="TWSE", container=label):
+                with self.assertRaisesRegex(ValueError, "data"):
+                    parse_twse_fund_flow_payload(payload, date(2026, 7, 16))
+
+        tpex_base = {"stat": "ok", "date": "20260716"}
+        invalid_tpex_tables = (
+            ("missing_tables", ...),
+            ("null_tables", None),
+            ("wrong_tables_type", {}),
+            ("missing_table0", []),
+            ("null_table0", [None]),
+            ("missing_data", [{}]),
+            ("null_data", [{"data": None}]),
+            ("wrong_data_type", [{"data": {}}]),
+        )
+        for label, tables_value in invalid_tpex_tables:
+            payload = dict(tpex_base)
+            if tables_value is not ...:
+                payload["tables"] = tables_value
+            with self.subTest(parser="TPEx", container=label):
+                with self.assertRaisesRegex(ValueError, "tables|data"):
+                    parse_tpex_fund_flow_payload(payload, date(2026, 7, 16))
+
+        self.assertEqual(
+            parse_twse_fund_flow_payload(dict(twse_base, data=[]), date(2026, 7, 16)),
+            [],
+        )
+        self.assertEqual(
+            parse_tpex_fund_flow_payload(
+                dict(tpex_base, tables=[{"data": []}]),
+                date(2026, 7, 16),
+            ),
+            [],
+        )
 
     def test_dated_fund_flow_parsers_reject_missing_or_non_numeric_net_cells(self):
         twse_fields = [

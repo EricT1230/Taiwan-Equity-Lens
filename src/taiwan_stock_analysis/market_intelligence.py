@@ -250,6 +250,9 @@ def parse_twse_fund_flow_payload(
     if not isinstance(payload, dict) or payload.get("stat") != "OK":
         return []
     data_date = _required_payload_date(payload, requested_date, "TWSE T86")
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise ValueError("TWSE T86 data must be an explicitly present list")
     fields = [str(field) for field in payload.get("fields", [])]
     indexes = {
         "stock_id": _field_index(fields, "證券代號"),
@@ -261,7 +264,7 @@ def parse_twse_fund_flow_payload(
     }
     rows = []
     required_index = max(indexes.values())
-    for row_index, raw_row in enumerate(payload.get("data", []), start=1):
+    for row_index, raw_row in enumerate(data, start=1):
         if not isinstance(raw_row, list):
             raise ValueError(f"TWSE T86 row {row_index} is missing required flow columns")
         if len(raw_row) <= required_index:
@@ -299,11 +302,16 @@ def parse_tpex_fund_flow_payload(
     if not isinstance(payload, dict) or payload.get("stat") != "ok":
         return []
     data_date = _required_payload_date(payload, requested_date, "TPEx dailyTrade")
-    tables = payload.get("tables", [])
-    if not isinstance(tables, list) or not tables or not isinstance(tables[0], dict):
-        return []
+    tables = payload.get("tables")
+    if not isinstance(tables, list):
+        raise ValueError("TPEx dailyTrade tables must be an explicitly present list")
+    if not tables or not isinstance(tables[0], dict):
+        raise ValueError("TPEx dailyTrade tables must contain table 0")
+    data = tables[0].get("data")
+    if not isinstance(data, list):
+        raise ValueError("TPEx dailyTrade table 0 data must be an explicitly present list")
     rows = []
-    for row_index, raw_row in enumerate(tables[0].get("data", []), start=1):
+    for row_index, raw_row in enumerate(data, start=1):
         if not isinstance(raw_row, list):
             raise ValueError(f"TPEx dailyTrade row {row_index} is missing required flow columns")
         if len(raw_row) <= 23:
@@ -1063,9 +1071,18 @@ def _required_payload_date(
     requested_date: date,
     source: str,
 ) -> date:
-    payload_date = _parse_date(payload.get("date"))
-    if payload_date is None:
+    value = payload.get("date")
+    if not isinstance(value, str):
         raise ValueError(f"{source} returned a missing or invalid payload date")
+    try:
+        if re.fullmatch(r"\d{8}", value):
+            payload_date = datetime.strptime(value, "%Y%m%d").date()
+        elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            payload_date = date.fromisoformat(value)
+        else:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError(f"{source} returned a missing or invalid payload date") from exc
     if payload_date != requested_date:
         raise ValueError(
             f"{source} payload date {payload_date.isoformat()} does not match requested date "
