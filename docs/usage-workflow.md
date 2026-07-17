@@ -463,6 +463,38 @@ python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir
 python -m taiwan_stock_analysis.cli research run research.csv --fixture-root examples/fixtures --output-dir research-dist --offline-prices --industry-price-history industry_price_history.csv
 ```
 
+## 9.1 Build and Validate Industry Sentiment
+
+From v0.53.0 onward, rerun Market Intelligence with an explicit cutoff so news, flow, price context, and the saved snapshot share one review date:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-intelligence research.csv --industry-trend-report research-dist/industry-trends/industry_trend_report.json --news-csv market_news.csv --fund-flow-csv fund_flow.csv --as-of 2026-07-17T18:00:00+08:00 --output-dir research-dist/market-intelligence
+python -m taiwan_stock_analysis.cli research sentiment-backtest research-dist/market-intelligence/industry_sentiment_history.csv --output research-dist/market-intelligence/sentiment_backtest_report.json
+```
+
+The first command writes JSON, Markdown, and HTML Market Intelligence reports plus `industry_sentiment_history.csv`. It upserts by `(as_of_date, category, methodology_version)`, so rerunning the same date replaces the matching snapshot rather than appending a duplicate. It never reads a future snapshot or stores validation-only future labels.
+
+The second command writes a sorted, indented JSON shadow-validation report. A valid report exits `0` even when minimum-history or other promotion checks fail; unreadable or invalid history exits nonzero. The report status remains `experimental`, including when its mechanical `promotion_ready` flag is true, until a separate human-reviewed model-validity report explicitly promotes a later methodology.
+
+Interpret the outputs with these boundaries:
+
+- Current sentiment is a descriptive composite.
+- Projection is deterministic and experimental; it is suppressed below 20 valid snapshot days.
+- Peak/trough values are risk diagnostics, not probabilities, price targets, or exact dates; they are suppressed below 60 valid snapshot days.
+- `ready`, `partial`, and `insufficient_data` describe input usability, not whether an industry is attractive or whether a live artifact is verified.
+- Before relying on a live run, inspect coverage, freshness, component warnings, source errors, confidence, valid flow sessions, and joined traded-share counts. File existence alone is not a readiness check.
+
+To exercise the complete offline product path and verify the generated artifacts:
+
+```powershell
+python -m taiwan_stock_analysis.cli demo quickstart --output-dir .tmp-v053-demo
+python -m taiwan_stock_analysis.cli doctor demo --output-dir .tmp-v053-demo
+python -m taiwan_stock_analysis.cli research sentiment-backtest .tmp-v053-demo/market-intelligence/industry_sentiment_history.csv --output .tmp-v053-demo/market-intelligence/sentiment_backtest_report.json
+python -m taiwan_stock_analysis.cli doctor release --version 0.53.0
+```
+
+`doctor demo` checks required demo files, sentiment history headers and rows, report sentiment fields, and dashboard hooks without modifying output. The one-day synthetic demo should produce an experimental backtest with failed minimum-history gates, not a calibrated result. `doctor release` checks the package version, README badge, changelog entry, release notes, and local documentation links; it does not prove that a live external-data collection succeeded.
+
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 
 ## 10. Generate Dashboard
@@ -490,7 +522,7 @@ When no `--scan-dir` is provided, the dashboard command also scans `workflow-dis
 
 ```powershell
 python -m taiwan_stock_analysis.cli doctor handoff workflow-dist/research_summary.json
-python -m taiwan_stock_analysis.cli doctor release --version 0.50.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.53.0
 python -m unittest discover -s tests -v
 ```
 

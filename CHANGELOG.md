@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.53.0 - 2026-07-17
+
+Industry Sentiment Cycle / experimental turning-risk shadow release.
+
+### Added
+- Deterministic `industry-sentiment-v1` scoring across mapped news, price trend/breadth/volume, and joined official institutional flow, with explicit configured/effective weights, missingness, freshness, coverage, warnings, confidence, labels, and cycle phase.
+- Versioned Traditional Chinese financial lexicon with deterministic tokenization, negation/intensity rules, recency weighting, deduplication, and a non-redistributed `40%` per-source cap.
+- One daily snapshot per `(as_of_date, category, methodology_version)` in `industry_sentiment_history.csv`, with deterministic same-key upsert behavior and strict prior-history runtime reads.
+- Experimental deterministic 1D/5D sentiment projection after 20 valid snapshots and peak/trough risk diagnostics after 60, with `calibrated_probability` kept null.
+- Expanding-window `research sentiment-backtest` validation with future labels isolated from runtime, leakage audit, target-specific Brier and threshold metrics, chronological holdouts, and explicit promotion gates.
+- Market Intelligence sentiment presentation in JSON, Markdown, standalone HTML, and the main dashboard, including stable hooks, accessible non-color labels, sort modes, reasons, and warnings.
+- [v0.53.0 release notes](docs/releases/v0.53.0.md).
+
+### Changed
+- The post-v0.50 Market Intelligence/importer foundation now collects up to 20 official TWSE and TPEx institutional-flow sessions, retains partial market/date errors, and joins net shares only to matching stock/date rows with positive traded-share volume.
+- Demo and release doctors now validate sentiment report fields, history schema/content, dashboard hooks, release metadata, and local documentation links.
+- README, examples, methodology, data-source, workflow, disclaimer, release notes, and package version now target `v0.53.0`.
+
+### Boundaries
+- Current sentiment is a descriptive composite; projection is deterministic and experimental; peak/trough values are risk diagnostics, not probabilities, price targets, or exact dates.
+- This release does not emit buy/sell/hold, allocation, guaranteed-return, or calibrated-forecast claims. File existence alone does not establish live-data readiness.
+
+### Tests
+- Added deterministic scoring/formula boundaries, missing-data combinations, phase precedence, history/upsert, no-look-ahead forecast/validation, official flow-history fixtures, output schema, dashboard, CLI, doctor, and offline end-to-end coverage.
+
 ## v0.50.0 - 2026-06-08
 
 Industry Trend Report / Sector Rotation Data Pipeline release.

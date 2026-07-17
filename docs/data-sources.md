@@ -77,9 +77,24 @@ The Market Intelligence Industry Map supports deterministic local CSV inputs and
 - User-configured RSS or Atom feeds for broader current-events coverage.
 - User-provided `market_news.csv` and `fund_flow.csv` snapshots for reproducible research and testing.
 
-The TWSE news adapter is not a complete financial-news corpus, and T86 covers the TWSE listed market rather than every TPEx security. The report therefore shows source coverage, unmapped news, and missing research-stock flow rows instead of implying complete market coverage.
+The TWSE news adapter is not a complete financial-news corpus. The official flow-history collector therefore uses both markets and requests the most recent 20 available trading sessions with these contracts:
 
-News freshness, fund-flow freshness, and industry-price freshness are evaluated independently. A combined report with missing or stale source families is marked `needs_data`.
+```text
+TWSE: GET https://www.twse.com.tw/rwd/zh/fund/T86
+      date=YYYYMMDD, selectType=ALLBUT0999, response=json
+TPEx: POST https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade
+      type=Daily, sect=EW, date=YYYY/MM/DD, response=json
+```
+
+Calendar dates without official rows are skipped. Rows are normalized, deduplicated by `(date, stock_id, source)`, and sorted deterministically. The resulting `fund_flow.csv` remains compatible with single-date inputs but can contain multiple dates. Collection errors are retained per market and date, and a successful market/date does not erase a failure elsewhere. Each available market should contain 20 sessions; an explicit shortfall error documents any smaller set.
+
+Institutional-flow scoring joins only matching `(date, stock_id)` rows with positive traded-share volume. Unmatched flow or price rows are excluded and reported, not converted to zero. A session is valid only when joined rows cover at least `60%` of the industry's price-covered mapped stocks. The latest 5 expected sessions require at least `3` valid sessions, and the latest 20 require at least `10`.
+
+The report therefore exposes source coverage, valid days, missing dates, joined and expected stock counts, market coverage, net shares, traded shares, persistence, unmapped news, and missing research-stock flow rows instead of implying complete market coverage.
+
+News freshness, fund-flow freshness, and industry-price freshness are evaluated independently. For `industry-sentiment-v1`, price and flow are fresh when their latest valid row is from the latest completed Taiwan market session or the immediately preceding expected session. News is fresh when at least one mapped article was published in the previous 48 hours. Holidays do not create staleness by themselves. Missing, stale, invalid, or source-error inputs remain explicit; they never become zero or neutral evidence.
+
+Runtime Market Intelligence reports load only sentiment snapshots dated on or before the report's `as_of_date`. Future peak/trough labels are created only by the separate backtest command and never enter runtime reports or `industry_sentiment_history.csv`.
 
 ## Official Market Data Importer
 

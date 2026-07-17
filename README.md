@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml/badge.svg)](https://github.com/EricT1230/Taiwan-Equity-Lens/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.50.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.53.0-blue.svg)](CHANGELOG.md)
 
 Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It parses public annual financial statement pages, calculates quality and valuation context, and generates static HTML/JSON reports for research.
 
@@ -49,6 +49,8 @@ Taiwan Equity Lens is a local Taiwan stock fundamental-analysis workflow. It par
 - Keeps reports fully local as static HTML and JSON.
 - Builds a Market Intelligence Industry Map that joins price trend, current news keywords, and institutional fund flow with separate freshness gates.
 - Imports official TWSE and TPEx company profiles, industry identity, daily price history, and institutional flow into one traceable market-data bundle.
+- Scores current industry sentiment with the deterministic `industry-sentiment-v1` methodology and exposes component coverage, freshness, confidence, cycle phase, and missing-data reasons.
+- Retains one daily sentiment snapshot per industry and provides experimental deterministic projections, peak/trough risk diagnostics, and a no-look-ahead walk-forward validation report.
 
 ## Quick Start
 
@@ -117,6 +119,7 @@ Demo outputs:
 - `demo-dist/market-intelligence/market_intelligence_report.json`
 - `demo-dist/market-intelligence/market_intelligence_report.md`
 - `demo-dist/market-intelligence/market_intelligence_report.html`
+- `demo-dist/market-intelligence/industry_sentiment_history.csv`
 
 First review-action checks:
 
@@ -190,8 +193,13 @@ python -m taiwan_stock_analysis.cli research summary research.csv --workflow-dir
 Combine the industry trend report with news, automatic keyword matching, and institutional fund flow:
 
 ```powershell
-python -m taiwan_stock_analysis.cli research market-intelligence research.csv --industry-trend-report research-dist/industry-trends/industry_trend_report.json --news-csv market_news.csv --fund-flow-csv fund_flow.csv --output-dir research-dist/market-intelligence
+python -m taiwan_stock_analysis.cli research market-intelligence research.csv --industry-trend-report research-dist/industry-trends/industry_trend_report.json --news-csv market_news.csv --fund-flow-csv fund_flow.csv --as-of 2026-07-17T18:00:00+08:00 --output-dir research-dist/market-intelligence
+python -m taiwan_stock_analysis.cli research sentiment-backtest research-dist/market-intelligence/industry_sentiment_history.csv --output research-dist/market-intelligence/sentiment_backtest_report.json
 ```
+
+The Market Intelligence rerun replaces the existing snapshot with the same `(as_of_date, category, methodology_version)` key; it does not append a duplicate. The backtest remains `experimental` when promotion gates fail and still exits successfully for a valid report. Its future peak/trough labels exist only in validation and are never written into runtime reports or stable history.
+
+Current sentiment is a descriptive composite. Its projection is deterministic and experimental. Peak/trough values are risk diagnostics, not probabilities, price targets, or exact dates. Inspect component coverage, freshness, warnings, and confidence before using an artifact; file existence alone does not establish live-data readiness.
 
 Use the official TWSE news and T86 adapters, plus any additional RSS/Atom feeds:
 
@@ -249,7 +257,7 @@ python -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --por
 Check release readiness before tagging:
 
 ```powershell
-python -m taiwan_stock_analysis.cli doctor release --version 0.50.0
+python -m taiwan_stock_analysis.cli doctor release --version 0.53.0
 ```
 
 ## Example Files
@@ -364,6 +372,7 @@ Current sources and inputs:
 - [Project win condition](docs/project-win-condition.md)
 - [Disclaimer](docs/disclaimer.md)
 - [Changelog](CHANGELOG.md)
+- [v0.53.0 release notes](docs/releases/v0.53.0.md)
 - [v0.50.0 release notes](docs/releases/v0.50.0.md)
 - [v0.49.0 release notes](docs/releases/v0.49.0.md)
 - [v0.48.0 release notes](docs/releases/v0.48.0.md)

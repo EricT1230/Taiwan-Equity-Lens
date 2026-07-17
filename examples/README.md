@@ -34,6 +34,14 @@ python -m taiwan_stock_analysis.cli doctor demo --output-dir demo-dist --json
 
 `examples/fixtures/` contains synthetic financial-statement HTML for offline demos. `examples/industry_price_history.csv` contains synthetic daily close/volume rows used to generate the demo Industry Trend Report. `examples/market_news.csv` and `examples/fund_flow.csv` provide synthetic event and institutional-flow context for the Market Intelligence map. These files are not source data and should not be used as real company or market data.
 
+The demo also writes `demo-dist/market-intelligence/industry_sentiment_history.csv`. Validate its experimental shadow report with:
+
+```powershell
+python -m taiwan_stock_analysis.cli research sentiment-backtest demo-dist/market-intelligence/industry_sentiment_history.csv --output demo-dist/market-intelligence/sentiment_backtest_report.json
+```
+
+The small synthetic history should fail minimum-history promotion gates while the command exits successfully with a valid `experimental` report. It must not report a calibrated forecast.
+
 After opening the dashboard, inspect the review-action queue:
 
 ```powershell
@@ -56,6 +64,15 @@ Equivalent lower-level command:
 ```powershell
 python -m taiwan_stock_analysis.cli research run examples/research.csv --fixture-root examples/fixtures --output-dir demo-dist --offline-prices --industry-price-history examples/industry_price_history.csv --market-news-csv examples/market_news.csv --market-fund-flow-csv examples/fund_flow.csv --market-as-of 2026-07-12T12:00:00+08:00
 ```
+
+Rerun only Market Intelligence for a controlled review cutoff:
+
+```powershell
+python -m taiwan_stock_analysis.cli research market-intelligence examples/research.csv --industry-trend-report demo-dist/industry-trends/industry_trend_report.json --news-csv examples/market_news.csv --fund-flow-csv examples/fund_flow.csv --as-of 2026-07-17T18:00:00+08:00 --output-dir demo-dist/market-intelligence
+python -m taiwan_stock_analysis.cli research sentiment-backtest demo-dist/market-intelligence/industry_sentiment_history.csv --output demo-dist/market-intelligence/sentiment_backtest_report.json
+```
+
+The rerun upserts the same `(as_of_date, category, methodology_version)` key and preserves other dates. Current sentiment is descriptive; projections and turning-risk windows are experimental research diagnostics, not probabilities, price targets, exact dates, or investment advice.
 
 Generate only the industry trend report:
 
