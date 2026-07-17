@@ -23,6 +23,7 @@ RISK_AGREEMENT_THRESHOLDS = {
     "flow": 6.0,
     "crowding": 6.0,
 }
+_COMPARISON_ABS_EPSILON = 1e-12
 _PROJECTION_RELEVANT_FIELDS = ("score_5d", "baseline_20d")
 _RISK_RELEVANT_FIELDS = (
     "score_5d",
@@ -41,6 +42,24 @@ _RISK_RELEVANT_FIELDS = (
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(value, upper))
+
+
+def _near_boundary(value: float, boundary: float) -> bool:
+    return math.isclose(
+        value, boundary, rel_tol=0.0, abs_tol=_COMPARISON_ABS_EPSILON
+    )
+
+
+def _at_least(value: float, boundary: float) -> bool:
+    return value >= boundary or _near_boundary(value, boundary)
+
+
+def _at_most(value: float, boundary: float) -> bool:
+    return value <= boundary or _near_boundary(value, boundary)
+
+
+def _strictly_above(value: float, boundary: float) -> bool:
+    return value > boundary and not _at_most(value, boundary)
 
 
 def _finite_float(value: Any) -> float | None:
@@ -64,9 +83,9 @@ def _strict_date(value: Any) -> date | None:
 
 
 def _identity_text(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value or value != value.strip():
         return None
-    return value.strip()
+    return value
 
 
 def _relevant_value(value: Any) -> tuple[Any, ...]:
@@ -84,9 +103,107 @@ def _row_fingerprint(
     return tuple(_relevant_value(row.get(field)) for field in relevant_fields)
 
 
-def _count_warning(count: int, singular: str, plural: str | None = None) -> str:
-    noun = singular if count == 1 or plural is None else plural
+def _count_warning(count: int, noun: str) -> str:
+    if count != 1:
+        noun = noun.replace("snapshot", "snapshots", 1)
     return f"excluded {count} {noun}"
+
+
+_EXCLUSION_WARNING_NOUNS = {
+    "malformed": "prior snapshot with malformed as_of_date",
+    "current": "prior snapshot on current date",
+    "future": "future prior snapshot",
+    "category": "prior snapshot with category mismatch",
+    "category_malformed": "prior snapshot with malformed category",
+    "methodology": "prior snapshot with methodology mismatch",
+    "methodology_malformed": "prior snapshot with malformed methodology_version",
+}
+
+
+def _validate_current_identity_date(
+    current: Mapping[str, Any],
+) -> tuple[date | None, str | None, str | None, list[str]]:
+    current_date = _strict_date(current.get("as_of_date"))
+    category = _identity_text(current.get("category"))
+    methodology = _identity_text(current.get("methodology_version"))
+    warnings: list[str] = []
+    if current_date is None:
+        warnings.append(
+            "current snapshot invalid: as_of_date must be strict ISO YYYY-MM-DD"
+        )
+    if category is None:
+        warnings.append(
+            "current snapshot invalid: category must be a nonempty string "
+            "without surrounding whitespace"
+        )
+    if methodology is None:
+        warnings.append(
+            "current snapshot invalid: methodology_version must be a nonempty string "
+            "without surrounding whitespace"
+        )
+    return current_date, category, methodology, warnings
+
+
+def _classify_prior_row(
+    row: Mapping[str, Any],
+    *,
+    current_date: date,
+    current_category: str,
+    current_methodology: str,
+) -> tuple[date | None, str | None]:
+    row_date = _strict_date(row.get("as_of_date"))
+    if row_date is None:
+        return None, "malformed"
+    row_category = _identity_text(row.get("category"))
+    if row_category is None:
+        return None, "category_malformed"
+    if row_category != current_category:
+        return None, "category"
+    row_methodology = _identity_text(row.get("methodology_version"))
+    if row_methodology is None:
+        return None, "methodology_malformed"
+    if row_methodology != current_methodology:
+        return None, "methodology"
+    if row_date == current_date:
+        return None, "current"
+    if row_date > current_date:
+        return None, "future"
+    return row_date, None
+
+
+def _exclusion_warnings(excluded: Mapping[str, int]) -> list[str]:
+    return [
+        _count_warning(excluded[key], noun)
+        for key, noun in _EXCLUSION_WARNING_NOUNS.items()
+        if excluded[key]
+    ]
+
+
+def _resolve_duplicate_date(
+    row_date: date,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    relevant_fields: Sequence[str],
+    current_category: str,
+    current_methodology: str,
+) -> tuple[Mapping[str, Any], str | None]:
+    fingerprints = {_row_fingerprint(row, relevant_fields) for row in rows}
+    if len(fingerprints) > 1:
+        return (
+            {
+                "as_of_date": row_date.isoformat(),
+                "category": current_category,
+                "methodology_version": current_methodology,
+            },
+            "conflicting duplicate prior snapshots rejected for "
+            f"{row_date.isoformat()}",
+        )
+    warning = (
+        f"collapsed duplicate prior snapshots for {row_date.isoformat()}"
+        if len(rows) > 1
+        else None
+    )
+    return rows[0], warning
 
 
 def _canonicalize_history(
@@ -98,121 +215,39 @@ def _canonicalize_history(
         return [], ["current snapshot unavailable: history is empty"], False
 
     current = history_with_current[-1]
-    current_date = _strict_date(current.get("as_of_date"))
-    current_category = _identity_text(current.get("category"))
-    current_methodology = _identity_text(current.get("methodology_version"))
-    current_warnings: list[str] = []
-    if current_date is None:
-        current_warnings.append(
-            "current snapshot invalid: as_of_date must be strict ISO YYYY-MM-DD"
-        )
-    if current_category is None:
-        current_warnings.append(
-            "current snapshot invalid: category must be a nonempty string"
-        )
-    if current_methodology is None:
-        current_warnings.append(
-            "current snapshot invalid: methodology_version must be a nonempty string"
-        )
+    current_date, current_category, current_methodology, current_warnings = (
+        _validate_current_identity_date(current)
+    )
     if current_warnings:
         return [], current_warnings, False
 
     by_date: dict[date, list[Mapping[str, Any]]] = {}
-    excluded = {
-        "malformed": 0,
-        "current": 0,
-        "future": 0,
-        "category": 0,
-        "methodology": 0,
-    }
+    excluded = dict.fromkeys(_EXCLUSION_WARNING_NOUNS, 0)
     for row in history_with_current[:-1]:
-        row_date = _strict_date(row.get("as_of_date"))
-        if row_date is None:
-            excluded["malformed"] += 1
-            continue
-        row_category = _identity_text(row.get("category"))
-        if row_category != current_category:
-            excluded["category"] += 1
-            continue
-        row_methodology = _identity_text(row.get("methodology_version"))
-        if row_methodology != current_methodology:
-            excluded["methodology"] += 1
-            continue
-        if row_date == current_date:
-            excluded["current"] += 1
-            continue
-        if row_date > current_date:
-            excluded["future"] += 1
+        row_date, reason = _classify_prior_row(
+            row,
+            current_date=current_date,
+            current_category=current_category,
+            current_methodology=current_methodology,
+        )
+        if reason is not None:
+            excluded[reason] += 1
             continue
         by_date.setdefault(row_date, []).append(row)
 
-    warnings: list[str] = []
-    if excluded["malformed"]:
-        warnings.append(
-            _count_warning(
-                excluded["malformed"],
-                "prior snapshot with malformed as_of_date",
-                "prior snapshots with malformed as_of_date",
-            )
-        )
-    if excluded["current"]:
-        warnings.append(
-            _count_warning(
-                excluded["current"],
-                "prior snapshot on current date",
-                "prior snapshots on current date",
-            )
-        )
-    if excluded["future"]:
-        warnings.append(
-            _count_warning(
-                excluded["future"],
-                "future prior snapshot",
-                "future prior snapshots",
-            )
-        )
-    if excluded["category"]:
-        warnings.append(
-            _count_warning(
-                excluded["category"],
-                "prior snapshot with category mismatch",
-                "prior snapshots with category mismatch",
-            )
-        )
-    if excluded["methodology"]:
-        warnings.append(
-            _count_warning(
-                excluded["methodology"],
-                "prior snapshot with methodology mismatch",
-                "prior snapshots with methodology mismatch",
-            )
-        )
-
+    warnings = _exclusion_warnings(excluded)
     canonical_prior: list[Mapping[str, Any]] = []
     for row_date in sorted(by_date):
-        rows = by_date[row_date]
-        fingerprints = {
-            _row_fingerprint(row, relevant_fields) for row in rows
-        }
-        if len(fingerprints) > 1:
-            canonical_prior.append(
-                {
-                    "as_of_date": row_date.isoformat(),
-                    "category": current_category,
-                    "methodology_version": current_methodology,
-                }
-            )
-            warnings.append(
-                "conflicting duplicate prior snapshots rejected for "
-                f"{row_date.isoformat()}"
-            )
-            continue
-        canonical_prior.append(rows[0])
-        if len(rows) > 1:
-            warnings.append(
-                "collapsed duplicate prior snapshots for "
-                f"{row_date.isoformat()}"
-            )
+        resolved, warning = _resolve_duplicate_date(
+            row_date,
+            by_date[row_date],
+            relevant_fields=relevant_fields,
+            current_category=current_category,
+            current_methodology=current_methodology,
+        )
+        canonical_prior.append(resolved)
+        if warning is not None:
+            warnings.append(warning)
     return [*canonical_prior, current], warnings, True
 
 
@@ -452,20 +487,19 @@ def _quartile_streak(
 
 
 def _risk_window(risk: float, agreeing_families: int) -> str:
-    if risk >= 70.0 and agreeing_families >= 3:
+    if _at_least(risk, 70.0) and agreeing_families >= 3:
         return "1_to_3_days"
-    if 50.0 <= risk < 70.0 and agreeing_families >= 2:
+    if (
+        _at_least(risk, 50.0)
+        and not _at_least(risk, 70.0)
+        and agreeing_families >= 2
+    ):
         return "4_to_7_days"
     return "unclear"
 
 
 def _meets_agreement_threshold(contribution: float, threshold: float) -> bool:
-    return contribution >= threshold or math.isclose(
-        contribution,
-        threshold,
-        rel_tol=1e-12,
-        abs_tol=1e-12,
-    )
+    return _at_least(contribution, threshold)
 
 
 def _resolve_turning_signal(
@@ -475,7 +509,10 @@ def _resolve_turning_signal(
     trough_risk: float,
     trough_agreeing_families: int,
 ) -> tuple[str, str, list[str]]:
-    if peak_risk > 50.0 and trough_risk > 50.0:
+    if _strictly_above(peak_risk, 50.0) and _strictly_above(
+        trough_risk,
+        50.0,
+    ):
         return (
             "unclear",
             "unclear",
@@ -486,14 +523,14 @@ def _resolve_turning_signal(
     trough_window = _risk_window(trough_risk, trough_agreeing_families)
     if (
         peak_window != "unclear"
-        and peak_risk > trough_risk
-        and trough_risk <= 50.0
+        and _strictly_above(peak_risk, trough_risk)
+        and _at_most(trough_risk, 50.0)
     ):
         return "peak", peak_window, []
     if (
         trough_window != "unclear"
-        and trough_risk > peak_risk
-        and peak_risk <= 50.0
+        and _strictly_above(trough_risk, peak_risk)
+        and _at_most(peak_risk, 50.0)
     ):
         return "trough", trough_window, []
     return "unclear", "unclear", []

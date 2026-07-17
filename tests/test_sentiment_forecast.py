@@ -292,6 +292,43 @@ class CanonicalHistoryTests(unittest.TestCase):
             any("conflicting duplicate" in warning for warning in risk["warnings"])
         )
 
+    def test_padded_prior_identity_is_malformed_and_cannot_cross_history_gates(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "category",
+                " Semiconductor",
+                "excluded 1 prior snapshot with malformed category",
+            ),
+            (
+                "methodology_version",
+                "industry-sentiment-v1 ",
+                "excluded 1 prior snapshot with malformed methodology_version",
+            ),
+        )
+        for field, value, expected_warning in cases:
+            with self.subTest(field=field):
+                projection_rows = _score_rows(19)
+                projection_extra = dict(projection_rows[0])
+                projection_extra.update({"as_of_date": "2025-12-31", field: value})
+                projection_rows.insert(0, projection_extra)
+
+                risk_rows = _score_rows(59)
+                risk_extra = dict(risk_rows[0])
+                risk_extra.update({"as_of_date": "2025-12-31", field: value})
+                risk_rows.insert(0, risk_extra)
+
+                projection = project_sentiment(projection_rows)
+                risk = calculate_turning_risk(risk_rows)
+
+                self.assertEqual(projection["status"], "insufficient_history")
+                self.assertEqual(projection["history_days"], 19)
+                self.assertEqual(risk["status"], "insufficient_history")
+                self.assertEqual(risk["history_days"], 59)
+                self.assertIn(expected_warning, projection["warnings"])
+                self.assertIn(expected_warning, risk["warnings"])
+
 
 class InvalidCurrentTests(unittest.TestCase):
     def test_invalid_current_score_or_baseline_suppresses_projection(self) -> None:
@@ -398,6 +435,38 @@ class InvalidCurrentTests(unittest.TestCase):
         )
         self.assertIsNone(risk["calibrated_probability"])
 
+    def test_padded_or_nonstring_current_identity_suppresses_both_payloads(
+        self,
+    ) -> None:
+        cases = (
+            ("category", "Semiconductor "),
+            ("category", 123),
+            ("methodology_version", " industry-sentiment-v1"),
+            ("methodology_version", ["industry-sentiment-v1"]),
+        )
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                projection_rows = _score_rows(20)
+                projection_rows[-1][field] = value
+                risk_rows = _score_rows(60)
+                risk_rows[-1][field] = value
+
+                projection = project_sentiment(projection_rows)
+                risk = calculate_turning_risk(risk_rows)
+
+                self.assertEqual(projection["status"], "insufficient_data")
+                self.assertEqual(risk["status"], "insufficient_data")
+                self.assertIsNone(projection["forecast_1d"])
+                self.assertIsNone(projection["interval_5d"])
+                self.assertIsNone(risk["peak_risk"])
+                self.assertIsNone(risk["trough_risk"])
+                self.assertEqual(risk["direction"], "unclear")
+                self.assertEqual(risk["window"], "unclear")
+                self.assertTrue(
+                    any(field in warning for warning in projection["warnings"])
+                )
+                self.assertTrue(any(field in warning for warning in risk["warnings"]))
+
 
 class TurningRiskDiagnosticTests(unittest.TestCase):
     @staticmethod
@@ -439,6 +508,40 @@ class TurningRiskDiagnosticTests(unittest.TestCase):
         for row in rows[-5:]:
             row["rank"] = rank
         rows[-1].update(current_fields)
+        return rows
+
+    @staticmethod
+    def boundary_risk_rows(
+        *, current_score: float, high_score: float, flow_20d: float
+    ) -> list[dict[str, object]]:
+        rows = _score_rows(60, start=0.0, step=0.0)
+        for index in (0, 1):
+            rows[index]["score_5d"] = high_score
+            rows[index]["baseline_20d"] = high_score
+        final_scores = [
+            current_score - 7.0,
+            current_score - 6.6,
+            current_score - 6.2,
+            current_score + 0.8,
+            current_score - 0.5,
+            current_score,
+        ]
+        for row, score in zip(rows[-6:], final_scores, strict=True):
+            row["score_5d"] = score
+            row["baseline_20d"] = score
+        for row in rows[-5:]:
+            row["rank"] = 1
+        rows[-1].update(
+            {
+                "breadth_5d": 0.50,
+                "breadth_20d": 0.58,
+                "fund_flow_score_5d": 0.0,
+                "fund_flow_score_20d": flow_20d,
+                "news_positive_topic_concentration_5d": 0.60,
+                "volume_ratio_5d": 1.8,
+                "price_return_5d": 1.0,
+            }
+        )
         return rows
 
     def test_peak_diagnostics_produce_near_term_shadow_risk(self) -> None:
@@ -576,6 +679,44 @@ class TurningRiskDiagnosticTests(unittest.TestCase):
                     expected,
                 )
 
+    def test_mathematical_fifty_uses_medium_window_despite_float_underflow(
+        self,
+    ) -> None:
+        risk = calculate_turning_risk(
+            self.boundary_risk_rows(
+                current_score=52.0,
+                high_score=60.0,
+                flow_20d=16.0,
+            )
+        )
+
+        self.assertLess(risk["peak_risk"], 50.0)
+        self.assertTrue(
+            math.isclose(risk["peak_risk"], 50.0, rel_tol=0.0, abs_tol=1e-12)
+        )
+        self.assertGreaterEqual(risk["diagnostics"]["peak_agreeing_families"], 2)
+        self.assertEqual(risk["direction"], "peak")
+        self.assertEqual(risk["window"], "4_to_7_days")
+
+    def test_mathematical_seventy_uses_near_window_despite_float_underflow(
+        self,
+    ) -> None:
+        risk = calculate_turning_risk(
+            self.boundary_risk_rows(
+                current_score=80.0,
+                high_score=90.0,
+                flow_20d=32.0,
+            )
+        )
+
+        self.assertLess(risk["peak_risk"], 70.0)
+        self.assertTrue(
+            math.isclose(risk["peak_risk"], 70.0, rel_tol=0.0, abs_tol=1e-12)
+        )
+        self.assertGreaterEqual(risk["diagnostics"]["peak_agreeing_families"], 3)
+        self.assertEqual(risk["direction"], "peak")
+        self.assertEqual(risk["window"], "1_to_3_days")
+
     def test_both_sides_above_fifty_force_regime_uncertainty(self) -> None:
         direction, window, warnings = sentiment_forecast._resolve_turning_signal(
             peak_risk=75.0,
@@ -611,6 +752,35 @@ class TurningRiskDiagnosticTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertEqual((tied_direction, tied_window), ("unclear", "unclear"))
         self.assertEqual(tied_warnings, [])
+
+    def test_conflict_threshold_distinguishes_tolerance_from_strictly_above(
+        self,
+    ) -> None:
+        within_tolerance = math.nextafter(50.0, math.inf)
+        near_direction, near_window, near_warnings = (
+            sentiment_forecast._resolve_turning_signal(
+                peak_risk=75.0,
+                peak_agreeing_families=3,
+                trough_risk=within_tolerance,
+                trough_agreeing_families=2,
+            )
+        )
+        strict_direction, strict_window, strict_warnings = (
+            sentiment_forecast._resolve_turning_signal(
+                peak_risk=75.0,
+                peak_agreeing_families=3,
+                trough_risk=50.0 + 1e-9,
+                trough_agreeing_families=2,
+            )
+        )
+
+        self.assertEqual((near_direction, near_window), ("peak", "1_to_3_days"))
+        self.assertEqual(near_warnings, [])
+        self.assertEqual((strict_direction, strict_window), ("unclear", "unclear"))
+        self.assertIn(
+            "regime uncertainty: peak and trough diagnostics conflict",
+            strict_warnings,
+        )
 
     def test_dated_invalid_prior_row_breaks_top_quartile_streak(self) -> None:
         rows = self.risk_rows("peak")
