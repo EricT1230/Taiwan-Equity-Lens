@@ -111,7 +111,7 @@ class SentimentLexiconTests(unittest.TestCase):
 
 
 class NewsComponentTests(unittest.TestCase):
-    def test_deduplicates_url_then_normalized_title_and_weights_recent_news_more(self):
+    def test_deduplicates_canonical_url_and_keeps_distinct_valid_story_urls(self):
         rows = [
             news_row(
                 "需求成長",
@@ -147,9 +147,9 @@ class NewsComponentTests(unittest.TestCase):
 
         component = score_news_component(rows, as_of=AS_OF)
 
-        self.assertEqual(component["coverage"]["articles_5d"], 3)
-        self.assertEqual(component["coverage"]["excluded_duplicate"], 2)
-        self.assertEqual(len(component["article_scores"]), 3)
+        self.assertEqual(component["coverage"]["articles_5d"], 4)
+        self.assertEqual(component["coverage"]["excluded_duplicate"], 1)
+        self.assertEqual(len(component["article_scores"]), 4)
         weights = {
             article["normalized_title"]: article["raw_weight"]
             for article in component["article_scores"]

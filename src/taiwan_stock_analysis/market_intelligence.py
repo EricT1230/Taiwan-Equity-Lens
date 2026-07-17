@@ -8,11 +8,10 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import escape
-from ipaddress import IPv4Address, IPv6Address
 from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import unquote, urlencode, urlsplit
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -21,7 +20,9 @@ from taiwan_stock_analysis.industry_sentiment import (
     build_industry_sentiment_base,
     finalize_industry_sentiment,
 )
+from taiwan_stock_analysis.news_urls import canonical_news_url, safe_http_url as _safe_http_url
 from taiwan_stock_analysis.research import load_research_rows
+from taiwan_stock_analysis.sentiment_lexicon import normalize_sentiment_text
 from taiwan_stock_analysis.sentiment_history import (
     history_for_category,
     load_sentiment_history,
@@ -486,9 +487,16 @@ def build_market_intelligence_report(
 ) -> dict[str, Any]:
     research_rows = load_research_rows(research_path)
     generated_at = _as_of_datetime(as_of)
-    normalized_news = _dedupe_news(news_rows)
+    raw_news_rows = list(news_rows)
     normalized_flows = list(fund_flow_rows)
     trend_report = _load_trend_report(industry_trend_report_path)
+    expected_session_dates = _validate_report_dependency_dates(
+        generated_at,
+        trend_report,
+        raw_news_rows,
+        normalized_flows,
+    )
+    normalized_news = _dedupe_news(raw_news_rows)
     mapped_news = _map_news(normalized_news, research_rows)
     mapped_flows = _map_fund_flows(normalized_flows, research_rows)
     freshness = _freshness(
@@ -499,14 +507,9 @@ def build_market_intelligence_report(
         news_max_age_hours=news_max_age_hours,
         fund_flow_max_age_days=fund_flow_max_age_days,
         trend_max_age_days=trend_max_age_days,
+        expected_session_dates=expected_session_dates,
     )
     normalized_source_errors = [str(error) for error in source_errors if str(error).strip()]
-    raw_session_dates = trend_report.get("session_dates")
-    expected_session_dates = (
-        [str(value) for value in raw_session_dates if str(value).strip()]
-        if isinstance(raw_session_dates, list)
-        else []
-    )
     industries = _build_industries(
         research_rows,
         mapped_news,
@@ -589,7 +592,6 @@ def write_market_intelligence_report(
     source_errors: Iterable[str] = (),
     sentiment_history_path: Path | None = None,
 ) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "market_intelligence_report.json"
     markdown_path = output_dir / "market_intelligence_report.md"
     html_path = output_dir / "market_intelligence_report.html"
@@ -605,6 +607,7 @@ def write_market_intelligence_report(
         source_errors=source_errors,
         sentiment_history_rows=history_rows,
     )
+    output_dir.mkdir(parents=True, exist_ok=True)
     report_date = str(report["generated_at"])[:10]
     snapshots = [
         sentiment_snapshot_from_industry(report_date, industry)
@@ -995,6 +998,75 @@ def _map_fund_flows(rows: list[dict[str, Any]], research_rows: list[dict[str, st
     return sorted(mapped, key=lambda item: (str(item.get("date") or ""), str(item.get("stock_id") or "")), reverse=True)
 
 
+def _validate_report_dependency_dates(
+    as_of: datetime,
+    trend_report: Mapping[str, Any],
+    news_rows: Iterable[Mapping[str, Any]],
+    flow_rows: Iterable[Mapping[str, Any]],
+) -> list[str]:
+    cutoff = as_of.date()
+    sessions: set[str] = set()
+    trend_date = _optional_report_date(
+        trend_report.get("as_of_date"),
+        field="trend as_of_date",
+    )
+    if trend_date is not None:
+        _reject_future_dependency_date(trend_date, cutoff, "trend as_of_date")
+    raw_sessions = trend_report.get("session_dates")
+    if raw_sessions is not None:
+        if not isinstance(raw_sessions, list):
+            raise ValueError("industry trend session_dates must be a list of ISO dates")
+        for index, value in enumerate(raw_sessions, start=1):
+            session_date = _required_report_date(
+                value,
+                field=f"trend session_dates[{index}]",
+            )
+            _reject_future_dependency_date(
+                session_date,
+                cutoff,
+                f"trend session_dates[{index}]",
+            )
+            sessions.add(session_date.isoformat())
+    if trend_date is not None and sessions and trend_date.isoformat() not in sessions:
+        raise ValueError(
+            "trend as_of_date must match a supplied trend session_dates value"
+        )
+
+    for index, row in enumerate(flow_rows, start=1):
+        flow_date = _required_report_date(row.get("date"), field=f"fund flow row {index} date")
+        _reject_future_dependency_date(flow_date, cutoff, f"fund flow row {index} date")
+        sessions.add(flow_date.isoformat())
+    for index, row in enumerate(news_rows, start=1):
+        published = _parse_datetime(row.get("published_at"))
+        if published is None:
+            continue
+        if published.astimezone(timezone.utc) > as_of.astimezone(timezone.utc):
+            raise ValueError(
+                f"future news row {index} published_at {published.isoformat()} exceeds report as_of"
+            )
+    return sorted(sessions)
+
+
+def _optional_report_date(value: Any, *, field: str) -> date | None:
+    if value is None or not str(value).strip():
+        return None
+    return _required_report_date(value, field=field)
+
+
+def _required_report_date(value: Any, *, field: str) -> date:
+    parsed = _parse_date(value)
+    if parsed is None:
+        raise ValueError(f"invalid {field}")
+    return parsed
+
+
+def _reject_future_dependency_date(value: date, cutoff: date, field: str) -> None:
+    if value > cutoff:
+        raise ValueError(
+            f"future {field} {value.isoformat()} exceeds report as_of {cutoff.isoformat()}"
+        )
+
+
 def _freshness(
     as_of: datetime,
     news_rows: list[dict[str, Any]],
@@ -1004,18 +1076,63 @@ def _freshness(
     news_max_age_hours: int,
     fund_flow_max_age_days: int,
     trend_max_age_days: int,
+    expected_session_dates: list[str],
 ) -> dict[str, Any]:
     latest_news = max((_parse_datetime(row.get("published_at")) for row in news_rows), default=None)
     latest_flow = max((_parse_date(row.get("date")) for row in flow_rows), default=None)
     trend_date = _parse_date(trend_report.get("as_of_date"))
     news_age = _hours_between(as_of, latest_news)
-    flow_age = (as_of.date() - latest_flow).days if latest_flow else None
-    trend_age = (as_of.date() - trend_date).days if trend_date else None
+    flow_freshness = _session_freshness_entry(
+        latest_flow,
+        as_of=as_of,
+        maximum_age_days=fund_flow_max_age_days,
+        expected_session_dates=expected_session_dates,
+        source_label="fund flow",
+    )
+    price_freshness = _session_freshness_entry(
+        trend_date,
+        as_of=as_of,
+        maximum_age_days=trend_max_age_days,
+        expected_session_dates=expected_session_dates,
+        source_label="price trend",
+    )
     return {
         "news": _freshness_entry(latest_news.isoformat() if latest_news else "", news_age, news_max_age_hours, "hours"),
-        "fund_flow": _freshness_entry(latest_flow.isoformat() if latest_flow else "", flow_age, fund_flow_max_age_days, "days"),
-        "industry_trend": _freshness_entry(trend_date.isoformat() if trend_date else "", trend_age, trend_max_age_days, "days"),
+        "fund_flow": flow_freshness,
+        "industry_trend": dict(price_freshness),
+        "price": price_freshness,
     }
+
+
+def _session_freshness_entry(
+    latest: date | None,
+    *,
+    as_of: datetime,
+    maximum_age_days: int,
+    expected_session_dates: Iterable[str],
+    source_label: str,
+) -> dict[str, Any]:
+    age = (as_of.date() - latest).days if latest else None
+    entry = _freshness_entry(
+        latest.isoformat() if latest else "",
+        age,
+        maximum_age_days,
+        "days",
+    )
+    if latest is None or entry["status"] != "fresh":
+        return entry
+    sessions = sorted(set(expected_session_dates))
+    if not sessions:
+        return entry
+    latest_session_dates = set(sessions[-2:])
+    if latest.isoformat() in latest_session_dates:
+        return entry
+    entry["status"] = "stale"
+    entry["warning"] = (
+        f"{source_label} date {latest.isoformat()} is not the latest or immediately "
+        "preceding expected Taiwan session"
+    )
+    return entry
 
 
 def _coverage(
@@ -1324,100 +1441,6 @@ def _event_link(item: dict[str, Any]) -> str:
     return f'<a href="{escape(url, quote=True)}">{title}</a>' if url else title
 
 
-def _safe_http_url(value: Any) -> str | None:
-    url = str(value or "").strip()
-    if (
-        not url
-        or "\\" in url
-        or any(character.isspace() for character in url)
-        or _has_control_character(url)
-    ):
-        return None
-    try:
-        decoded_url = unquote(url, errors="strict")
-        parsed = urlsplit(url)
-        hostname = parsed.hostname
-        parsed.port
-    except (UnicodeError, ValueError):
-        return None
-    if (
-        _has_control_character(decoded_url)
-        or parsed.scheme.lower() not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.netloc.endswith(":")
-        or not hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or "@" in parsed.netloc
-        or not _valid_http_host(hostname, parsed.netloc)
-    ):
-        return None
-    return url
-
-
-def _valid_http_host(hostname: str, netloc: str) -> bool:
-    try:
-        normalized_host = unquote(hostname, errors="strict")
-    except UnicodeError:
-        return False
-    if (
-        not normalized_host
-        or _has_control_character(normalized_host)
-        or any(character.isspace() for character in normalized_host)
-    ):
-        return False
-
-    if netloc.startswith("["):
-        if "%" in normalized_host:
-            return False
-        try:
-            IPv6Address(normalized_host)
-        except ValueError:
-            return False
-        return True
-    if ":" in normalized_host:
-        return False
-
-    try:
-        ascii_host = normalized_host.encode("idna").decode("ascii")
-    except UnicodeError:
-        return False
-    host_core = ascii_host[:-1] if ascii_host.endswith(".") else ascii_host
-    if (
-        not host_core
-        or host_core.endswith(".")
-        or len(host_core.encode("ascii")) > 253
-    ):
-        return False
-
-    numeric_labels = host_core.split(".")
-    if all(
-        re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", label, flags=re.ASCII | re.IGNORECASE)
-        for label in numeric_labels
-    ):
-        try:
-            IPv4Address(host_core)
-        except ValueError:
-            return False
-        return True
-
-    labels = host_core.split(".")
-    return all(
-        len(label.encode("ascii")) <= 63
-        and re.fullmatch(
-            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
-            label,
-            flags=re.ASCII | re.IGNORECASE,
-        )
-        is not None
-        for label in labels
-    )
-
-
-def _has_control_character(value: str) -> bool:
-    return any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)
-
-
 def _context_lines(trend: dict[str, Any], news_count: int, flow: dict[str, Any]) -> list[str]:
     lines = [f"price direction: {trend.get('direction') or 'missing'}", f"mapped news: {news_count}"]
     lines.append(f"institutional flow: {flow.get('direction') or 'missing'}")
@@ -1444,7 +1467,14 @@ def _dedupe_news(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         published = _parse_datetime(row.get("published_at"))
         if not title or published is None:
             continue
-        key = (str(row.get("url") or "").strip(), title.casefold())
+        url = str(row.get("url") or "").strip()
+        canonical_url = canonical_news_url(url)
+        normalized_title = normalize_sentiment_text(title)
+        key = (
+            ("url", canonical_url)
+            if canonical_url
+            else ("title", normalized_title)
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -1453,11 +1483,20 @@ def _dedupe_news(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
                 "published_at": published.isoformat(),
                 "title": title,
                 "summary": str(row.get("summary") or "").strip(),
-                "url": str(row.get("url") or "").strip(),
+                "url": url,
                 "source": str(row.get("source") or "unknown").strip(),
             }
         )
-    return sorted(result, key=lambda item: item["published_at"], reverse=True)
+    return sorted(
+        result,
+        key=lambda item: (
+            str(item["published_at"]),
+            canonical_news_url(item.get("url")) or "",
+            normalize_sentiment_text(str(item.get("title") or "")),
+            str(item.get("source") or ""),
+        ),
+        reverse=True,
+    )
 
 
 def _http_json(url: str) -> Any:
@@ -1559,7 +1598,15 @@ def _freshness_entry(latest: str, age: float | int | None, maximum: int, unit: s
         "age": round(age, 2) if isinstance(age, float) else age,
         "unit": unit,
         "max_age": maximum,
-        "status": "missing" if age is None else "fresh" if age <= maximum else "stale",
+        "status": (
+            "missing"
+            if age is None
+            else "future"
+            if age < 0
+            else "fresh"
+            if age <= maximum
+            else "stale"
+        ),
     }
 
 
@@ -1570,7 +1617,7 @@ def _hours_between(later: datetime, earlier: datetime | None) -> float | None:
         later = later.replace(tzinfo=timezone.utc)
     if earlier.tzinfo is None:
         earlier = earlier.replace(tzinfo=timezone.utc)
-    return max(0.0, (later.astimezone(timezone.utc) - earlier.astimezone(timezone.utc)).total_seconds() / 3600)
+    return (later.astimezone(timezone.utc) - earlier.astimezone(timezone.utc)).total_seconds() / 3600
 
 
 def _field_index(fields: list[str], name: str) -> int:

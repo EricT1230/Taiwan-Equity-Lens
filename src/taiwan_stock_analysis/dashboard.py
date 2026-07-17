@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from taiwan_stock_analysis.handoff import build_handoff_quality_gate, requires_handoff_evidence
+from taiwan_stock_analysis.news_urls import safe_http_url
 from taiwan_stock_analysis.review_action_state import (
     ACTION_STATUSES,
     apply_review_action_state,
@@ -2654,7 +2655,7 @@ def _market_intelligence_block(report: dict[str, Any]) -> str:
     coverage = _dict_value(report.get("coverage"))
     freshness = _dict_value(report.get("freshness"))
     industries = [row for row in report.get("industries", []) if isinstance(row, dict)] if isinstance(report.get("industries"), list) else []
-    visible_industries = sorted(industries, key=_market_intelligence_industry_sort_key)[:12]
+    visible_industries = sorted(industries, key=_market_intelligence_industry_sort_key)
     cards = "".join(_market_intelligence_industry_card(row) for row in visible_industries)
     cards = cards or '<p class="empty">No mapped industries.</p>'
     freshness_text = " / ".join(
@@ -2722,7 +2723,7 @@ def _market_intelligence_industry_card(industry: dict[str, Any]) -> str:
     latest_news = industry.get("latest_news", [])
     news_rows = [row for row in latest_news if isinstance(row, dict)] if isinstance(latest_news, list) else []
     news_html = "".join(
-        f'<li>{_link(str(row.get("url") or ""), str(row.get("title") or "-"))}</li>'
+        f'<li>{_external_news_link(str(row.get("url") or ""), str(row.get("title") or "-"))}</li>'
         for row in news_rows[:3]
     ) or "<li>No mapped news.</li>"
     return (
@@ -5085,6 +5086,14 @@ def _link(path: str, label: str) -> str:
     if not path:
         return "-"
     return f'<a href="{escape(path)}">{escape(label or path)}</a>'
+
+
+def _external_news_link(url: str, title: str) -> str:
+    safe_url = safe_http_url(url)
+    label = title or "-"
+    if safe_url is None:
+        return escape(label)
+    return f'<a href="{escape(safe_url, quote=True)}">{escape(label)}</a>'
 
 
 def _list_value(value: object) -> list[str]:

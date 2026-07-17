@@ -236,6 +236,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
     if dashboard_path.exists():
         try:
             dashboard_text = dashboard_path.read_text(encoding="utf-8")
+        except UnicodeError as exc:
+            failures.append(f"invalid dashboard encoding {dashboard_path}: {exc}")
         except OSError as exc:
             failures.append(f"could not read {dashboard_path}: {exc}")
         else:
@@ -418,6 +420,8 @@ def _read_json(path: Path, failures: list[str]) -> object | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeError as exc:
+        failures.append(f"invalid JSON encoding {path}: {exc}")
     except json.JSONDecodeError as exc:
         failures.append(f"invalid JSON: {path}: {exc.msg}")
     except OSError as exc:

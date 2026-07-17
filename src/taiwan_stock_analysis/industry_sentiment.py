@@ -14,6 +14,7 @@ from taiwan_stock_analysis._sentiment_cycle import (
 from taiwan_stock_analysis._sentiment_flow import (
     score_fund_flow_component_impl as _score_fund_flow_component_impl,
 )
+from taiwan_stock_analysis.news_urls import canonical_news_url
 from taiwan_stock_analysis.sentiment_lexicon import (
     normalize_sentiment_text,
     score_news_text,
@@ -297,6 +298,7 @@ def _prepare_news(
             continue
 
         url = str(row.get("url") or "").strip()
+        canonical_url = canonical_news_url(url)
         source = str(row.get("source") or "unknown").strip() or "unknown"
         item = dict(row)
         item.update(
@@ -305,6 +307,7 @@ def _prepare_news(
                 "title": title,
                 "summary": summary,
                 "url": url,
+                "canonical_url": canonical_url,
                 "source": source,
                 "normalized_title": normalized_title,
                 "article_score": _clamp(
@@ -327,7 +330,7 @@ def _prepare_news(
     candidates.sort(
         key=lambda candidate: (
             -candidate[0].timestamp(),
-            str(candidate[1]["url"]),
+            str(candidate[1]["canonical_url"] or ""),
             str(candidate[1]["normalized_title"]),
             candidate[2],
             str(candidate[1]["summary"]),
@@ -341,16 +344,17 @@ def _prepare_news(
     seen_urls: set[str] = set()
     seen_titles: set[str] = set()
     for _, item, _ in candidates:
-        url = str(item["url"])
+        canonical_url = item["canonical_url"]
         normalized_title = str(item["normalized_title"])
-        if (url and url in seen_urls) or (
-            normalized_title and normalized_title in seen_titles
-        ):
+        if canonical_url and canonical_url in seen_urls:
             exclusions["duplicate"] += 1
             continue
-        if url:
-            seen_urls.add(url)
-        if normalized_title:
+        if not canonical_url and normalized_title and normalized_title in seen_titles:
+            exclusions["duplicate"] += 1
+            continue
+        if canonical_url:
+            seen_urls.add(canonical_url)
+        elif normalized_title:
             seen_titles.add(normalized_title)
         prepared.append(item)
     _uniquify_summary_signatures(prepared)

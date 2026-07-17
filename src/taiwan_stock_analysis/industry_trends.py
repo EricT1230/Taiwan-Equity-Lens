@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import defaultdict
 from datetime import date
 from html import escape
@@ -51,15 +52,23 @@ def load_price_history_rows(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(
                     f"price history CSV row {index} has invalid close '{raw_close}'"
                 ) from exc
-            if close <= 0:
-                raise ValueError(f"price history CSV row {index} close must be positive")
+            if not math.isfinite(close) or close <= 0:
+                raise ValueError(
+                    f"price history CSV row {index} has invalid close '{raw_close}'; close must be finite and positive"
+                )
+            raw_volume = str(row.get("volume") or "").strip()
+            volume = _optional_float(raw_volume)
+            if raw_volume and volume is None:
+                raise ValueError(
+                    f"price history CSV row {index} has invalid volume '{raw_volume}'"
+                )
 
             rows.append(
                 {
                     "stock_id": stock_id,
                     "date": raw_date,
                     "close": close,
-                    "volume": _optional_float(row.get("volume")),
+                    "volume": volume,
                     "source": str(row.get("source") or "").strip(),
                 }
             )
@@ -539,12 +548,14 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     text = str(value).strip()
     if not text:
         return None
     try:
-        return float(text.replace(",", ""))
+        number = float(text.replace(",", ""))
+        return number if math.isfinite(number) else None
     except ValueError:
         return None
 
