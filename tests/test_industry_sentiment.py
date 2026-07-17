@@ -859,6 +859,37 @@ class CompositeSentimentTests(unittest.TestCase):
         )
         self.assertIn("source error: fund flow source timeout", assessment["warnings"])
 
+    def test_freshness_source_error_forces_low_confidence_without_duplicate_error(self):
+        for fund_flow_freshness in (
+            "source_error",
+            {"status": "source_error", "error": "fund flow source timeout"},
+        ):
+            with self.subTest(fund_flow_freshness=fund_flow_freshness):
+                assessment = combine_sentiment_components(
+                    self.components(),
+                    freshness={
+                        "news": "fresh",
+                        "price": "fresh",
+                        "fund_flow": fund_flow_freshness,
+                    },
+                    source_errors=[],
+                )
+
+                self.assertEqual(assessment["status"], "partial")
+                self.assertEqual(assessment["confidence"], "low")
+                self.assertEqual(
+                    assessment["components"]["fund_flow"]["freshness"]["status"],
+                    "source_error",
+                )
+                self.assertIn(
+                    "fund_flow removed from composite: freshness status source_error",
+                    assessment["warnings"],
+                )
+                self.assertIn(
+                    "confidence downgraded to low: required-source errors present",
+                    assessment["warnings"],
+                )
+
     def test_build_base_composes_current_inputs_without_history_coupling(self):
         dates = [f"2026-06-{day:02d}" for day in range(1, 21)]
         news_rows = [
@@ -1167,6 +1198,24 @@ class SentimentCycleTests(unittest.TestCase):
 
         self.assertEqual(changed["ranking_streak"], 2)
         self.assertEqual(missing["ranking_streak"], 1)
+
+    def test_ranking_streak_reset_matrix_for_invalid_or_nonqualifying_rows(self):
+        cases = (
+            ("invalid ranked_count", {"ranked_count": 0}, None),
+            ("missing score", {}, "score_5d"),
+            ("invalid score", {"score_5d": "not-a-number"}, None),
+            ("non-top-quartile", {"rank": 3, "ranked_count": 8}, None),
+        )
+        for name, updates, removed_key in cases:
+            with self.subTest(name=name):
+                prior = self.history([10.0, 20.0, 30.0])
+                prior[-1].update(updates)
+                if removed_key is not None:
+                    prior[-1].pop(removed_key)
+
+                cycle = classify_sentiment_cycle(self.assessment(40.0), prior)
+
+                self.assertEqual(cycle["ranking_streak"], 1)
 
     def test_ranking_streak_treats_adjacent_supplied_sessions_as_consecutive(self):
         for prior_dates, current_date in (
