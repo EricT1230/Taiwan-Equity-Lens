@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -986,7 +987,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.research_command == "sentiment-backtest":
             try:
                 write_sentiment_validation_report(args.history_csv, args.output)
-            except (OSError, ValueError) as exc:
+            except (csv.Error, OSError, ValueError) as exc:
                 print(f"Warning: {exc}")
                 return 1
             print(f"Wrote {args.output}")

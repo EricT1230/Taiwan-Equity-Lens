@@ -2,7 +2,7 @@ import csv
 import json
 import os
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -1639,6 +1639,41 @@ class CliTests(unittest.TestCase):
 
                 self.assertEqual(exit_code, 1)
                 self.assertEqual(output.getvalue().strip(), f"Warning: {error}")
+
+    def test_main_research_sentiment_backtest_returns_one_for_oversized_csv_field(self):
+        from taiwan_stock_analysis.sentiment_history import SENTIMENT_HISTORY_COLUMNS
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            history_path = root / "oversized-history.csv"
+            output_path = root / "validation.json"
+            oversized_category = "X" * (csv.field_size_limit() + 1)
+            row = ["2026-07-10", oversized_category] + [""] * (len(SENTIMENT_HISTORY_COLUMNS) - 2)
+            history_path.write_text(
+                ",".join(SENTIMENT_HISTORY_COLUMNS) + "\n" + ",".join(row) + "\n",
+                encoding="utf-8",
+            )
+            stdout = StringIO()
+            stderr = StringIO()
+
+            try:
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = main(
+                        [
+                            "research",
+                            "sentiment-backtest",
+                            str(history_path),
+                            "--output",
+                            str(output_path),
+                        ]
+                    )
+            except csv.Error as exc:
+                self.fail(f"csv.Error escaped the sentiment-backtest boundary: {exc}")
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("Warning: field larger than field limit", stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertFalse(output_path.exists())
 
     def test_main_research_market_intelligence_fetches_selected_market_history(self):
         selections = (
