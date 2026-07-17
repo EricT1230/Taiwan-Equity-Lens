@@ -139,6 +139,7 @@ class NewsComponentTests(unittest.TestCase):
         component = score_news_component(rows, as_of=AS_OF)
 
         self.assertEqual(component["coverage"]["articles_5d"], 3)
+        self.assertEqual(component["coverage"]["excluded_duplicate"], 2)
         self.assertEqual(len(component["article_scores"]), 3)
         weights = {
             article["normalized_title"]: article["raw_weight"]
@@ -148,6 +149,66 @@ class NewsComponentTests(unittest.TestCase):
         self.assertLessEqual(component["source_concentration"], 0.4)
         self.assertIn("source concentration clipped", component["warnings"])
         self.assertEqual(component["status"], "ready")
+
+    def test_out_of_window_duplicates_cannot_hide_valid_article_in_either_order(self):
+        future = news_row(
+            "未來上修",
+            "2026-07-18T12:00:00+08:00",
+            url="https://example.test/shared-url",
+        )
+        valid_url = news_row(
+            "營收成長",
+            "2026-07-17T11:00:00+08:00",
+            url="https://example.test/shared-url",
+        )
+        stale = news_row(
+            "  庫存成長  ",
+            "2026-06-26T11:59:59+08:00",
+            url="https://example.test/stale-title",
+        )
+        valid_title = news_row(
+            "庫存成長",
+            "2026-07-17T10:00:00+08:00",
+            url="https://example.test/valid-title",
+        )
+
+        for rows in (
+            [future, valid_url, stale, valid_title],
+            [valid_title, stale, valid_url, future],
+        ):
+            with self.subTest(order=[row["url"] for row in rows]):
+                component = score_news_component(rows, as_of=AS_OF)
+
+                self.assertEqual(component["coverage"]["articles_5d"], 2)
+                self.assertEqual(component["coverage"]["excluded_future"], 1)
+                self.assertEqual(component["coverage"]["excluded_too_old"], 1)
+                self.assertEqual(
+                    {row["normalized_title"] for row in component["article_scores"]},
+                    {"營收成長", "庫存成長"},
+                )
+
+    def test_latest_eligible_duplicate_is_selected_independent_of_input_order(self):
+        older = news_row(
+            "較早成長",
+            "2026-07-16T12:00:00+08:00",
+            url="https://example.test/same-story",
+        )
+        latest = news_row(
+            "最新上修",
+            "2026-07-17T11:00:00+08:00",
+            url="https://example.test/same-story",
+        )
+
+        for rows in ([older, latest], [latest, older]):
+            with self.subTest(order=[row["title"] for row in rows]):
+                component = score_news_component(rows, as_of=AS_OF)
+
+                self.assertEqual(component["coverage"]["articles_5d"], 1)
+                self.assertEqual(component["coverage"]["excluded_duplicate"], 1)
+                self.assertEqual(
+                    component["article_scores"][0]["normalized_title"],
+                    "最新上修",
+                )
 
     def test_source_cap_leaves_clipped_weight_neutral_even_for_one_source(self):
         component = score_news_component(
@@ -178,8 +239,37 @@ class NewsComponentTests(unittest.TestCase):
             as_of=AS_OF,
         )
 
-        self.assertEqual(component["coverage"], {"articles_5d": 1, "articles_20d": 1})
+        self.assertEqual(component["coverage"]["articles_5d"], 1)
+        self.assertEqual(component["coverage"]["articles_20d"], 1)
+        self.assertEqual(component["coverage"]["excluded_future"], 1)
+        self.assertEqual(component["coverage"]["excluded_too_old"], 1)
         self.assertEqual([row["normalized_title"] for row in component["article_scores"]], ["營收成長"])
+
+    def test_future_and_too_old_exclusions_are_explicit_without_neutral_weight(self):
+        valid_rows = [
+            news_row("甲成長", "2026-07-17T11:00:00+08:00", source="a", url="a"),
+            news_row("乙上修", "2026-07-17T10:00:00+08:00", source="b", url="b"),
+            news_row("丙受惠", "2026-07-17T09:00:00+08:00", source="c", url="c"),
+        ]
+        component = score_news_component(
+            [
+                *valid_rows,
+                news_row("未來下修", "2026-07-18T12:00:00+08:00", url="future"),
+                news_row("過期下修", "2026-06-26T11:59:59+08:00", url="old"),
+            ],
+            as_of=AS_OF,
+        )
+        clean_component = score_news_component(valid_rows, as_of=AS_OF)
+
+        self.assertEqual(component["coverage"]["articles_5d"], 3)
+        self.assertEqual(component["coverage"]["articles_20d"], 3)
+        self.assertEqual(component["coverage"]["excluded_future"], 1)
+        self.assertEqual(component["coverage"]["excluded_too_old"], 1)
+        self.assertEqual(component["score_5d"], clean_component["score_5d"])
+        self.assertEqual(component["score_20d"], clean_component["score_20d"])
+        self.assertEqual(component["status"], "partial")
+        self.assertIn("future published_at: 1 article excluded", component["warnings"])
+        self.assertIn("published_at older than 20d: 1 article excluded", component["warnings"])
 
     def test_invalid_timestamps_are_excluded_and_reported_as_partial(self):
         component = score_news_component(
@@ -192,6 +282,7 @@ class NewsComponentTests(unittest.TestCase):
         )
 
         self.assertEqual(component["coverage"]["articles_5d"], 1)
+        self.assertEqual(component["coverage"]["excluded_invalid_timestamp"], 2)
         self.assertEqual(len(component["article_scores"]), 1)
         self.assertEqual(component["status"], "partial")
         self.assertIn("invalid or missing published_at: 2 articles excluded", component["warnings"])
@@ -204,9 +295,33 @@ class NewsComponentTests(unittest.TestCase):
 
         self.assertIsNone(component["score_5d"])
         self.assertIsNone(component["score_20d"])
-        self.assertEqual(component["coverage"], {"articles_5d": 0, "articles_20d": 0})
+        self.assertEqual(component["coverage"]["articles_5d"], 0)
+        self.assertEqual(component["coverage"]["articles_20d"], 0)
+        self.assertEqual(component["coverage"]["excluded_invalid_timestamp"], 1)
         self.assertEqual(component["status"], "insufficient_data")
         self.assertIn("invalid or missing published_at: 1 article excluded", component["warnings"])
+
+    def test_rows_without_scorable_text_are_excluded_not_neutral_coverage(self):
+        component = score_news_component(
+            [
+                news_row("", "2026-07-17T11:00:00+08:00", source="a", url="blank-a"),
+                news_row("   ", "2026-07-17T10:00:00+08:00", source="b", url="blank-b"),
+                {
+                    "published_at": "2026-07-17T09:00:00+08:00",
+                    "source": "c",
+                    "url": "blank-c",
+                },
+            ],
+            as_of=AS_OF,
+        )
+
+        self.assertEqual(component["coverage"]["articles_5d"], 0)
+        self.assertEqual(component["coverage"]["articles_20d"], 0)
+        self.assertEqual(component["coverage"]["excluded_unscorable_text"], 3)
+        self.assertIsNone(component["score_5d"])
+        self.assertIsNone(component["score_20d"])
+        self.assertEqual(component["status"], "insufficient_data")
+        self.assertIn("missing scorable text: 3 articles excluded", component["warnings"])
 
     def test_event_signatures_use_first_three_distinct_normalized_keywords(self):
         rows = [

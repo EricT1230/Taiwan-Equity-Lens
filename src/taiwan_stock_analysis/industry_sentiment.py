@@ -57,31 +57,38 @@ def _event_signature(row: Mapping[str, Any], normalized_title: str) -> tuple[str
 
 def _prepare_news(
     rows: Sequence[Mapping[str, Any]], *, as_of: datetime
-) -> tuple[list[dict[str, Any]], int]:
-    prepared: list[dict[str, Any]] = []
-    seen_urls: set[str] = set()
-    seen_titles: set[str] = set()
-    invalid_timestamps = 0
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    candidates: list[tuple[datetime, dict[str, Any], str]] = []
+    exclusions = {
+        "invalid_timestamp": 0,
+        "future": 0,
+        "too_old": 0,
+        "unscorable_text": 0,
+        "duplicate": 0,
+    }
 
     for row in rows:
         published = _parse_published_at(row.get("published_at"), as_of=as_of)
         if published is None:
-            invalid_timestamps += 1
+            exclusions["invalid_timestamp"] += 1
+            continue
+        age_days = (as_of - published).total_seconds() / 86400.0
+        if age_days < 0:
+            exclusions["future"] += 1
+            continue
+        if age_days > 20:
+            exclusions["too_old"] += 1
             continue
 
         title = str(row.get("title") or "")
-        normalized_title = normalize_sentiment_text(title)
-        url = str(row.get("url") or "").strip()
-        if (url and url in seen_urls) or (
-            normalized_title and normalized_title in seen_titles
-        ):
-            continue
-        if url:
-            seen_urls.add(url)
-        if normalized_title:
-            seen_titles.add(normalized_title)
-
         summary = str(row.get("summary") or "")
+        normalized_title = normalize_sentiment_text(title)
+        normalized_summary = normalize_sentiment_text(summary)
+        if not normalized_title and not normalized_summary:
+            exclusions["unscorable_text"] += 1
+            continue
+
+        url = str(row.get("url") or "").strip()
         source = str(row.get("source") or "unknown").strip() or "unknown"
         item = dict(row)
         item.update(
@@ -100,8 +107,36 @@ def _prepare_news(
                 "event_signature": _event_signature(row, normalized_title),
             }
         )
+        candidates.append((published, item, normalized_summary))
+
+    candidates.sort(
+        key=lambda candidate: (
+            -candidate[0].timestamp(),
+            str(candidate[1]["url"]),
+            str(candidate[1]["normalized_title"]),
+            candidate[2],
+            str(candidate[1]["source"]),
+            tuple(candidate[1]["event_signature"]),
+        )
+    )
+
+    prepared: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    for _, item, _ in candidates:
+        url = str(item["url"])
+        normalized_title = str(item["normalized_title"])
+        if (url and url in seen_urls) or (
+            normalized_title and normalized_title in seen_titles
+        ):
+            exclusions["duplicate"] += 1
+            continue
+        if url:
+            seen_urls.add(url)
+        if normalized_title:
+            seen_titles.add(normalized_title)
         prepared.append(item)
-    return prepared, invalid_timestamps
+    return prepared, exclusions
 
 
 def _eligible_news(
@@ -180,7 +215,7 @@ def _largest_signature_share(rows: Sequence[Mapping[str, Any]]) -> float:
 def score_news_component(
     rows: Sequence[Mapping[str, Any]], *, as_of: datetime
 ) -> dict[str, Any]:
-    prepared, invalid_timestamps = _prepare_news(rows, as_of=as_of)
+    prepared, exclusions = _prepare_news(rows, as_of=as_of)
     score_5d, articles_5d, source_concentration = _score_news_window(
         prepared,
         as_of=as_of,
@@ -195,11 +230,24 @@ def score_news_component(
     )
 
     warnings: list[str] = []
-    if invalid_timestamps:
-        noun = "article" if invalid_timestamps == 1 else "articles"
+    if exclusions["invalid_timestamp"]:
+        count = exclusions["invalid_timestamp"]
+        noun = "article" if count == 1 else "articles"
         warnings.append(
-            f"invalid or missing published_at: {invalid_timestamps} {noun} excluded"
+            f"invalid or missing published_at: {count} {noun} excluded"
         )
+    if exclusions["future"]:
+        count = exclusions["future"]
+        noun = "article" if count == 1 else "articles"
+        warnings.append(f"future published_at: {count} {noun} excluded")
+    if exclusions["too_old"]:
+        count = exclusions["too_old"]
+        noun = "article" if count == 1 else "articles"
+        warnings.append(f"published_at older than 20d: {count} {noun} excluded")
+    if exclusions["unscorable_text"]:
+        count = exclusions["unscorable_text"]
+        noun = "article" if count == 1 else "articles"
+        warnings.append(f"missing scorable text: {count} {noun} excluded")
     if _source_weight_is_clipped(articles_5d) or _source_weight_is_clipped(articles_20d):
         warnings.append("source concentration clipped")
     if len(articles_5d) < 3:
@@ -209,7 +257,14 @@ def score_news_component(
 
     if not articles_20d:
         status = "insufficient_data"
-    elif invalid_timestamps or len(articles_5d) < 3 or len(articles_20d) < 3:
+    elif (
+        any(
+            exclusions[key]
+            for key in ("invalid_timestamp", "future", "too_old", "unscorable_text")
+        )
+        or len(articles_5d) < 3
+        or len(articles_20d) < 3
+    ):
         status = "partial"
     else:
         status = "ready"
@@ -223,6 +278,11 @@ def score_news_component(
         "coverage": {
             "articles_5d": len(articles_5d),
             "articles_20d": len(articles_20d),
+            "excluded_invalid_timestamp": exclusions["invalid_timestamp"],
+            "excluded_future": exclusions["future"],
+            "excluded_too_old": exclusions["too_old"],
+            "excluded_unscorable_text": exclusions["unscorable_text"],
+            "excluded_duplicate": exclusions["duplicate"],
         },
         "article_scores": articles_5d,
         "source_concentration": source_concentration,
