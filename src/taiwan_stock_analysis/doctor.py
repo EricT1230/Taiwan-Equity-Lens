@@ -103,13 +103,14 @@ class _DashboardStructureParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.required_attributes = required_attributes
         self.present_attributes: set[str] = set()
+        self.duplicate_attributes: set[str] = set()
         self._open_elements: list[tuple[str, bool]] = []
         self._well_formed = True
         self._closed_sentiment_candidate = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._record_attributes(attrs)
         attributes = {name: value for name, value in attrs}
-        self.present_attributes.update(attributes)
         if tag in self.VOID_TAGS:
             return
         class_tokens = set((attributes.get("class") or "").split())
@@ -123,9 +124,18 @@ class _DashboardStructureParser(HTMLParser):
         self._open_elements.append((tag, candidate))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.present_attributes.update(name for name, _value in attrs)
+        self._record_attributes(attrs)
         if tag not in self.VOID_TAGS:
             self._well_formed = False
+
+    def _record_attributes(self, attrs: list[tuple[str, str | None]]) -> None:
+        seen: set[str] = set()
+        for name, _value in attrs:
+            if name in seen:
+                self.duplicate_attributes.add(name)
+                self._well_formed = False
+            seen.add(name)
+        self.present_attributes.update(seen)
 
     def handle_endtag(self, tag: str) -> None:
         if tag in self.VOID_TAGS or not self._open_elements or self._open_elements[-1][0] != tag:
@@ -238,6 +248,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
             parser = _DashboardStructureParser(required_attribute_set)
             parser.feed(dashboard_text)
             parser.close()
+            for duplicate_attribute in sorted(parser.duplicate_attributes):
+                failures.append(f"dashboard has duplicate attribute {duplicate_attribute}: {dashboard_path}")
             for hook, attribute in zip(DEMO_SENTIMENT_DASHBOARD_HOOKS, required_attributes):
                 if attribute not in parser.present_attributes:
                     failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")

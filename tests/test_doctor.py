@@ -390,6 +390,62 @@ class DoctorTests(unittest.TestCase):
                     result.failures,
                 )
 
+    def test_check_demo_readiness_rejects_duplicate_normalized_dashboard_attributes(self):
+        remaining_hooks = (
+            'data-industry-sentiment-score="42.5" '
+            'data-industry-sentiment-phase="expansion" '
+            'data-industry-sentiment-confidence="medium" '
+            'data-industry-turning-risk="insufficient_history"'
+        )
+        cases = {
+            "class": (
+                '<article class="other" class="industry-sentiment-card" '
+                f'data-industry-sentiment="ready" {remaining_hooks}></article>'
+            ),
+            "data-industry-sentiment": (
+                '<article class="industry-sentiment-card" data-industry-sentiment="missing" '
+                f'DATA-INDUSTRY-SENTIMENT="ready" {remaining_hooks}></article>'
+            ),
+        }
+        for duplicate_name, sentiment_html in cases.items():
+            with self.subTest(duplicate_name=duplicate_name):
+                output_dir = Path(f".tmp-doctor-test/demo-dashboard-duplicate-{duplicate_name}")
+                write_demo_fixture(output_dir)
+                dashboard_path = output_dir / "dashboard.html"
+                dashboard_path.write_text(
+                    '<html><body><div data-review-actions-section="true"></div>'
+                    '<section data-industry-trend-report-section="true"></section>'
+                    f"{sentiment_html}</body></html>",
+                    encoding="utf-8",
+                )
+
+                result = check_demo_readiness(output_dir)
+
+                self.assertFalse(result.ok)
+                self.assertIn(
+                    f"dashboard has duplicate attribute {duplicate_name}: {dashboard_path}",
+                    result.failures,
+                )
+
+    def test_check_demo_readiness_accepts_uppercase_sentiment_element(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-uppercase-sentiment")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            '<HTML><BODY><DIV data-review-actions-section="true"></DIV>'
+            '<SECTION data-industry-trend-report-section="true"></SECTION>'
+            '<ARTICLE CLASS="industry-sentiment-card" DATA-INDUSTRY-SENTIMENT="ready" '
+            'DATA-INDUSTRY-SENTIMENT-SCORE="42.5" DATA-INDUSTRY-SENTIMENT-PHASE="expansion" '
+            'DATA-INDUSTRY-SENTIMENT-CONFIDENCE="medium" '
+            'DATA-INDUSTRY-TURNING-RISK="insufficient_history"></ARTICLE></BODY></HTML>',
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertTrue(result.ok)
+        self.assertEqual([], result.failures)
+
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
 
