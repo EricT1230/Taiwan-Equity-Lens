@@ -253,7 +253,12 @@ def parse_twse_fund_flow_payload(
     data = payload.get("data")
     if not isinstance(data, list):
         raise ValueError("TWSE T86 data must be an explicitly present list")
-    fields = [str(field) for field in payload.get("fields", [])]
+    if not data:
+        return []
+    raw_fields = payload.get("fields")
+    if not isinstance(raw_fields, list):
+        raise ValueError("TWSE T86 fields must be an explicitly present list")
+    fields = [str(field) for field in raw_fields]
     indexes = {
         "stock_id": _field_index(fields, "證券代號"),
         "company_name": _field_index(fields, "證券名稱"),

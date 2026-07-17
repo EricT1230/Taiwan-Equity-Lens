@@ -201,6 +201,15 @@ class MarketIntelligenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "data"):
                     parse_twse_fund_flow_payload(payload, date(2026, 7, 16))
 
+        twse_row = ["2330", "TSMC", "1", "2", "3", "6"]
+        for label, fields_value in (("missing", ...), ("null", None), ("wrong_type", {})):
+            payload = {"stat": "OK", "date": "20260716", "data": [twse_row]}
+            if fields_value is not ...:
+                payload["fields"] = fields_value
+            with self.subTest(parser="TWSE", container=f"fields_{label}"):
+                with self.assertRaisesRegex(ValueError, "fields"):
+                    parse_twse_fund_flow_payload(payload, date(2026, 7, 16))
+
         tpex_base = {"stat": "ok", "date": "20260716"}
         invalid_tpex_tables = (
             ("missing_tables", ...),
@@ -221,7 +230,10 @@ class MarketIntelligenceTests(unittest.TestCase):
                     parse_tpex_fund_flow_payload(payload, date(2026, 7, 16))
 
         self.assertEqual(
-            parse_twse_fund_flow_payload(dict(twse_base, data=[]), date(2026, 7, 16)),
+            parse_twse_fund_flow_payload(
+                {"stat": "OK", "date": "20260716", "data": []},
+                date(2026, 7, 16),
+            ),
             [],
         )
         self.assertEqual(
