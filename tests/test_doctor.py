@@ -92,6 +92,8 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("required files present", result.messages)
         self.assertIn("dashboard includes review-action section", result.messages)
         self.assertIn("dashboard includes industry trend report section", result.messages)
+        self.assertIn("dashboard includes industry sentiment", result.messages)
+        self.assertIn("sentiment history present", result.messages)
 
     def test_format_demo_doctor_result_reports_success(self):
         output_dir = Path(".tmp-doctor-test/demo-format-pass")
@@ -111,6 +113,63 @@ class DoctorTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn(f"missing {output_dir / 'dashboard.html'}", result.failures)
+
+    def test_check_demo_readiness_reports_missing_sentiment_history(self):
+        output_dir = Path(".tmp-doctor-test/demo-missing-sentiment-history")
+        write_demo_fixture(output_dir)
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        history_path.unlink()
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"missing {history_path}", result.failures)
+
+    def test_check_demo_readiness_reports_empty_sentiment_history(self):
+        output_dir = Path(".tmp-doctor-test/demo-empty-sentiment-history")
+        write_demo_fixture(output_dir)
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        history_path.write_text("", encoding="utf-8")
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"sentiment history is empty: {history_path}", result.failures)
+
+    def test_check_demo_readiness_reports_sentiment_history_without_rows(self):
+        output_dir = Path(".tmp-doctor-test/demo-sentiment-history-without-rows")
+        write_demo_fixture(output_dir)
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        history_path.write_text(
+            "methodology_version,score_5d,cycle_phase,confidence\n",
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"sentiment history has no data rows: {history_path}", result.failures)
+
+    def test_check_demo_readiness_reports_missing_sentiment_history_headers(self):
+        required_headers = ("methodology_version", "score_5d", "cycle_phase", "confidence")
+        for missing_header in required_headers:
+            with self.subTest(missing_header=missing_header):
+                output_dir = Path(f".tmp-doctor-test/demo-sentiment-history-missing-{missing_header}")
+                write_demo_fixture(output_dir)
+                history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+                headers = [header for header in required_headers if header != missing_header]
+                history_path.write_text(
+                    ",".join(headers) + "\n" + ",".join("fixture" for _ in headers) + "\n",
+                    encoding="utf-8",
+                )
+
+                result = check_demo_readiness(output_dir)
+
+                self.assertFalse(result.ok)
+                self.assertIn(
+                    f"sentiment history missing required header {missing_header}: {history_path}",
+                    result.failures,
+                )
 
     def test_check_demo_readiness_reports_invalid_research_json(self):
         output_dir = Path(".tmp-doctor-test/demo-invalid-json")
@@ -159,6 +218,32 @@ class DoctorTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn(f"dashboard missing review-action section: {output_dir / 'dashboard.html'}", result.failures)
+
+    def test_check_demo_readiness_reports_missing_industry_sentiment_hooks(self):
+        hooks = (
+            "data-industry-sentiment=",
+            "data-industry-sentiment-score=",
+            "data-industry-sentiment-phase=",
+            "data-industry-sentiment-confidence=",
+            "data-industry-turning-risk=",
+        )
+        for index, missing_hook in enumerate(hooks):
+            with self.subTest(missing_hook=missing_hook):
+                output_dir = Path(f".tmp-doctor-test/demo-dashboard-missing-sentiment-hook-{index}")
+                write_demo_fixture(output_dir)
+                dashboard_path = output_dir / "dashboard.html"
+                dashboard_path.write_text(
+                    dashboard_path.read_text(encoding="utf-8").replace(missing_hook, f"data-removed-{index}="),
+                    encoding="utf-8",
+                )
+
+                result = check_demo_readiness(output_dir)
+
+                self.assertFalse(result.ok)
+                self.assertIn(
+                    f"dashboard missing industry sentiment hook {missing_hook}: {dashboard_path}",
+                    result.failures,
+                )
 
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
@@ -293,9 +378,13 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "packs").mkdir(parents=True, exist_ok=True)
     (output_dir / "comparison").mkdir(parents=True, exist_ok=True)
     (output_dir / "industry-trends").mkdir(parents=True, exist_ok=True)
+    (output_dir / "market-intelligence").mkdir(parents=True, exist_ok=True)
     (output_dir / "dashboard.html").write_text(
         '<html><body><div data-review-actions-section="true"></div>'
-        '<section data-industry-trend-report-section="true"></section></body></html>',
+        '<section data-industry-trend-report-section="true"></section>'
+        '<article data-industry-sentiment="ready" data-industry-sentiment-score="42.5" '
+        'data-industry-sentiment-phase="expansion" data-industry-sentiment-confidence="medium" '
+        'data-industry-turning-risk="insufficient_history"></article></body></html>',
         encoding="utf-8",
     )
     (output_dir / "workflow_summary.json").write_text(
@@ -322,6 +411,11 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "industry-trends" / "industry_trend_report.json").write_text("{}", encoding="utf-8")
     (output_dir / "industry-trends" / "industry_trend_report.md").write_text("# Industry Trend Report\n", encoding="utf-8")
     (output_dir / "industry-trends" / "industry_trend_report.html").write_text("<html></html>", encoding="utf-8")
+    (output_dir / "market-intelligence" / "industry_sentiment_history.csv").write_text(
+        "as_of_date,category,methodology_version,status,score_5d,cycle_phase,confidence\n"
+        "2026-07-10,Semiconductor,industry-sentiment-v1,ready,42.5,expansion,medium\n",
+        encoding="utf-8",
+    )
 
 
 def write_handoff_fixture(output_dir: Path) -> None:

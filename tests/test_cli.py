@@ -2010,6 +2010,29 @@ class CliTests(unittest.TestCase):
         self.assertIn("research action set", stdout)
         self.assertIn("research action backups", stdout)
         self.assertTrue((output_dir / "industry-trends" / "industry_trend_report.json").exists())
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        self.assertTrue(history_path.exists())
+        with history_path.open(encoding="utf-8", newline="") as handle:
+            history_rows = list(csv.DictReader(handle))
+        self.assertTrue(history_rows)
+
+        report_path = output_dir / "market-intelligence" / "market_intelligence_report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        sentiments = [industry["sentiment"] for industry in report["industries"]]
+        self.assertTrue(sentiments)
+        for sentiment in sentiments:
+            with self.subTest(category=sentiment["category"]):
+                self.assertIsInstance(sentiment["score_5d"], (int, float))
+                self.assertEqual(sentiment["forecast"]["status"], "insufficient_history")
+                self.assertEqual(sentiment["turning_risk"]["status"], "insufficient_history")
+                self.assertIsNone(sentiment["turning_risk"]["peak_risk"])
+                self.assertIsNone(sentiment["turning_risk"]["trough_risk"])
+
+        report_markdown = (output_dir / "market-intelligence" / "market_intelligence_report.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("not a calibrated probability", report_markdown)
+        self.assertNotIn("exact turning point", report_markdown.casefold())
 
     def test_main_research_run_writes_memos_by_default(self):
         root = Path(".tmp-cli-test")

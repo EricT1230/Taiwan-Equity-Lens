@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 import sys
@@ -58,6 +59,21 @@ DEMO_REQUIRED_FILES = (
     Path("industry-trends/industry_trend_report.json"),
     Path("industry-trends/industry_trend_report.md"),
     Path("industry-trends/industry_trend_report.html"),
+    Path("market-intelligence/industry_sentiment_history.csv"),
+)
+DEMO_SENTIMENT_HISTORY_PATH = Path("market-intelligence/industry_sentiment_history.csv")
+DEMO_SENTIMENT_HISTORY_REQUIRED_HEADERS = (
+    "methodology_version",
+    "score_5d",
+    "cycle_phase",
+    "confidence",
+)
+DEMO_SENTIMENT_DASHBOARD_HOOKS = (
+    "data-industry-sentiment=",
+    "data-industry-sentiment-score=",
+    "data-industry-sentiment-phase=",
+    "data-industry-sentiment-confidence=",
+    "data-industry-turning-risk=",
 )
 
 
@@ -110,6 +126,25 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
     workflow_summary = _read_json(output_dir / "workflow_summary.json", failures)
     research_summary = _read_json(output_dir / "research_summary.json", failures)
 
+    sentiment_history_path = output_dir / DEMO_SENTIMENT_HISTORY_PATH
+    if sentiment_history_path.exists():
+        try:
+            with sentiment_history_path.open(encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                headers = reader.fieldnames
+                if headers is None:
+                    failures.append(f"sentiment history is empty: {sentiment_history_path}")
+                else:
+                    for header in DEMO_SENTIMENT_HISTORY_REQUIRED_HEADERS:
+                        if header not in headers:
+                            failures.append(
+                                f"sentiment history missing required header {header}: {sentiment_history_path}"
+                            )
+                    if next(reader, None) is None:
+                        failures.append(f"sentiment history has no data rows: {sentiment_history_path}")
+        except (OSError, csv.Error) as exc:
+            failures.append(f"could not read {sentiment_history_path}: {exc}")
+
     dashboard_path = output_dir / "dashboard.html"
     if dashboard_path.exists():
         try:
@@ -121,6 +156,9 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
                 failures.append(f"dashboard missing review-action section: {dashboard_path}")
             if 'data-industry-trend-report-section="true"' not in dashboard_text:
                 failures.append(f"dashboard missing industry trend report section: {dashboard_path}")
+            for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS:
+                if hook not in dashboard_text:
+                    failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")
@@ -145,6 +183,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
         messages.append("required files present")
         messages.append("dashboard includes review-action section")
         messages.append("dashboard includes industry trend report section")
+        messages.append("dashboard includes industry sentiment")
+        messages.append("sentiment history present")
 
     return DemoDoctorResult(
         ok=not failures,
