@@ -86,6 +86,38 @@ def _uniquify_summary_signatures(rows: Sequence[dict[str, Any]]) -> None:
         )
 
 
+def _canonical_row_identity(value: Any) -> tuple[Any, ...]:
+    if value is None:
+        return ("none",)
+    if isinstance(value, bool):
+        return ("bool", "1" if value else "0")
+    if isinstance(value, int):
+        return ("int", str(value))
+    if isinstance(value, float):
+        return ("float", value.hex())
+    if isinstance(value, str):
+        return ("str", value)
+    if isinstance(value, bytes):
+        return ("bytes", value.hex())
+    if isinstance(value, Mapping):
+        items = (
+            (_canonical_row_identity(key), _canonical_row_identity(item))
+            for key, item in value.items()
+        )
+        return ("mapping", tuple(sorted(items)))
+    if isinstance(value, list):
+        return ("list", tuple(_canonical_row_identity(item) for item in value))
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_canonical_row_identity(item) for item in value))
+    if isinstance(value, (set, frozenset)):
+        return (
+            "set",
+            tuple(sorted(_canonical_row_identity(item) for item in value)),
+        )
+    value_type = type(value)
+    return ("object", value_type.__module__, value_type.__qualname__)
+
+
 def _prepare_news(
     rows: Sequence[Mapping[str, Any]], *, as_of: datetime
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -156,6 +188,7 @@ def _prepare_news(
             str(candidate[1]["summary"]),
             str(candidate[1]["source"]),
             tuple(candidate[1]["event_signature"]),
+            _canonical_row_identity(candidate[1]),
         )
     )
 

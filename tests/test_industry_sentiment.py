@@ -386,6 +386,49 @@ class NewsComponentTests(unittest.TestCase):
 
         self.assertEqual(signatures_by_order[0], signatures_by_order[1])
 
+    def test_summary_signature_true_ties_use_canonical_retained_metadata(self):
+        def tied_article(identifier: str, *, reverse_metadata: bool) -> dict[str, object]:
+            article = news_row(
+                "",
+                "2026-07-17T11:00:00+08:00",
+                source="source-a",
+                summary="供需觀察",
+            )
+            article["id"] = identifier
+            if reverse_metadata:
+                article["metadata"] = {
+                    "facts": {"beta": 2, "alpha": 1},
+                    "tags": ["產業", 7, True, None],
+                }
+            else:
+                article["metadata"] = {
+                    "tags": ["產業", 7, True, None],
+                    "facts": {"alpha": 1, "beta": 2},
+                }
+            return article
+
+        signatures_by_order = []
+        for rows in (
+            [
+                tied_article("a", reverse_metadata=False),
+                tied_article("b", reverse_metadata=False),
+            ],
+            [
+                tied_article("b", reverse_metadata=True),
+                tied_article("a", reverse_metadata=True),
+            ],
+        ):
+            component = score_news_component(rows, as_of=AS_OF)
+            signatures_by_order.append(
+                {
+                    row["id"]: tuple(row["event_signature"])
+                    for row in component["article_scores"]
+                }
+            )
+            self.assertEqual(component["topic_concentration"], 0.5)
+
+        self.assertEqual(signatures_by_order[0], signatures_by_order[1])
+
     def test_event_signatures_use_first_three_distinct_normalized_keywords(self):
         rows = [
             news_row(
