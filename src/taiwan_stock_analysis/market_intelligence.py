@@ -1378,26 +1378,30 @@ def _valid_http_host(hostname: str, netloc: str) -> bool:
     if ":" in normalized_host:
         return False
 
-    numeric_labels = normalized_host.split(".")
+    try:
+        ascii_host = normalized_host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    host_core = ascii_host[:-1] if ascii_host.endswith(".") else ascii_host
+    if (
+        not host_core
+        or host_core.endswith(".")
+        or len(host_core.encode("ascii")) > 253
+    ):
+        return False
+
+    numeric_labels = host_core.split(".")
     if all(
         re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", label, flags=re.ASCII | re.IGNORECASE)
         for label in numeric_labels
     ):
         try:
-            IPv4Address(normalized_host)
+            IPv4Address(host_core)
         except ValueError:
             return False
         return True
 
-    try:
-        ascii_host = normalized_host.encode("idna").decode("ascii")
-    except UnicodeError:
-        return False
-    if ascii_host.endswith("."):
-        ascii_host = ascii_host[:-1]
-    if not ascii_host or len(ascii_host.encode("ascii")) > 253:
-        return False
-    labels = ascii_host.split(".")
+    labels = host_core.split(".")
     return all(
         len(label.encode("ascii")) <= 63
         and re.fullmatch(

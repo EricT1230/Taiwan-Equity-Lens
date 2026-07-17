@@ -1153,6 +1153,17 @@ class MarketIntelligenceTests(unittest.TestCase):
             "https://1.2.3/news",
             "https://0x7f000001/news",
             "https://0x7f.0.0.1/news",
+            "http://0x7f000001./",
+            "http://01.2.3.4./",
+            "http://1.2.3./",
+            "http://2130706433./",
+            "http://0x7f000001%2E/",
+            "http://0x7f000001。/",
+            "http://0x7f000001%E3%80%82/",
+            "http://0x7f000001．/",
+            "http://0x7f000001%EF%BC%8E/",
+            "http://0x7f000001｡/",
+            "http://0x7f000001%EF%BD%A1/",
             "https://user@example.com/news",
             "https://user:secret@example.com/news",
             "https://@example.com/news",
@@ -1178,7 +1189,9 @@ class MarketIntelligenceTests(unittest.TestCase):
             "https://example.com./news",
             "https://例子.測試/新聞?left=1&right=2",
             "http://192.0.2.10:8080/news",
+            "http://192.0.2.10./news",
             "https://[2001:db8::1]:443/news",
+            "https://例子。測試/新聞",
         )
 
         for url in valid_urls:
