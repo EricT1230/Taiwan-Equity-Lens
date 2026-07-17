@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from taiwan_stock_analysis.market_data_importer import (
+    _attach_traded_shares,
     build_official_profiles,
     parse_tpex_price_payload,
     parse_twse_price_payload,
@@ -80,6 +81,22 @@ class MarketDataImporterTests(unittest.TestCase):
         self.assertEqual(rows[0]["volume"], 711000.0)
         self.assertEqual(rows[0]["source"], "TPEx tradingStock")
 
+    def test_attach_traded_shares_joins_by_date_and_stock_with_explicit_none(self):
+        flow_rows = [
+            {"date": "2026-07-16", "stock_id": "2330", "source": "TWSE T86"},
+            {"date": "2026-07-16", "stock_id": "6223", "source": "TPEx dailyTrade"},
+        ]
+        price_rows = [
+            {"date": "2026-07-16", "stock_id": "2330", "volume": "37,544,470"},
+            {"date": "2026-07-15", "stock_id": "6223", "volume": 711000},
+        ]
+
+        joined = _attach_traded_shares(flow_rows, price_rows)
+
+        self.assertEqual(joined[0]["traded_shares"], 37544470.0)
+        self.assertIsNone(joined[1]["traded_shares"])
+        self.assertNotIn("traded_shares", flow_rows[0])
+
     def test_write_market_data_bundle_writes_ready_cross_market_outputs(self):
         research = self.root / "research.csv"
         output_dir = self.root / "bundle"
@@ -113,7 +130,7 @@ class MarketDataImporterTests(unittest.TestCase):
         ]
 
         def fake_prices(stock_id, market, **kwargs):
-            start = date(2026, 6, 9)
+            start = date(2026, 6, 22)
             return [
                 {
                     "stock_id": stock_id,
@@ -125,30 +142,28 @@ class MarketDataImporterTests(unittest.TestCase):
                 for index in range(21)
             ]
 
-        twse_flow = [
-            {
-                "date": "2026-07-09",
-                "stock_id": "2330",
-                "company_name": "台積電",
-                "foreign_net": 1,
-                "investment_trust_net": 2,
-                "dealer_net": 3,
-                "total_net": 6,
-                "source": "TWSE T86",
-            }
-        ]
-        tpex_flow = [
-            {
-                "date": "2026-07-09",
-                "stock_id": "6223",
-                "company_name": "旺矽",
-                "foreign_net": 4,
-                "investment_trust_net": 5,
-                "dealer_net": 6,
-                "total_net": 15,
-                "source": "TPEx 3insti daily trading",
-            }
-        ]
+        flow_start = date(2026, 6, 23)
+        history_rows = list(
+            reversed(
+                [
+                    {
+                        "date": (flow_start + timedelta(days=index)).isoformat(),
+                        "stock_id": stock_id,
+                        "company_name": company_name,
+                        "foreign_net": foreign_net,
+                        "investment_trust_net": 2,
+                        "dealer_net": 3,
+                        "total_net": foreign_net + 5,
+                        "source": source,
+                    }
+                    for stock_id, company_name, foreign_net, source in (
+                        ("2330", "台積電", 1, "TWSE T86"),
+                        ("6223", "旺矽", 4, "TPEx dailyTrade"),
+                    )
+                    for index in range(20)
+                ]
+            )
+        )
 
         with (
             patch(
@@ -160,12 +175,8 @@ class MarketDataImporterTests(unittest.TestCase):
                 side_effect=fake_prices,
             ),
             patch(
-                "taiwan_stock_analysis.market_data_importer.fetch_twse_fund_flow",
-                return_value=twse_flow,
-            ),
-            patch(
-                "taiwan_stock_analysis.market_data_importer.fetch_tpex_fund_flow",
-                return_value=tpex_flow,
+                "taiwan_stock_analysis.market_data_importer.fetch_fund_flow_history",
+                return_value=(history_rows, []),
             ),
         ):
             outputs = write_market_data_bundle(
@@ -181,6 +192,9 @@ class MarketDataImporterTests(unittest.TestCase):
         self.assertEqual(report["coverage"]["tpex_count"], 1)
         self.assertEqual(report["coverage"]["price_ready_count"], 2)
         self.assertEqual(report["coverage"]["fund_flow_count"], 2)
+        self.assertEqual(report["coverage"]["fund_flow_session_count"], 20)
+        self.assertEqual(report["coverage"]["fund_flow_volume_join_count"], 40)
+        self.assertEqual(report["coverage"]["fund_flow_row_count"], 40)
         self.assertTrue(outputs["price_history"].exists())
         self.assertTrue(outputs["fund_flow"].exists())
         self.assertTrue(outputs["official_universe"].exists())
@@ -188,6 +202,15 @@ class MarketDataImporterTests(unittest.TestCase):
             rows = list(csv.DictReader(handle))
         self.assertEqual([row["category"] for row in rows], ["半導體業", "半導體業"])
         self.assertEqual([row["official_market"] for row in rows], ["TWSE", "TPEX"])
+        with outputs["fund_flow"].open("r", encoding="utf-8", newline="") as handle:
+            flow_reader = csv.DictReader(handle)
+            flow_rows = list(flow_reader)
+            self.assertIn("traded_shares", flow_reader.fieldnames or [])
+        self.assertEqual(len({row["date"] for row in flow_rows}), 20)
+        self.assertEqual(len(flow_rows), 40)
+        flow_keys = [(row["date"], row["stock_id"], row["source"]) for row in flow_rows]
+        self.assertEqual(flow_keys, sorted(flow_keys))
+        self.assertTrue(all(row["traded_shares"] for row in flow_rows))
 
 
 if __name__ == "__main__":

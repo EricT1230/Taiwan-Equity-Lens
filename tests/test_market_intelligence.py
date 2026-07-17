@@ -1,10 +1,17 @@
 import json
 import unittest
+from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from taiwan_stock_analysis.market_intelligence import (
+    _http_post_form_json,
     build_market_intelligence_report,
+    fetch_fund_flow_history,
+    fetch_tpex_fund_flow_for_date,
+    parse_tpex_fund_flow_payload,
+    parse_twse_fund_flow_payload,
+    fetch_twse_fund_flow_for_date,
     fetch_twse_fund_flow,
     fetch_twse_news,
     fetch_tpex_fund_flow,
@@ -43,6 +50,199 @@ class MarketIntelligenceTests(unittest.TestCase):
         self.assertEqual(flows[0]["stock_id"], "2330")
         self.assertEqual(flows[0]["foreign_net"], 1000.0)
         self.assertEqual(flows[0]["total_net"], 1010.0)
+
+    def test_load_fund_flow_rows_preserves_legacy_and_parses_optional_traded_shares(self):
+        legacy_path = self.root / "legacy-fund-flow.csv"
+        volume_path = self.root / "volume-fund-flow.csv"
+        legacy_path.write_text(
+            "date,stock_id,foreign_net,investment_trust_net,dealer_net,total_net,source\n"
+            "2026-07-10,2330,1,2,3,6,fixture\n",
+            encoding="utf-8",
+        )
+        volume_path.write_text(
+            "date,stock_id,foreign_net,investment_trust_net,dealer_net,total_net,traded_shares,source\n"
+            "2026-07-10,2330,1,2,3,6,37544470,fixture\n",
+            encoding="utf-8",
+        )
+
+        legacy = load_fund_flow_rows(legacy_path)
+        with_volume = load_fund_flow_rows(volume_path)
+
+        self.assertIsNone(legacy[0]["traded_shares"])
+        self.assertEqual(with_volume[0]["traded_shares"], 37544470.0)
+
+    def test_parse_tpex_daily_trade_payload_uses_official_column_positions(self):
+        payload = {
+            "stat": "ok",
+            "date": "20260716",
+            "tables": [
+                {
+                    "data": [
+                        [
+                            "6223", "MPI", "0", "0", "1,000", "0", "0", "0",
+                            "0", "0", "0", "0", "0", "-200", "0", "0", "0",
+                            "0", "0", "0", "0", "0", "50", "850",
+                        ]
+                    ]
+                },
+                {"data": []},
+            ],
+        }
+
+        rows = parse_tpex_fund_flow_payload(payload, date(2026, 7, 16))
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-07-16",
+                    "stock_id": "6223",
+                    "company_name": "MPI",
+                    "foreign_net": 1000.0,
+                    "investment_trust_net": -200.0,
+                    "dealer_net": 50.0,
+                    "total_net": 850.0,
+                    "source": "TPEx dailyTrade",
+                }
+            ],
+        )
+
+    def test_parse_twse_t86_payload_uses_payload_date_and_official_fields(self):
+        payload = {
+            "stat": "OK",
+            "date": "20260716",
+            "fields": [
+                "證券代號",
+                "證券名稱",
+                "外陸資買賣超股數(不含外資自營商)",
+                "投信買賣超股數",
+                "自營商買賣超股數",
+                "三大法人買賣超股數",
+            ],
+            "data": [["2330", "TSMC", "1,000", "-200", "50", "850"]],
+        }
+
+        rows = parse_twse_fund_flow_payload(payload, date(2026, 7, 17))
+
+        self.assertEqual(rows[0]["date"], "2026-07-16")
+        self.assertEqual(rows[0]["stock_id"], "2330")
+        self.assertEqual(rows[0]["foreign_net"], 1000.0)
+        self.assertEqual(rows[0]["total_net"], 850.0)
+        self.assertEqual(rows[0]["source"], "TWSE T86")
+
+    @patch("taiwan_stock_analysis.market_intelligence._http_json")
+    def test_fetch_twse_fund_flow_for_date_uses_official_t86_query(self, http_json):
+        http_json.return_value = {"stat": "NOT OK"}
+
+        rows = fetch_twse_fund_flow_for_date(date(2026, 7, 16))
+
+        self.assertEqual(rows, [])
+        requested_url = http_json.call_args.args[0]
+        self.assertTrue(requested_url.startswith("https://www.twse.com.tw/rwd/zh/fund/T86?"))
+        self.assertIn("date=20260716", requested_url)
+        self.assertIn("selectType=ALLBUT0999", requested_url)
+        self.assertIn("response=json", requested_url)
+
+    @patch("taiwan_stock_analysis.market_intelligence._http_post_form_json")
+    def test_fetch_tpex_fund_flow_for_date_uses_official_daily_trade_form(self, post_json):
+        post_json.return_value = {"stat": "not ok"}
+
+        rows = fetch_tpex_fund_flow_for_date(date(2026, 7, 16))
+
+        self.assertEqual(rows, [])
+        post_json.assert_called_once_with(
+            "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade",
+            {
+                "type": "Daily",
+                "sect": "EW",
+                "date": "2026/07/16",
+                "response": "json",
+            },
+        )
+
+    @patch("taiwan_stock_analysis.market_intelligence._open_url")
+    def test_http_post_form_json_encodes_form_and_request_headers(self, open_url):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"stat":"ok"}'
+        open_url.return_value = response
+
+        payload = _http_post_form_json(
+            "https://example.test/form",
+            {"date": "2026/07/16", "response": "json"},
+        )
+
+        self.assertEqual(payload, {"stat": "ok"})
+        request = open_url.call_args.args[0]
+        self.assertEqual(request.full_url, "https://example.test/form")
+        self.assertEqual(request.data, b"date=2026%2F07%2F16&response=json")
+        self.assertEqual(request.get_header("Content-type"), "application/x-www-form-urlencoded")
+        self.assertEqual(request.get_header("User-agent"), "Taiwan-Equity-Lens/0.53")
+
+    @patch("taiwan_stock_analysis.market_intelligence.fetch_tpex_fund_flow_for_date")
+    @patch("taiwan_stock_analysis.market_intelligence.fetch_twse_fund_flow_for_date")
+    def test_fund_flow_history_uses_independent_market_sessions_and_retains_errors(
+        self,
+        fetch_twse,
+        fetch_tpex,
+    ):
+        def row(trade_date, stock_id, source, foreign_net=1.0):
+            return {
+                "date": trade_date.isoformat(),
+                "stock_id": stock_id,
+                "company_name": stock_id,
+                "foreign_net": foreign_net,
+                "investment_trust_net": 2.0,
+                "dealer_net": 3.0,
+                "total_net": foreign_net + 5.0,
+                "source": source,
+            }
+
+        def twse_rows(trade_date):
+            if trade_date == date(2026, 7, 16):
+                return []
+            if trade_date in {date(2026, 7, 17), date(2026, 7, 15), date(2026, 7, 14)}:
+                result = row(trade_date, "2330", "TWSE T86")
+                return [result, dict(result, foreign_net=9.0)] if trade_date.day == 17 else [result]
+            return []
+
+        def tpex_rows(trade_date):
+            if trade_date == date(2026, 7, 16):
+                return []
+            if trade_date == date(2026, 7, 15):
+                raise OSError("timeout")
+            if trade_date in {date(2026, 7, 17), date(2026, 7, 14), date(2026, 7, 13)}:
+                return [row(trade_date, "6223", "TPEx dailyTrade")]
+            return []
+
+        fetch_twse.side_effect = twse_rows
+        fetch_tpex.side_effect = tpex_rows
+
+        rows, errors = fetch_fund_flow_history(
+            as_of="2026-07-17",
+            session_count=3,
+            max_calendar_days=10,
+            markets=("TWSE", "TPEX"),
+        )
+
+        keys = [(item["date"], item["stock_id"], item["source"]) for item in rows]
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(
+            {item["date"] for item in rows if item["source"] == "TWSE T86"},
+            {"2026-07-14", "2026-07-15", "2026-07-17"},
+        )
+        self.assertEqual(
+            {item["date"] for item in rows if item["source"] == "TPEx dailyTrade"},
+            {"2026-07-13", "2026-07-14", "2026-07-17"},
+        )
+        self.assertEqual(
+            next(item for item in rows if item["date"] == "2026-07-17" and item["stock_id"] == "2330")["foreign_net"],
+            9.0,
+        )
+        self.assertEqual(errors, ["TPEX fund flow 2026-07-15: timeout"])
+        self.assertNotIn(date(2026, 7, 13), [call.args[0] for call in fetch_twse.call_args_list])
+        requested_dates = [call.args[0] for call in [*fetch_twse.call_args_list, *fetch_tpex.call_args_list]]
+        self.assertTrue(all(item.weekday() < 5 for item in requested_dates))
 
     def test_build_report_combines_trend_news_keywords_and_fund_flow(self):
         research = self.root / "research.csv"

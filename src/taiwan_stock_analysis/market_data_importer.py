@@ -10,8 +10,7 @@ from urllib.parse import urlencode
 
 from taiwan_stock_analysis.market_intelligence import (
     _http_json,
-    fetch_tpex_fund_flow,
-    fetch_twse_fund_flow,
+    fetch_fund_flow_history,
 )
 from taiwan_stock_analysis.research import RESEARCH_COLUMNS, load_research_rows
 from taiwan_stock_analysis.traceability import build_artifact_registry, build_run_metadata, merge_traceability
@@ -202,6 +201,26 @@ def parse_tpex_price_payload(payload: Any, stock_id: str) -> list[dict[str, Any]
     return rows
 
 
+def _attach_traded_shares(
+    flow_rows: list[dict[str, Any]],
+    price_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    volumes = {
+        (str(row.get("date") or ""), str(row.get("stock_id") or "")): _optional_number(
+            row.get("volume")
+        )
+        for row in price_rows
+    }
+    joined = []
+    for row in flow_rows:
+        item = dict(row)
+        item["traded_shares"] = volumes.get(
+            (str(row.get("date") or ""), str(row.get("stock_id") or ""))
+        )
+        joined.append(item)
+    return joined
+
+
 def write_market_data_bundle(
     research_path: Path,
     output_dir: Path,
@@ -234,21 +253,15 @@ def write_market_data_bundle(
         except (OSError, ValueError) as exc:
             source_errors.append(f"price history {stock_id}: {exc}")
 
-    fund_flow_rows: list[dict[str, Any]] = []
-    for label, fetcher in (
-        ("TWSE fund flow", lambda: fetch_twse_fund_flow(as_of=target)),
-        ("TPEx fund flow", fetch_tpex_fund_flow),
-    ):
-        try:
-            fund_flow_rows.extend(fetcher())
-        except (OSError, ValueError) as exc:
-            source_errors.append(f"{label}: {exc}")
+    fund_flow_rows, fund_flow_errors = fetch_fund_flow_history(as_of=target)
+    source_errors.extend(fund_flow_errors)
     fund_flow_rows = [
         row
         for row in fund_flow_rows
         if str(row.get("stock_id") or "") in research_stock_ids
         and _row_date_not_after(row, target)
     ]
+    fund_flow_rows = _attach_traded_shares(fund_flow_rows, price_rows)
 
     universe_path = output_dir / "official_universe.csv"
     research_output_path = output_dir / "research_official.csv"
@@ -391,6 +404,14 @@ def build_market_data_report(
             "official_industry_count": sum(1 for item in items if item["industry_name"]),
             "price_ready_count": sum(1 for item in items if int(item["price_points"]) >= MIN_TREND_POINTS),
             "fund_flow_count": sum(1 for item in items if item["fund_flow_available"]),
+            "fund_flow_session_count": len(
+                {str(row.get("date") or "") for row in fund_flow_rows}
+            ),
+            "fund_flow_volume_join_count": sum(
+                _optional_number(row.get("traded_shares")) is not None
+                for row in fund_flow_rows
+            ),
+            "fund_flow_row_count": len(fund_flow_rows),
             "twse_count": sum(1 for item in items if item["market"] == "TWSE"),
             "tpex_count": sum(1 for item in items if item["market"] == "TPEX"),
         },
@@ -508,12 +529,22 @@ def _write_fund_flow_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "investment_trust_net",
         "dealer_net",
         "total_net",
+        "traded_shares",
         "source",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(sorted(rows, key=lambda row: (str(row.get("date") or ""), str(row.get("stock_id") or ""))))
+        writer.writerows(
+            sorted(
+                rows,
+                key=lambda row: (
+                    str(row.get("date") or ""),
+                    str(row.get("stock_id") or ""),
+                    str(row.get("source") or ""),
+                ),
+            )
+        )
 
 
 def _field_index(fields: list[str], name: str) -> int:

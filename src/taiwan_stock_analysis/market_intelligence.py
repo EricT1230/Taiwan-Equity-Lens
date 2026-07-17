@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import escape
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
@@ -24,6 +24,7 @@ NON_ADVICE_NOTICE = (
 TWSE_NEWS_URL = "https://openapi.twse.com.tw/v1/news/newsList"
 TWSE_FUND_FLOW_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
 TPEX_FUND_FLOW_URL = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"
+TPEX_FUND_FLOW_HISTORY_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"
 DEFAULT_NEWS_MAX_AGE_HOURS = 96
 DEFAULT_FUND_FLOW_MAX_AGE_DAYS = 5
 DEFAULT_TREND_MAX_AGE_DAYS = 7
@@ -159,6 +160,12 @@ def load_fund_flow_rows(path: Path) -> list[dict[str, Any]]:
                 if total_value
                 else foreign_net + trust_net + dealer_net
             )
+            traded_shares_value = str(row.get("traded_shares") or "").strip()
+            traded_shares = (
+                _number(traded_shares_value, index, "traded_shares")
+                if traded_shares_value
+                else None
+            )
             rows.append(
                 {
                     "date": parsed_date.isoformat(),
@@ -168,6 +175,7 @@ def load_fund_flow_rows(path: Path) -> list[dict[str, Any]]:
                     "investment_trust_net": trust_net,
                     "dealer_net": dealer_net,
                     "total_net": total_net,
+                    "traded_shares": traded_shares,
                     "source": str(row.get("source") or path.name).strip(),
                 }
             )
@@ -234,6 +242,97 @@ def fetch_feed_news(url: str) -> list[dict[str, Any]]:
     return rows
 
 
+def parse_twse_fund_flow_payload(
+    payload: Any,
+    requested_date: date,
+) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict) or payload.get("stat") != "OK":
+        return []
+    fields = [str(field) for field in payload.get("fields", [])]
+    indexes = {
+        "stock_id": _field_index(fields, "證券代號"),
+        "company_name": _field_index(fields, "證券名稱"),
+        "foreign_net": _field_index(fields, "外陸資買賣超股數(不含外資自營商)"),
+        "investment_trust_net": _field_index(fields, "投信買賣超股數"),
+        "dealer_net": _field_index(fields, "自營商買賣超股數"),
+        "total_net": _field_index(fields, "三大法人買賣超股數"),
+    }
+    data_date = _parse_date(payload.get("date")) or requested_date
+    rows = []
+    for raw_row in payload.get("data", []):
+        if not isinstance(raw_row, list):
+            continue
+        rows.append(
+            {
+                "date": data_date.isoformat(),
+                "stock_id": str(raw_row[indexes["stock_id"]]).strip(),
+                "company_name": str(raw_row[indexes["company_name"]]).strip(),
+                "foreign_net": _plain_number(raw_row[indexes["foreign_net"]]),
+                "investment_trust_net": _plain_number(
+                    raw_row[indexes["investment_trust_net"]]
+                ),
+                "dealer_net": _plain_number(raw_row[indexes["dealer_net"]]),
+                "total_net": _plain_number(raw_row[indexes["total_net"]]),
+                "source": "TWSE T86",
+            }
+        )
+    return rows
+
+
+def parse_tpex_fund_flow_payload(
+    payload: Any,
+    requested_date: date,
+) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict) or payload.get("stat") != "ok":
+        return []
+    tables = payload.get("tables", [])
+    if not isinstance(tables, list) or not tables or not isinstance(tables[0], dict):
+        return []
+    data_date = _parse_date(payload.get("date")) or requested_date
+    rows = []
+    for raw_row in tables[0].get("data", []):
+        if not isinstance(raw_row, list) or len(raw_row) <= 23:
+            continue
+        rows.append(
+            {
+                "date": data_date.isoformat(),
+                "stock_id": str(raw_row[0]).strip(),
+                "company_name": str(raw_row[1]).strip(),
+                "foreign_net": _plain_number(raw_row[4]),
+                "investment_trust_net": _plain_number(raw_row[13]),
+                "dealer_net": _plain_number(raw_row[22]),
+                "total_net": _plain_number(raw_row[23]),
+                "source": "TPEx dailyTrade",
+            }
+        )
+    return rows
+
+
+def fetch_twse_fund_flow_for_date(trade_date: date) -> list[dict[str, Any]]:
+    query = urlencode(
+        {
+            "date": trade_date.strftime("%Y%m%d"),
+            "selectType": "ALLBUT0999",
+            "response": "json",
+        }
+    )
+    payload = _http_json(f"{TWSE_FUND_FLOW_URL}?{query}")
+    return parse_twse_fund_flow_payload(payload, trade_date)
+
+
+def fetch_tpex_fund_flow_for_date(trade_date: date) -> list[dict[str, Any]]:
+    payload = _http_post_form_json(
+        TPEX_FUND_FLOW_HISTORY_URL,
+        {
+            "type": "Daily",
+            "sect": "EW",
+            "date": trade_date.strftime("%Y/%m/%d"),
+            "response": "json",
+        },
+    )
+    return parse_tpex_fund_flow_payload(payload, trade_date)
+
+
 def fetch_twse_fund_flow(
     *,
     as_of: date | datetime | str | None = None,
@@ -242,42 +341,7 @@ def fetch_twse_fund_flow(
     target = _as_of_datetime(as_of).date()
     for offset in range(max(1, lookback_days)):
         requested = target - timedelta(days=offset)
-        query = urlencode(
-            {
-                "date": requested.strftime("%Y%m%d"),
-                "selectType": "ALLBUT0999",
-                "response": "json",
-            }
-        )
-        payload = _http_json(f"{TWSE_FUND_FLOW_URL}?{query}")
-        if not isinstance(payload, dict) or payload.get("stat") != "OK":
-            continue
-        fields = [str(field) for field in payload.get("fields", [])]
-        indexes = {
-            "stock_id": _field_index(fields, "證券代號"),
-            "company_name": _field_index(fields, "證券名稱"),
-            "foreign_net": _field_index(fields, "外陸資買賣超股數(不含外資自營商)"),
-            "investment_trust_net": _field_index(fields, "投信買賣超股數"),
-            "dealer_net": _field_index(fields, "自營商買賣超股數"),
-            "total_net": _field_index(fields, "三大法人買賣超股數"),
-        }
-        data_date = _parse_date(payload.get("date")) or requested
-        rows = []
-        for raw_row in payload.get("data", []):
-            if not isinstance(raw_row, list):
-                continue
-            rows.append(
-                {
-                    "date": data_date.isoformat(),
-                    "stock_id": str(raw_row[indexes["stock_id"]]).strip(),
-                    "company_name": str(raw_row[indexes["company_name"]]).strip(),
-                    "foreign_net": _plain_number(raw_row[indexes["foreign_net"]]),
-                    "investment_trust_net": _plain_number(raw_row[indexes["investment_trust_net"]]),
-                    "dealer_net": _plain_number(raw_row[indexes["dealer_net"]]),
-                    "total_net": _plain_number(raw_row[indexes["total_net"]]),
-                    "source": "TWSE T86",
-                }
-            )
+        rows = fetch_twse_fund_flow_for_date(requested)
         if rows:
             return rows
     return []
@@ -313,6 +377,50 @@ def fetch_tpex_fund_flow() -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def fetch_fund_flow_history(
+    *,
+    as_of: date | datetime | str | None = None,
+    session_count: int = 20,
+    max_calendar_days: int = 45,
+    markets: tuple[str, ...] = ("TWSE", "TPEX"),
+) -> tuple[list[dict[str, Any]], list[str]]:
+    target = _as_of_datetime(as_of).date()
+    selected = tuple(dict.fromkeys(markets))
+    sessions = {market: set() for market in selected}
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    fetchers = {
+        "TWSE": fetch_twse_fund_flow_for_date,
+        "TPEX": fetch_tpex_fund_flow_for_date,
+    }
+    for offset in range(max_calendar_days):
+        requested = target - timedelta(days=offset)
+        if requested.weekday() >= 5:
+            continue
+        for market in selected:
+            if len(sessions[market]) >= session_count:
+                continue
+            try:
+                daily_rows = fetchers[market](requested)
+            except (OSError, ValueError) as exc:
+                errors.append(f"{market} fund flow {requested.isoformat()}: {exc}")
+                continue
+            if daily_rows:
+                sessions[market].add(requested.isoformat())
+                rows.extend(daily_rows)
+        if all(len(values) >= session_count for values in sessions.values()):
+            break
+    deduped = {
+        (str(row["date"]), str(row["stock_id"]), str(row["source"])): row
+        for row in rows
+    }
+    ordered = [deduped[key] for key in sorted(deduped)]
+    for market, values in sessions.items():
+        if len(values) < session_count:
+            errors.append(f"{market} fund flow: collected {len(values)} of {session_count} sessions")
+    return ordered, errors
 
 
 def build_market_intelligence_report(
@@ -802,6 +910,24 @@ def _http_json(url: str) -> Any:
         raw = response.read()
         charset = response.headers.get_content_charset() or "utf-8"
     return json.loads(raw.decode(charset, errors="strict"))
+
+
+def _http_post_form_json(url: str, fields: Mapping[str, str]) -> Any:
+    body = urlencode(fields).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers={
+            "User-Agent": "Taiwan-Equity-Lens/0.53",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    with _open_url(request) as response:
+        payload = response.read().decode("utf-8")
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"form endpoint returned invalid JSON: {url}") from exc
 
 
 def _open_url(request: Request):
