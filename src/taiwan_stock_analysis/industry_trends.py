@@ -85,6 +85,7 @@ def build_industry_trend_report(research_path: Path, price_history_path: Path) -
         "research_path": str(research_path),
         "price_history_path": str(price_history_path),
         "as_of_date": as_of_date,
+        "session_dates": sorted({str(row["date"]) for row in price_rows})[-25:],
         "coverage": _coverage(stock_trends, categories),
         "quality_gate": quality_gate,
         "stock_trends": stock_trends,
@@ -250,6 +251,8 @@ def _stock_trend(research_row: dict[str, str], price_rows: list[dict[str, Any]])
         "return_1d": None,
         "return_5d": None,
         "return_20d": None,
+        "at_20d_high": None,
+        "at_20d_low": None,
         "volume_ratio_5d": None,
         "volume_signal": "missing",
         "direction": "missing",
@@ -269,6 +272,8 @@ def _stock_trend(research_row: dict[str, str], price_rows: list[dict[str, Any]])
             "return_1d": _return_over_horizon(price_rows, 1),
             "return_5d": _return_over_horizon(price_rows, 5),
             "return_20d": _return_over_horizon(price_rows, 20),
+            "at_20d_high": _at_horizon_extreme(price_rows, 20, high=True),
+            "at_20d_low": _at_horizon_extreme(price_rows, 20, high=False),
             "volume_ratio_5d": _volume_ratio_5d(price_rows),
             "price_points": len(price_rows),
             "source": str(latest.get("source") or ""),
@@ -295,6 +300,8 @@ def _category_trends(stock_trends: list[dict[str, Any]]) -> list[dict[str, Any]]
         average_return_1d = _average(trend.get("return_1d") for trend in available)
         average_return_5d = _average(trend.get("return_5d") for trend in available)
         average_return_20d = _average(trend.get("return_20d") for trend in available)
+        return_5d_rows = [row for row in available if row.get("return_5d") is not None]
+        return_20d_rows = [row for row in available if row.get("return_20d") is not None]
         direction_counts = _direction_counts(available)
         direction = _category_direction(direction_counts, average_return_20d, average_return_5d, average_return_1d)
         leading = _stock_extremes(available, reverse=True)
@@ -311,6 +318,13 @@ def _category_trends(stock_trends: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "average_volume_ratio_5d": _average(
                     trend.get("volume_ratio_5d") for trend in available
                 ),
+                "positive_breadth_5d": _positive_breadth(return_5d_rows, "return_5d"),
+                "positive_breadth_20d": _positive_breadth(return_20d_rows, "return_20d"),
+                "coverage_ratio_5d": _round(len(return_5d_rows) / len(trends)) if trends else 0.0,
+                "coverage_ratio_20d": _round(len(return_20d_rows) / len(trends)) if trends else 0.0,
+                "high_count_20d": sum(row.get("at_20d_high") is True for row in available),
+                "low_count_20d": sum(row.get("at_20d_low") is True for row in available),
+                "covered_stock_ids": sorted(str(row["stock_id"]) for row in available),
                 "direction": direction,
                 "rotation_phase": _rotation_phase(average_return_20d, average_return_5d, direction),
                 "leading_stocks": leading,
@@ -382,6 +396,22 @@ def _return_over_horizon(rows: list[dict[str, Any]], horizon: int) -> float | No
     if previous <= 0:
         return None
     return _round((latest / previous - 1) * 100)
+
+
+def _at_horizon_extreme(rows: list[dict[str, Any]], horizon: int, *, high: bool) -> bool | None:
+    if len(rows) <= horizon:
+        return None
+    closes = [float(row["close"]) for row in rows[-(horizon + 1):]]
+    target = max(closes) if high else min(closes)
+    return closes[-1] == target
+
+
+def _positive_breadth(trends: list[dict[str, Any]], field: str) -> float | None:
+    values = [_optional_float(trend.get(field)) for trend in trends]
+    available = [value for value in values if value is not None]
+    if not available:
+        return None
+    return _round(sum(value > 0 for value in available) / len(available))
 
 
 def _volume_ratio_5d(rows: list[dict[str, Any]]) -> float | None:

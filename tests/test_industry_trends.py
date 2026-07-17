@@ -75,6 +75,10 @@ class IndustryTrendTests(unittest.TestCase):
         self.assertEqual(stock_trends["2330"]["return_20d"], 20.0)
         self.assertEqual(stock_trends["2330"]["direction"], "up")
         self.assertEqual(stock_trends["2330"]["volume_signal"], "expanding")
+        self.assertTrue(stock_trends["2330"]["at_20d_high"])
+        self.assertFalse(stock_trends["2330"]["at_20d_low"])
+        self.assertFalse(stock_trends["2303"]["at_20d_high"])
+        self.assertTrue(stock_trends["2303"]["at_20d_low"])
         self.assertEqual(stock_trends["1504"]["status"], "missing_price_history")
 
         categories = {item["category"]: item for item in report["categories"]}
@@ -83,9 +87,17 @@ class IndustryTrendTests(unittest.TestCase):
         self.assertEqual(semiconductor["coverage_count"], 2)
         self.assertEqual(semiconductor["missing_count"], 0)
         self.assertEqual(semiconductor["average_return_20d"], 3.75)
+        self.assertEqual(semiconductor["positive_breadth_5d"], 0.5)
+        self.assertEqual(semiconductor["positive_breadth_20d"], 0.5)
+        self.assertEqual(semiconductor["coverage_ratio_5d"], 1.0)
+        self.assertEqual(semiconductor["coverage_ratio_20d"], 1.0)
+        self.assertEqual(semiconductor["high_count_20d"], 1)
+        self.assertEqual(semiconductor["low_count_20d"], 1)
+        self.assertEqual(semiconductor["covered_stock_ids"], ["2303", "2330"])
         self.assertEqual(semiconductor["direction"], "mixed")
         self.assertEqual(semiconductor["leading_stocks"][0]["stock_id"], "2330")
         self.assertEqual(semiconductor["lagging_stocks"][0]["stock_id"], "2303")
+        self.assertEqual(report["session_dates"][-1], "2026-05-29")
         self.assertEqual(report["non_advice_notice"], NON_ADVICE_NOTICE)
 
     def test_write_industry_trend_report_writes_json_markdown_and_html(self):
