@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -149,12 +150,12 @@ def parse_twse_price_payload(payload: Any, stock_id: str) -> list[dict[str, Any]
     volume_index = _field_index(fields, "成交股數")
     close_index = _field_index(fields, "收盤價")
     rows = []
-    for values in payload.get("data", []):
+    for row_index, values in enumerate(payload.get("data", []), start=1):
         if not isinstance(values, list):
             continue
         trade_date = _roc_date(values[date_index])
-        close = _optional_number(values[close_index])
-        volume = _optional_number(values[volume_index])
+        close = _payload_optional_number(values[close_index], row_index, "close")
+        volume = _payload_optional_number(values[volume_index], row_index, "volume")
         if trade_date is None or close is None or close <= 0:
             continue
         rows.append(
@@ -181,20 +182,25 @@ def parse_tpex_price_payload(payload: Any, stock_id: str) -> list[dict[str, Any]
     volume_index = _field_index(fields, "成交張數")
     close_index = _field_index(fields, "收盤")
     rows = []
-    for values in table.get("data", []):
+    for row_index, values in enumerate(table.get("data", []), start=1):
         if not isinstance(values, list):
             continue
         trade_date = _roc_date(values[date_index])
-        close = _optional_number(values[close_index])
-        lots = _optional_number(values[volume_index])
+        close = _payload_optional_number(values[close_index], row_index, "close")
+        lots = _payload_optional_number(values[volume_index], row_index, "volume")
         if trade_date is None or close is None or close <= 0:
             continue
+        volume = lots * 1000 if lots is not None else None
+        if volume is not None and not math.isfinite(volume):
+            raise ValueError(
+                f"official price payload row {row_index} has invalid volume: non-finite number"
+            )
         rows.append(
             {
                 "stock_id": stock_id,
                 "date": trade_date.isoformat(),
                 "close": close,
-                "volume": lots * 1000 if lots is not None else None,
+                "volume": volume,
                 "source": "TPEx tradingStock",
             }
         )
@@ -229,7 +235,6 @@ def write_market_data_bundle(
     history_months: int = 3,
     replace_category: bool = False,
 ) -> dict[str, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
     target = _as_of_date(as_of)
     profiles, source_errors = fetch_official_profiles()
     research_rows = load_research_rows(research_path)
@@ -269,15 +274,6 @@ def write_market_data_bundle(
     fund_flow_path = output_dir / "fund_flow.csv"
     report_path = output_dir / "market_data_report.json"
     markdown_path = output_dir / "market_data_report.md"
-    _write_universe_csv(universe_path, profiles, research_stock_ids)
-    write_research_with_official_profiles(
-        research_path,
-        research_output_path,
-        profiles,
-        replace_category=replace_category,
-    )
-    _write_price_csv(price_path, price_rows)
-    _write_fund_flow_csv(fund_flow_path, fund_flow_rows)
     report = build_market_data_report(
         research_rows,
         profiles,
@@ -307,8 +303,20 @@ def write_market_data_bundle(
             },
         ),
     )
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    markdown_path.write_text(render_market_data_markdown(report), encoding="utf-8")
+    report_text = _json_report_text(report, "market data report")
+    markdown_text = render_market_data_markdown(report)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_universe_csv(universe_path, profiles, research_stock_ids)
+    write_research_with_official_profiles(
+        research_path,
+        research_output_path,
+        profiles,
+        replace_category=replace_category,
+    )
+    _write_price_csv(price_path, price_rows)
+    _write_fund_flow_csv(fund_flow_path, fund_flow_rows)
+    report_path.write_text(report_text, encoding="utf-8")
+    markdown_path.write_text(markdown_text, encoding="utf-8")
     return {
         "report": report_path,
         "markdown": markdown_path,
@@ -393,7 +401,7 @@ def build_market_data_report(
             }
         )
     status = "ready" if not blockers else "needs_data"
-    return {
+    report = {
         "schema_version": 1,
         "kind": "market_data_report",
         "as_of_date": as_of.isoformat(),
@@ -436,6 +444,8 @@ def build_market_data_report(
             "tpex_prices": TPEX_PRICE_URL,
         },
     }
+    _require_finite_values(report, "market data report")
+    return report
 
 
 def render_market_data_markdown(report: dict[str, Any]) -> str:
@@ -563,9 +573,46 @@ def _optional_number(value: Any) -> float | None:
     if text in {"", "--", "---", "-"}:
         return None
     try:
-        return float(text)
+        number = float(text)
     except ValueError:
         return None
+    return number if math.isfinite(number) else None
+
+
+def _payload_optional_number(value: Any, row_index: int, field: str) -> float | None:
+    number = _optional_number(value)
+    if number is not None:
+        return number
+    text = str(value or "").replace(",", "").strip()
+    if not text or text in {"--", "---", "-"}:
+        return None
+    try:
+        parsed = float(text)
+    except ValueError:
+        return None
+    if not math.isfinite(parsed):
+        raise ValueError(
+            f"official price payload row {row_index} has invalid {field}: non-finite number"
+        )
+    return None
+
+
+def _json_report_text(report: dict[str, Any], label: str) -> str:
+    try:
+        return json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"cannot publish {label}: non-finite or non-JSON value") from exc
+
+
+def _require_finite_values(value: Any, label: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{label} contains a non-finite number")
+    if isinstance(value, dict):
+        for field, item in value.items():
+            _require_finite_values(item, f"{label}.{field}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_finite_values(item, f"{label}[{index}]")
 
 
 def _roc_date(value: Any) -> date | None:

@@ -490,6 +490,7 @@ def build_market_intelligence_report(
     raw_news_rows = list(news_rows)
     normalized_flows = list(fund_flow_rows)
     trend_report = _load_trend_report(industry_trend_report_path)
+    _require_finite_values(normalized_flows, "fund flow")
     expected_session_dates = _validate_report_dependency_dates(
         generated_at,
         trend_report,
@@ -561,7 +562,7 @@ def build_market_intelligence_report(
     )
     coverage = _coverage(research_rows, mapped_news, mapped_flows, industries)
     quality_gate = _quality_gate(freshness, coverage, normalized_source_errors)
-    return {
+    report = {
         "schema_version": 2,
         "kind": "market_intelligence_report",
         "sentiment_methodology_version": METHODOLOGY_VERSION,
@@ -578,6 +579,8 @@ def build_market_intelligence_report(
         "fund_flows": mapped_flows,
         "non_advice_notice": NON_ADVICE_NOTICE,
     }
+    _require_finite_values(report, "market intelligence report")
+    return report
 
 
 def write_market_intelligence_report(
@@ -607,13 +610,11 @@ def write_market_intelligence_report(
         source_errors=source_errors,
         sentiment_history_rows=history_rows,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
     report_date = str(report["generated_at"])[:10]
     snapshots = [
         sentiment_snapshot_from_industry(report_date, industry)
         for industry in _list_of_dicts(report.get("industries"))
     ]
-    upsert_sentiment_snapshots(history_path, snapshots)
     dependency_map = {"research_csv": str(research_path), **(dependencies or {})}
     if industry_trend_report_path is not None:
         dependency_map["industry_trend_report"] = str(industry_trend_report_path)
@@ -637,9 +638,14 @@ def write_market_intelligence_report(
             },
         ),
     )
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    markdown_path.write_text(render_market_intelligence_markdown(report), encoding="utf-8")
-    html_path.write_text(render_market_intelligence_html(report), encoding="utf-8")
+    json_text = _json_report_text(report, "market intelligence report")
+    markdown_text = render_market_intelligence_markdown(report)
+    html_text = render_market_intelligence_html(report)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    upsert_sentiment_snapshots(history_path, snapshots)
+    json_path.write_text(json_text, encoding="utf-8")
+    markdown_path.write_text(markdown_text, encoding="utf-8")
+    html_path.write_text(html_text, encoding="utf-8")
     return json_path
 
 
@@ -1451,12 +1457,23 @@ def _load_trend_report(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid industry trend report: {path}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"invalid industry trend report: {path}")
+    try:
+        _require_finite_values(payload, "industry trend report")
+    except ValueError as exc:
+        raise ValueError(f"invalid industry trend report: {path}") from exc
     return payload
+
+
+def _reject_nonfinite_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
 
 
 def _dedupe_news(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1635,7 +1652,28 @@ def _number(value: Any, row_index: int, field: str) -> float:
 
 
 def _plain_number(value: Any) -> float:
-    return float(str(value or "0").replace(",", "").strip())
+    number = float(str(value or "0").replace(",", "").strip())
+    if not isfinite(number):
+        raise ValueError("non-finite number")
+    return number
+
+
+def _json_report_text(report: dict[str, Any], label: str) -> str:
+    try:
+        return json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"cannot publish {label}: non-finite or non-JSON value") from exc
+
+
+def _require_finite_values(value: Any, label: str) -> None:
+    if isinstance(value, float) and not isfinite(value):
+        raise ValueError(f"{label} contains a non-finite number")
+    if isinstance(value, Mapping):
+        for field, item in value.items():
+            _require_finite_values(item, f"{label}.{field}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_finite_values(item, f"{label}[{index}]")
 
 
 def _required_payload_date(

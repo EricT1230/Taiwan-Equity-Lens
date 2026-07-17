@@ -101,6 +101,7 @@ def build_industry_trend_report(research_path: Path, price_history_path: Path) -
         "categories": categories,
         "non_advice_notice": NON_ADVICE_NOTICE,
     }
+    _require_finite_values(report, "industry trend report")
     return report
 
 
@@ -109,7 +110,6 @@ def write_industry_trend_report(
     price_history_path: Path,
     output_dir: Path,
 ) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "industry_trend_report.json"
     markdown_path = output_dir / "industry_trend_report.md"
     html_path = output_dir / "industry_trend_report.html"
@@ -134,9 +134,13 @@ def write_industry_trend_report(
             },
         ),
     )
-    summary_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    markdown_path.write_text(render_industry_trend_markdown(report), encoding="utf-8")
-    html_path.write_text(render_industry_trend_html(report), encoding="utf-8")
+    summary_text = _json_report_text(report, "industry trend report")
+    markdown_text = render_industry_trend_markdown(report)
+    html_text = render_industry_trend_html(report)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(summary_text, encoding="utf-8")
+    markdown_path.write_text(markdown_text, encoding="utf-8")
+    html_path.write_text(html_text, encoding="utf-8")
     return summary_path
 
 
@@ -558,6 +562,24 @@ def _optional_float(value: Any) -> float | None:
         return number if math.isfinite(number) else None
     except ValueError:
         return None
+
+
+def _json_report_text(report: dict[str, Any], label: str) -> str:
+    try:
+        return json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"cannot publish {label}: non-finite or non-JSON value") from exc
+
+
+def _require_finite_values(value: Any, label: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{label} contains a non-finite number")
+    if isinstance(value, dict):
+        for field, item in value.items():
+            _require_finite_values(item, f"{label}.{field}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_finite_values(item, f"{label}[{index}]")
 
 
 def _first_number(*values: Any) -> float | None:

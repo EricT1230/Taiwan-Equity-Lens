@@ -398,9 +398,22 @@ def write_sentiment_validation_report(
     output_path = Path(output_path)
     report = build_sentiment_validation_report(load_sentiment_history(history_path))
     report["history_path"] = str(history_path)
+    report_text = _json_report_text(report)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    output_path.write_text(report_text, encoding="utf-8")
     return report
+
+
+def _json_report_text(report: dict[str, Any]) -> str:
+    try:
+        return json.dumps(
+            report,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        ) + "\n"
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "cannot publish sentiment validation report: non-finite or non-JSON value"
+        ) from exc
