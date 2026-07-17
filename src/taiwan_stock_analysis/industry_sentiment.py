@@ -1,0 +1,235 @@
+from collections import Counter, defaultdict
+from datetime import datetime
+from typing import Any, Mapping, Protocol, Sequence
+
+from taiwan_stock_analysis.sentiment_lexicon import (
+    normalize_sentiment_text,
+    score_news_text,
+)
+
+
+class NewsSentimentReviewer(Protocol):
+    def review(
+        self,
+        news_rows: Sequence[Mapping[str, Any]],
+        deterministic_assessment: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        raise NotImplementedError
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(value, upper))
+
+
+def _parse_published_at(value: Any, *, as_of: datetime) -> datetime | None:
+    try:
+        published = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=as_of.tzinfo)
+    return published
+
+
+def _event_signature(row: Mapping[str, Any], normalized_title: str) -> tuple[str, ...]:
+    raw_keywords = row.get("keywords")
+    if isinstance(raw_keywords, Sequence) and not isinstance(raw_keywords, (str, bytes)):
+        keywords = raw_keywords
+    elif raw_keywords:
+        keywords = [raw_keywords]
+    else:
+        keywords = []
+
+    normalized_keywords: list[str] = []
+    seen: set[str] = set()
+    for value in keywords:
+        normalized = normalize_sentiment_text(str(value))
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_keywords.append(normalized)
+        if len(normalized_keywords) == 3:
+            break
+    if normalized_keywords:
+        return tuple(normalized_keywords)
+    return ("__title__", normalized_title)
+
+
+def _prepare_news(
+    rows: Sequence[Mapping[str, Any]], *, as_of: datetime
+) -> tuple[list[dict[str, Any]], int]:
+    prepared: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    invalid_timestamps = 0
+
+    for row in rows:
+        published = _parse_published_at(row.get("published_at"), as_of=as_of)
+        if published is None:
+            invalid_timestamps += 1
+            continue
+
+        title = str(row.get("title") or "")
+        normalized_title = normalize_sentiment_text(title)
+        url = str(row.get("url") or "").strip()
+        if (url and url in seen_urls) or (
+            normalized_title and normalized_title in seen_titles
+        ):
+            continue
+        if url:
+            seen_urls.add(url)
+        if normalized_title:
+            seen_titles.add(normalized_title)
+
+        summary = str(row.get("summary") or "")
+        source = str(row.get("source") or "unknown").strip() or "unknown"
+        item = dict(row)
+        item.update(
+            {
+                "published_at": published.isoformat(),
+                "title": title,
+                "summary": summary,
+                "url": url,
+                "source": source,
+                "normalized_title": normalized_title,
+                "article_score": _clamp(
+                    0.65 * score_news_text(title) + 0.35 * score_news_text(summary),
+                    -100.0,
+                    100.0,
+                ),
+                "event_signature": _event_signature(row, normalized_title),
+            }
+        )
+        prepared.append(item)
+    return prepared, invalid_timestamps
+
+
+def _eligible_news(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    as_of: datetime,
+    window_days: int,
+    half_life_days: float,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for row in rows:
+        published = datetime.fromisoformat(str(row["published_at"]).replace("Z", "+00:00"))
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=as_of.tzinfo)
+        age_days = (as_of - published).total_seconds() / 86400.0
+        if age_days < 0 or age_days > window_days:
+            continue
+        item = dict(row)
+        item["raw_weight"] = 0.5 ** (age_days / half_life_days)
+        selected.append(item)
+    return selected
+
+
+def _score_news_window(
+    rows: list[dict[str, Any]],
+    *,
+    as_of: datetime,
+    window_days: int,
+    half_life_days: float,
+) -> tuple[float | None, list[dict[str, Any]], float]:
+    eligible = _eligible_news(
+        rows,
+        as_of=as_of,
+        window_days=window_days,
+        half_life_days=half_life_days,
+    )
+    if not eligible:
+        return None, [], 0.0
+    total_raw = sum(float(row["raw_weight"]) for row in eligible)
+    by_source: dict[str, float] = defaultdict(float)
+    for row in eligible:
+        by_source[str(row["source"])] += float(row["raw_weight"])
+    source_scale = {
+        source: min(weight, total_raw * 0.40) / weight
+        for source, weight in by_source.items()
+    }
+    numerator = sum(
+        float(row["article_score"])
+        * float(row["raw_weight"])
+        * source_scale[str(row["source"])]
+        for row in eligible
+    )
+    concentration = max(
+        min(weight, total_raw * 0.40) / total_raw for weight in by_source.values()
+    )
+    return _clamp(numerator / total_raw, -100.0, 100.0), eligible, concentration
+
+
+def _source_weight_is_clipped(rows: Sequence[Mapping[str, Any]]) -> bool:
+    if not rows:
+        return False
+    by_source: dict[str, float] = defaultdict(float)
+    for row in rows:
+        by_source[str(row["source"])] += float(row["raw_weight"])
+    total_raw = sum(by_source.values())
+    return any(weight > total_raw * 0.40 for weight in by_source.values())
+
+
+def _largest_signature_share(rows: Sequence[Mapping[str, Any]]) -> float:
+    if not rows:
+        return 0.0
+    counts = Counter(tuple(row["event_signature"]) for row in rows)
+    return max(counts.values()) / len(rows)
+
+
+def score_news_component(
+    rows: Sequence[Mapping[str, Any]], *, as_of: datetime
+) -> dict[str, Any]:
+    prepared, invalid_timestamps = _prepare_news(rows, as_of=as_of)
+    score_5d, articles_5d, source_concentration = _score_news_window(
+        prepared,
+        as_of=as_of,
+        window_days=5,
+        half_life_days=3,
+    )
+    score_20d, articles_20d, _ = _score_news_window(
+        prepared,
+        as_of=as_of,
+        window_days=20,
+        half_life_days=7,
+    )
+
+    warnings: list[str] = []
+    if invalid_timestamps:
+        noun = "article" if invalid_timestamps == 1 else "articles"
+        warnings.append(
+            f"invalid or missing published_at: {invalid_timestamps} {noun} excluded"
+        )
+    if _source_weight_is_clipped(articles_5d) or _source_weight_is_clipped(articles_20d):
+        warnings.append("source concentration clipped")
+    if len(articles_5d) < 3:
+        warnings.append("low news coverage: fewer than 3 articles in 5d")
+    if len(articles_20d) < 3:
+        warnings.append("low news coverage: fewer than 3 articles in 20d")
+
+    if not articles_20d:
+        status = "insufficient_data"
+    elif invalid_timestamps or len(articles_5d) < 3 or len(articles_20d) < 3:
+        status = "partial"
+    else:
+        status = "ready"
+
+    normalized_titles = {str(row["normalized_title"]) for row in articles_5d}
+    positive_articles = [row for row in articles_5d if float(row["article_score"]) > 0]
+    negative_articles = [row for row in articles_5d if float(row["article_score"]) < 0]
+    return {
+        "score_5d": score_5d,
+        "score_20d": score_20d,
+        "coverage": {
+            "articles_5d": len(articles_5d),
+            "articles_20d": len(articles_20d),
+        },
+        "article_scores": articles_5d,
+        "source_concentration": source_concentration,
+        "topic_concentration": _largest_signature_share(articles_5d),
+        "positive_topic_concentration": _largest_signature_share(positive_articles),
+        "negative_topic_concentration": _largest_signature_share(negative_articles),
+        "novelty": len(normalized_titles) / len(articles_5d) if articles_5d else 0.0,
+        "status": status,
+        "warnings": warnings,
+    }
