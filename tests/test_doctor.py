@@ -188,6 +188,28 @@ class DoctorTests(unittest.TestCase):
             )
         )
 
+    def test_check_demo_readiness_reports_invalid_sentiment_history_utf8(self):
+        output_dir = Path(".tmp-doctor-test/demo-sentiment-history-invalid-utf8")
+        write_demo_fixture(output_dir)
+        history_path = output_dir / "market-intelligence" / "industry_sentiment_history.csv"
+        history_path.write_bytes(
+            b"methodology_version,score_5d,cycle_phase,confidence\n"
+            b"industry-sentiment-v1,42.5,expansion,\xff\n"
+        )
+
+        try:
+            result = check_demo_readiness(output_dir)
+        except UnicodeError as exc:
+            self.fail(f"sentiment history decoding error escaped doctor: {exc}")
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(
+                failure.startswith(f"invalid sentiment history encoding {history_path}:")
+                for failure in result.failures
+            )
+        )
+
     def test_check_demo_readiness_reports_missing_sentiment_history_headers(self):
         required_headers = ("methodology_version", "score_5d", "cycle_phase", "confidence")
         for missing_header in required_headers:
@@ -332,6 +354,42 @@ class DoctorTests(unittest.TestCase):
             any("dashboard missing industry sentiment hook" in failure for failure in result.failures)
         )
 
+    def test_check_demo_readiness_rejects_structurally_invalid_sentiment_elements(self):
+        hooks = (
+            'data-industry-sentiment="ready" '
+            'data-industry-sentiment-score="42.5" '
+            'data-industry-sentiment-phase="expansion" '
+            'data-industry-sentiment-confidence="medium" '
+            'data-industry-turning-risk="insufficient_history"'
+        )
+        candidate = f'<article class="industry-sentiment-card" {hooks}>'
+        cases = {
+            "script-attributes": f"<script {hooks}></script>",
+            "style-attributes": f"<style {hooks}></style>",
+            "template-content": f"<template>{candidate}</article></template>",
+            "unclosed-article": candidate,
+            "mismatched-close": f"{candidate}<div></article></div>",
+        }
+        for case, sentiment_html in cases.items():
+            with self.subTest(case=case):
+                output_dir = Path(f".tmp-doctor-test/demo-dashboard-invalid-sentiment-{case}")
+                write_demo_fixture(output_dir)
+                dashboard_path = output_dir / "dashboard.html"
+                dashboard_path.write_text(
+                    '<html><body><div data-review-actions-section="true"></div>'
+                    '<section data-industry-trend-report-section="true"></section>'
+                    f"{sentiment_html}</body></html>",
+                    encoding="utf-8",
+                )
+
+                result = check_demo_readiness(output_dir)
+
+                self.assertFalse(result.ok)
+                self.assertIn(
+                    f"dashboard missing valid industry sentiment element: {dashboard_path}",
+                    result.failures,
+                )
+
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
 
@@ -469,7 +527,8 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "dashboard.html").write_text(
         '<html><body><div data-review-actions-section="true"></div>'
         '<section data-industry-trend-report-section="true"></section>'
-        '<article data-industry-sentiment="ready" data-industry-sentiment-score="42.5" '
+        '<article class="industry-sentiment-card" data-industry-sentiment="ready" '
+        'data-industry-sentiment-score="42.5" '
         'data-industry-sentiment-phase="expansion" data-industry-sentiment-confidence="medium" '
         'data-industry-turning-risk="insufficient_history"></article></body></html>',
         encoding="utf-8",

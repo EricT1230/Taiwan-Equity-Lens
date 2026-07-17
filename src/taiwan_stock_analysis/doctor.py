@@ -78,16 +78,71 @@ DEMO_SENTIMENT_DASHBOARD_HOOKS = (
 )
 
 
-class _DashboardAttributeParser(HTMLParser):
-    def __init__(self) -> None:
+class _DashboardStructureParser(HTMLParser):
+    INERT_TAGS = frozenset({"head", "noscript", "script", "style", "template"})
+    VOID_TAGS = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+
+    def __init__(self, required_attributes: set[str]) -> None:
         super().__init__(convert_charrefs=True)
-        self.attribute_sets: list[set[str]] = []
+        self.required_attributes = required_attributes
+        self.present_attributes: set[str] = set()
+        self._open_elements: list[tuple[str, bool]] = []
+        self._well_formed = True
+        self._closed_sentiment_candidate = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.attribute_sets.append({name for name, _value in attrs})
+        attributes = {name: value for name, value in attrs}
+        self.present_attributes.update(attributes)
+        if tag in self.VOID_TAGS:
+            return
+        class_tokens = set((attributes.get("class") or "").split())
+        inert = any(open_tag in self.INERT_TAGS for open_tag, _candidate in self._open_elements)
+        candidate = (
+            tag == "article"
+            and "industry-sentiment-card" in class_tokens
+            and self.required_attributes.issubset(attributes)
+            and not inert
+        )
+        self._open_elements.append((tag, candidate))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.handle_starttag(tag, attrs)
+        self.present_attributes.update(name for name, _value in attrs)
+        if tag not in self.VOID_TAGS:
+            self._well_formed = False
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.VOID_TAGS or not self._open_elements or self._open_elements[-1][0] != tag:
+            self._well_formed = False
+            return
+        _open_tag, candidate = self._open_elements.pop()
+        if candidate:
+            self._closed_sentiment_candidate = True
+
+    def close(self) -> None:
+        super().close()
+        if self._open_elements:
+            self._well_formed = False
+
+    @property
+    def has_valid_sentiment_element(self) -> bool:
+        return self._well_formed and self._closed_sentiment_candidate
 
 
 def check_release_readiness(root: Path, expected_version: str | None = None) -> DoctorResult:
@@ -162,6 +217,8 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
                         failures.append(f"sentiment history has no data rows: {sentiment_history_path}")
         except csv.Error as exc:
             failures.append(f"invalid CSV in sentiment history {sentiment_history_path}: {exc}")
+        except UnicodeError as exc:
+            failures.append(f"invalid sentiment history encoding {sentiment_history_path}: {exc}")
         except OSError as exc:
             failures.append(f"could not read {sentiment_history_path}: {exc}")
 
@@ -176,20 +233,16 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
                 failures.append(f"dashboard missing review-action section: {dashboard_path}")
             if 'data-industry-trend-report-section="true"' not in dashboard_text:
                 failures.append(f"dashboard missing industry trend report section: {dashboard_path}")
-            parser = _DashboardAttributeParser()
-            parser.feed(dashboard_text)
-            parser.close()
             required_attributes = tuple(hook.removesuffix("=") for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS)
             required_attribute_set = set(required_attributes)
-            present_attributes = set().union(*parser.attribute_sets) if parser.attribute_sets else set()
-            complete_sentiment_element = any(
-                required_attribute_set.issubset(attributes) for attributes in parser.attribute_sets
-            )
+            parser = _DashboardStructureParser(required_attribute_set)
+            parser.feed(dashboard_text)
+            parser.close()
             for hook, attribute in zip(DEMO_SENTIMENT_DASHBOARD_HOOKS, required_attributes):
-                if attribute not in present_attributes:
+                if attribute not in parser.present_attributes:
                     failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")
-            if required_attribute_set.issubset(present_attributes) and not complete_sentiment_element:
-                failures.append(f"dashboard missing complete industry sentiment element: {dashboard_path}")
+            if required_attribute_set.issubset(parser.present_attributes) and not parser.has_valid_sentiment_element:
+                failures.append(f"dashboard missing valid industry sentiment element: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")
