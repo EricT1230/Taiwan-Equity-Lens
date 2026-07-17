@@ -606,6 +606,32 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-industry-turning-risk="experimental"', html)
         self.assertIn('data-industry-sentiment-sort="true"', html)
         self.assertIn('data-industry-sentiment-grid="true"', html)
+        dataset_contract = {
+            "score": (
+                'data-industry-sentiment-score="34.2"',
+                "industrySentimentScore",
+            ),
+            "change": (
+                'data-industry-sentiment-change="13.2"',
+                "industrySentimentChange",
+            ),
+            "peak_risk": (
+                'data-industry-sentiment-peak-risk="72.0"',
+                "industrySentimentPeakRisk",
+            ),
+            "trough_risk": (
+                'data-industry-sentiment-trough-risk="18.0"',
+                "industrySentimentTroughRisk",
+            ),
+            "confidence": (
+                'data-industry-sentiment-confidence-order="3"',
+                "industrySentimentConfidenceOrder",
+            ),
+        }
+        for key, (rendered_attribute, dataset_property) in dataset_contract.items():
+            with self.subTest(sort_key=key):
+                self.assertIn(rendered_attribute, html)
+                self.assertIn(f"{key}: '{dataset_property}'", html)
         self.assertIn('value="score" selected', html)
         self.assertIn('value="change"', html)
         self.assertIn('value="peak_risk"', html)
@@ -777,13 +803,21 @@ const source = (grid) => ({
   }
 });
 const order = (grid) => grid.cards.map((item) => item.dataset.marketIntelligenceIndustry);
-const attributes = {
-  score: 'sentimentScore',
-  change: 'sentimentChange',
-  peak_risk: 'sentimentPeakRisk',
-  trough_risk: 'sentimentTroughRisk',
-  confidence: 'sentimentConfidenceOrder'
+const renderedAttributes = {
+  score: 'data-industry-sentiment-score',
+  change: 'data-industry-sentiment-change',
+  peak_risk: 'data-industry-sentiment-peak-risk',
+  trough_risk: 'data-industry-sentiment-trough-risk',
+  confidence: 'data-industry-sentiment-confidence-order'
 };
+const datasetProperty = (attribute) => attribute
+  .replace(/^data-/, '')
+  .split('-')
+  .map((part, index) => index === 0 ? part : part[0].toUpperCase() + part.slice(1))
+  .join('');
+const attributes = Object.fromEntries(
+  Object.entries(renderedAttributes).map(([key, attribute]) => [key, datasetProperty(attribute)])
+);
 
 for (const [key, selectedAttribute] of Object.entries(attributes)) {
   const targetData = {};

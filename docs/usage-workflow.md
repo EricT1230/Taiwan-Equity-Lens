@@ -493,7 +493,7 @@ python -m taiwan_stock_analysis.cli research sentiment-backtest .tmp-v053-demo/m
 python -m taiwan_stock_analysis.cli doctor release --version 0.53.0
 ```
 
-`doctor demo` checks required demo files, sentiment history headers and rows, report sentiment fields, and dashboard hooks without modifying output. The one-day synthetic demo should produce an experimental backtest with failed minimum-history gates, not a calibrated result. `doctor release` checks the package version, README badge, changelog entry, release notes, and local documentation links; it does not prove that a live external-data collection succeeded.
+`doctor demo` checks required artifact presence, requires a nonempty sentiment-history CSV with the exact required headers and nonblank data rows, and checks that rendered dashboard sentiment-card start tags contain the complete stable hook set. It does not parse or validate sentiment fields inside `market_intelligence_report.json`. The one-day synthetic demo should produce an experimental backtest with failed minimum-history gates, not a calibrated result. `doctor release` checks the package version, README badge, changelog entry, release notes, and local documentation links; it does not prove that a live external-data collection succeeded.
 
 The research workbench is for organizing local research review. Memo drafts help structure review work, but they do not provide buy, sell, hold, or allocation recommendations.
 

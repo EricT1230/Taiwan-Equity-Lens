@@ -658,12 +658,12 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       const grid = source.querySelector('[data-industry-sentiment-grid="true"]');
       if (!grid) return;
       const attribute = {{
-        score: 'sentimentScore',
-        change: 'sentimentChange',
-        peak_risk: 'sentimentPeakRisk',
-        trough_risk: 'sentimentTroughRisk',
-        confidence: 'sentimentConfidenceOrder'
-      }}[key] || 'sentimentScore';
+        score: 'industrySentimentScore',
+        change: 'industrySentimentChange',
+        peak_risk: 'industrySentimentPeakRisk',
+        trough_risk: 'industrySentimentTroughRisk',
+        confidence: 'industrySentimentConfidenceOrder'
+      }}[key] || 'industrySentimentScore';
       const cards = Array.from(grid.querySelectorAll('[data-industry-sentiment]'));
       cards.sort((left, right) => {{
         const leftValue = left.dataset[attribute];

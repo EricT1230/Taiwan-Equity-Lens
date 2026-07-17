@@ -153,11 +153,27 @@ Every downgrade adds a human-readable warning.
 
 ### Cycle phase
 
-Cycle classification is ordered and deterministic. The latest three valid daily snapshots, including the current snapshot, produce an ordinary least-squares `recent_slope`: positive at `>= +2` sentiment points per session, negative at `<= -2`, and flat otherwise. It is unavailable below three snapshots. Breadth expands when `breadth_5d - breadth_20d >= 0.10` and contracts at `<= -0.10`.
+Cycle classification is ordered and deterministic. The latest three valid daily composite snapshots, including the current snapshot, produce an ordinary least-squares `recent_slope`. It is positive at `>= +2` sentiment points per session, negative at `<= -2`, and flat otherwise. It is unavailable with fewer than three snapshots. Rules that require `recent_slope` do not fire when it is unavailable; they fall through to `consolidation` instead of inferring direction from the 5D/20D change.
 
-Crowding is diagnosed when the top-quartile ranking streak is at least 5, repeated-topic concentration is at least `60%`, or the average 5D volume ratio is at least `1.8` while the absolute score is at least 60. Deceleration requires a score of at least 50, a positive prior three-snapshot slope, and a current slope decline of at least `50%`; the negative-score rule is symmetric.
+Breadth expands when `breadth_5d - breadth_20d >= 0.10` and contracts when the difference is `<= -0.10`. A crowding warning exists when any of these exact conditions holds:
 
-Rules run in this order: `overheating`, `capitulation`, `recovery`, `ignition`, `expansion`, `cooling`, then `consolidation`. Rules requiring `recent_slope` do not fire when the slope is unavailable. Ranking streak uses consecutive prior/current snapshots only and is never reconstructed from future information.
+- top-quartile ranking streak `>= 5`;
+- repeated-topic news concentration `>= 60%`;
+- average 5D volume ratio `>= 1.8` while the absolute composite score is at least `60`.
+
+A deceleration warning exists when the score is at least `50`, the prior three-snapshot slope was positive, and the current slope has fallen by at least `50%`. The negative-score rule is symmetric.
+
+The seven predicates are evaluated in this exact order:
+
+1. `overheating`: (`score >= 70` or (`trailing percentile >= 90` and ranking streak `>= 3`)) and at least one crowding or deceleration warning.
+2. `capitulation`: score `<= -60` and `recent_slope` is negative.
+3. `recovery`: score `<= 20`, change `>= 10`, and `recent_slope` is positive.
+4. `ignition`: `-20 <= score < 40`, change `>= 10`, `recent_slope` is positive, and breadth is expanding.
+5. `expansion`: `20 <= score < 70`, `recent_slope` is positive, and 5D breadth is at least `55%`.
+6. `cooling`: score `> -20` and either change `<= -10`, or `recent_slope` is negative while breadth contracts.
+7. `consolidation`: none of the earlier predicates matches.
+
+Ranking streak counts consecutive snapshots in which the industry is in the top sentiment quartile. It uses only prior/current snapshots and is never reconstructed from future information.
 
 ### History and experimental projection
 
@@ -174,11 +190,52 @@ The interval uses `robust_sigma = 1.4826 * MAD` from one-step residuals and disp
 
 ### Peak/trough risk and validation boundary
 
-Turning risk is suppressed below `60` valid snapshots. At or above that gate, peak and trough risk are bounded 0-100 diagnostic sums of level (`0-25`), momentum (`0-25`), breadth (`0-20`), flow (`0-15`), and crowding/capitulation (`0-15`). Until calibration, these values are named `risk`, never `probability`, and `calibrated_probability` remains `null`.
+Turning risk is suppressed below `60` valid snapshots. At or above that gate, define the current and prior slopes plus diagnostic contributions exactly as follows:
 
-The diagnostic window is `1_to_3_days` at risk `>= 70` with at least three agreeing families, `4_to_7_days` at risk `50-69` with at least two, and `unclear` otherwise. Agreement thresholds are level `10`, momentum `10`, breadth `8`, flow `6`, and crowding/capitulation `6`. If peak and trough both exceed 50, direction and window are `unclear` and the report warns about regime uncertainty. A window is an experimental diagnostic category, not an exact turning date.
+```text
+slope_now = (score_t - score_t_minus_2) / 2
+slope_prior = (score_t_minus_3 - score_t_minus_5) / 2
 
-Future peak/trough labels exist only in `research sentiment-backtest`. Validation uses expanding-window walk-forward evaluation by date; random train/test splits are prohibited. Promotion from `experimental` requires all of these gates:
+level_peak = 15 * clamp((score_t - 50) / 30, 0, 1)
+           + 10 * clamp((percentile_t - 80) / 15, 0, 1)
+level_trough = 15 * clamp((-score_t - 40) / 30, 0, 1)
+             + 10 * clamp((20 - percentile_t) / 15, 0, 1)
+
+momentum_peak = 25 * clamp(
+    (slope_prior - slope_now) / max(abs(slope_prior), 2), 0, 1
+) when slope_prior > 0, otherwise 0
+momentum_trough = 25 * clamp(
+    (slope_now - slope_prior) / max(abs(slope_prior), 2), 0, 1
+) when slope_prior < 0, otherwise 0
+
+breadth_peak = 20 * clamp((breadth_20d - breadth_5d) / 0.20, 0, 1)
+               when score_t > 20, otherwise 0
+breadth_trough = 20 * clamp((breadth_5d - breadth_20d) / 0.20, 0, 1)
+                 when score_t < -20, otherwise 0
+
+flow_peak = 15 * clamp((flow_score_20d - flow_score_5d) / 40, 0, 1)
+            when score_t > 20, otherwise 0
+flow_trough = 15 * clamp((flow_score_5d - flow_score_20d) / 40, 0, 1)
+              when score_t < -20, otherwise 0
+```
+
+`percentile_t` uses the prior `60` valid snapshots plus the current snapshot; it never uses a future value. Peak crowding adds exactly 5 points for each true condition:
+
+- top-quartile streak `>= 5`;
+- repeated positive-topic concentration `>= 60%`;
+- average 5D volume ratio `>= 1.8` with positive 5D return.
+
+Trough capitulation is symmetric and adds exactly 5 points each for bottom-quartile streak `>= 5`, repeated negative-topic concentration `>= 60%`, and average 5D volume ratio `>= 1.8` with negative 5D return.
+
+Peak risk is the bounded 0-100 sum of positive level/percentile (`0-25`), positive slope losing momentum (`0-25`), breadth deterioration (`0-20`), institutional-flow reversal (`0-15`), and crowding (`0-15`). Trough risk uses the symmetric negative level, downside deceleration, breadth recovery, selling exhaustion, and capitulation contributions with the same family caps. Each family is capped at its stated maximum.
+
+A family agrees when its contribution reaches `40%` of its maximum: level `10`, momentum `10`, breadth `8`, flow `6`, and crowding/capitulation `6`. The window is `1_to_3_days` when risk `>= 70` and at least three families agree; `4_to_7_days` when risk is `50-69` and at least two families agree; and `unclear` otherwise. Direction is `peak` or `trough` for the qualifying side with higher risk. It is `unclear` when neither side qualifies or both sides exceed `50`. When both exceed `50`, the window is also `unclear` and a regime-uncertainty warning is required. Peak and trough risk may both be low.
+
+Until calibration, these bounded 0-100 values are named `risk`, never `probability`, and `calibrated_probability` remains `null`. A window is an experimental diagnostic category, not a price target or exact turning date.
+
+Future peak/trough labels exist only in `research sentiment-backtest`. A validation-only sentiment peak is the local maximum in a `+/-5`-session window followed by a fall of at least `15` points over the next five sessions. A trough is the symmetric local minimum followed by a rise of at least `15` points over the next five sessions. Runtime features and stable history never contain these future labels.
+
+Validation uses expanding-window walk-forward evaluation by date; random train/test splits are prohibited. Each prediction receives only observations through its prediction date, so validation labels never leak into runtime inputs. Promotion from `experimental` requires all of these gates:
 
 - at least `252` market sessions;
 - at least `30` peak and `30` trough events in the pooled validation universe;

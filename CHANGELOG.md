@@ -15,7 +15,7 @@ Industry Sentiment Cycle / experimental turning-risk shadow release.
 
 ### Changed
 - The post-v0.50 Market Intelligence/importer foundation now collects up to 20 official TWSE and TPEx institutional-flow sessions, retains partial market/date errors, and joins net shares only to matching stock/date rows with positive traded-share volume.
-- Demo and release doctors now validate sentiment report fields, history schema/content, dashboard hooks, release metadata, and local documentation links.
+- Demo doctor now checks required artifact presence, a strictly headed nonempty sentiment-history CSV with nonblank rows, and complete stable hooks on rendered sentiment-card start tags; it does not parse Market Intelligence sentiment JSON. Release doctor checks release metadata and local documentation links.
 - README, examples, methodology, data-source, workflow, disclaimer, release notes, and package version now target `v0.53.0`.
 
 ### Boundaries

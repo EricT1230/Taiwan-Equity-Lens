@@ -104,7 +104,7 @@ Runtime Market Intelligence reports load only sentiment snapshots dated on or be
 - TWSE monthly `STOCK_DAY` daily price history.
 - TPEx `mopsfin_t187ap03_O` company profiles and `mopsfin_t187ap14_O` industry names.
 - TPEx monthly `tradingStock` daily price history.
-- TWSE T86 and TPEx `tpex_3insti_daily_trading` institutional flow.
+- TWSE T86 and TPEx `POST /www/zh-tw/insti/dailyTrade` institutional flow history (`type=Daily`, `sect=EW`, `date=YYYY/MM/DD`, `response=json`).
 
 The importer preserves both research taxonomy and official taxonomy. It writes official market, industry code, and industry name into a separate enriched research CSV. Blank or `Uncategorized` categories adopt the official industry name; existing analytical categories are only replaced when explicitly requested.
 
