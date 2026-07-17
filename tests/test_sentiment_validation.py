@@ -101,6 +101,56 @@ class SentimentTurningLabelTests(unittest.TestCase):
             ["2026-01-11"],
         )
 
+    def test_label_window_requires_finite_prior_center_and_future_scores(self) -> None:
+        scores = [
+            40,
+            45,
+            50,
+            55,
+            60,
+            65,
+            66,
+            67,
+            68,
+            70,
+            80,
+            70,
+            68,
+            66,
+            65,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+        ]
+        cases = (
+            ("missing_prior", 8, None, True),
+            ("nonfinite_prior", 8, float("inf"), False),
+            ("missing_center", 10, None, True),
+            ("nonfinite_center", 10, float("nan"), False),
+            ("missing_future", 12, None, True),
+            ("nonfinite_future", 12, float("-inf"), False),
+        )
+
+        for name, index, value, remove_field in cases:
+            with self.subTest(case=name):
+                rows = self.rows(scores)
+                if remove_field:
+                    rows[index].pop("score_5d")
+                else:
+                    rows[index]["score_5d"] = value
+
+                labels = label_turning_events(rows)
+                center = next(
+                    row for row in labels if row["as_of_date"] == "2026-01-11"
+                )
+
+                self.assertFalse(center["label_window_complete"])
+                self.assertFalse(center["peak_label"])
+                self.assertFalse(center["trough_label"])
+
     def test_grouping_is_exact_and_each_group_is_sorted_by_iso_date(self) -> None:
         peak_rows = self.rows(
             [40, 45, 50, 55, 60, 65, 66, 67, 68, 70, 80, 70, 68, 66, 65, 64, 65, 66, 67, 68, 69],
@@ -287,6 +337,61 @@ class SentimentValidationReportTests(unittest.TestCase):
             sum(row["observation_count"] for row in report["holdouts"]),
             1,
         )
+
+    def test_invalid_future_score_excludes_finite_center_risk_from_evaluation(self) -> None:
+        rows = SentimentWalkForwardTests.rows(65)
+        rows[54]["score_5d"] = 60.0
+        rows[55]["score_5d"] = 65.0
+        rows[56]["score_5d"] = 70.0
+        rows[57]["score_5d"] = 75.0
+        rows[58]["score_5d"] = 79.0
+        rows[59]["score_5d"] = 80.0
+        rows[60]["score_5d"] = 70.0
+        rows[61]["score_5d"] = 68.0
+        rows[62].pop("score_5d")
+        rows[63]["score_5d"] = 65.0
+        rows[64]["score_5d"] = 64.0
+
+        with patch(
+            "taiwan_stock_analysis.sentiment_validation.calculate_turning_risk",
+            return_value={"peak_risk": 90.0, "trough_risk": 10.0},
+        ):
+            predictions = walk_forward_predictions(rows)
+            report = build_sentiment_validation_report(rows)
+
+        center = next(
+            row for row in predictions if row["as_of_date"] == "2026-03-01"
+        )
+        self.assertEqual(center["peak_probability"], 0.9)
+        self.assertFalse(center["label_window_complete"])
+        self.assertFalse(center["peak_label"])
+        self.assertEqual(report["prediction_count"], 6)
+        self.assertEqual(report["leakage_audit"]["prediction_count"], 6)
+        for target in ("peak", "trough"):
+            target_metrics = report["metrics"][target]
+            self.assertEqual(target_metrics["observation_count"], 0)
+            self.assertIsNone(target_metrics["brier_score"])
+            self.assertIsNone(target_metrics["unconditional_brier_score"])
+            for threshold in ("0.50", "0.70"):
+                self.assertEqual(
+                    target_metrics["thresholds"][threshold]
+                    ["predicted_positive_count"],
+                    0,
+                )
+        self.assertEqual(report["peak_event_count"], 0)
+        self.assertEqual(report["trough_event_count"], 0)
+        self.assertEqual(
+            sum(row["observation_count"] for row in report["holdouts"]),
+            0,
+        )
+        for check in (
+            "minimum_peak_events",
+            "minimum_trough_events",
+            "peak_brier_beats_baseline",
+            "trough_brier_beats_baseline",
+            "two_stable_holdouts",
+        ):
+            self.assertFalse(report["promotion_checks"][check])
 
     def test_informative_large_walk_forward_report_passes_mechanical_gates(self) -> None:
         with patch(

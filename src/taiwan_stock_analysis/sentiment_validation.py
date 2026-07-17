@@ -112,7 +112,6 @@ def label_turning_events(
                 labeled.append(result)
                 continue
 
-            result["label_window_complete"] = True
             window = scores[index - radius : index + radius + 1]
             future = scores[index + 1 : index + radius + 1]
             current = scores[index]
@@ -120,6 +119,7 @@ def label_turning_events(
                 labeled.append(result)
                 continue
 
+            result["label_window_complete"] = True
             numeric_window = [float(score) for score in window]
             numeric_future = [float(score) for score in future]
             earlier = numeric_window[:radius]
