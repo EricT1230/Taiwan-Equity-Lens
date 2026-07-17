@@ -219,7 +219,7 @@ flow_trough = 15 * clamp((flow_score_5d - flow_score_20d) / 40, 0, 1)
               when score_t < -20, otherwise 0
 ```
 
-`percentile_t` uses the prior `60` valid snapshots plus the current snapshot; it never uses a future value. Peak crowding adds exactly 5 points for each true condition:
+`percentile_t` uses up to the prior `60` valid snapshots plus the current snapshot. At the 60-snapshot activation boundary, it uses all 60 available observations (59 prior snapshots plus the current snapshot). From 61 snapshots onward, it uses exactly 60 prior snapshots plus the current snapshot and excludes anything older. It never uses a future value. The public diagnostic key remains `percentile_60d` for compatibility even though the full rolling calculation contains 61 observations. Peak crowding adds exactly 5 points for each true condition:
 
 - top-quartile streak `>= 5`;
 - repeated positive-topic concentration `>= 60%`;

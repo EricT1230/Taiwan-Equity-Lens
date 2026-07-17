@@ -604,7 +604,21 @@ class TurningRiskDiagnosticTests(unittest.TestCase):
         self.assertTrue(any("breadth" in warning for warning in risk["warnings"]))
         self.assertTrue(any("flow" in warning for warning in risk["warnings"]))
 
-    def test_percentile_uses_exactly_latest_sixty_valid_days(self) -> None:
+    def test_percentile_uses_all_sixty_rows_at_activation_boundary(self) -> None:
+        rows = _score_rows(60, start=0.0, step=1.0)
+        rows[-1]["score_5d"] = 30.0
+        rows[-1]["baseline_20d"] = 30.0
+
+        risk = calculate_turning_risk(rows)
+
+        self.assertEqual(risk["status"], "experimental")
+        self.assertEqual(risk["history_days"], 60)
+        self.assertAlmostEqual(
+            risk["diagnostics"]["percentile_60d"],
+            100.0 * 32.0 / 60.0,
+        )
+
+    def test_percentile_uses_prior_sixty_plus_current_at_sixty_one_rows(self) -> None:
         rows = _score_rows(61, start=0.0, step=1.0)
         rows[-1]["score_5d"] = 30.0
         rows[-1]["baseline_20d"] = 30.0
@@ -613,7 +627,29 @@ class TurningRiskDiagnosticTests(unittest.TestCase):
 
         self.assertAlmostEqual(
             risk["diagnostics"]["percentile_60d"],
-            100.0 * 31.0 / 60.0,
+            100.0 * 32.0 / 61.0,
+        )
+
+    def test_percentile_excludes_rows_older_than_prior_sixty(self) -> None:
+        low_extreme_rows = _score_rows(62, start=0.0, step=1.0)
+        high_extreme_rows = deepcopy(low_extreme_rows)
+        low_extreme_rows[0]["score_5d"] = -100.0
+        low_extreme_rows[0]["baseline_20d"] = -100.0
+        high_extreme_rows[0]["score_5d"] = 100.0
+        high_extreme_rows[0]["baseline_20d"] = 100.0
+        for rows in (low_extreme_rows, high_extreme_rows):
+            rows[-1]["score_5d"] = 30.0
+            rows[-1]["baseline_20d"] = 30.0
+
+        low_extreme_risk = calculate_turning_risk(low_extreme_rows)
+        high_extreme_risk = calculate_turning_risk(high_extreme_rows)
+
+        expected = 100.0 * 31.0 / 61.0
+        self.assertAlmostEqual(
+            low_extreme_risk["diagnostics"]["percentile_60d"], expected
+        )
+        self.assertAlmostEqual(
+            high_extreme_risk["diagnostics"]["percentile_60d"], expected
         )
 
     def test_level_family_matches_hand_calculation(self) -> None:

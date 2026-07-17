@@ -677,7 +677,7 @@ def _risk_contributions(
     canonical_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, float], dict[str, float], dict[str, Any], list[str]]:
     current, score = rows[-1]
-    scores = [value for _, value in rows[-60:]]
+    scores = [value for _, value in rows[-61:]]
     percentile = 100.0 * sum(value <= score for value in scores) / len(scores)
     slope_now = (scores[-1] - scores[-3]) / 2.0
     slope_prior = (scores[-4] - scores[-6]) / 2.0
