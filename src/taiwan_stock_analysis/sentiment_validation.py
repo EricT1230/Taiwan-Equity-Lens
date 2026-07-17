@@ -17,6 +17,52 @@ _MINIMUM_RISK_OBSERVATIONS = 60
 _PROMOTION_MINIMUM_SESSIONS = 252
 _PROMOTION_MINIMUM_EVENTS = 30
 _EVALUATION_THRESHOLDS = (0.50, 0.70)
+_VALIDATION_ONLY_FIELDS = {
+    "peak_label",
+    "trough_label",
+    "label_window_complete",
+}
+
+
+def _composite_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("as_of_date") or ""),
+        str(row.get("category") or ""),
+        str(row.get("methodology_version") or ""),
+    )
+
+
+def _rows_are_identical(
+    left: Mapping[str, Any], right: Mapping[str, Any]
+) -> bool:
+    return left.keys() == right.keys() and all(
+        type(left[field]) is type(right[field]) and left[field] == right[field]
+        for field in left
+    )
+
+
+def _canonicalize_rows(
+    rows: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    canonical: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for source in rows:
+        row = {
+            field: value
+            for field, value in source.items()
+            if field not in _VALIDATION_ONLY_FIELDS
+        }
+        key = _composite_key(row)
+        existing = canonical.get(key)
+        if existing is None:
+            canonical[key] = row
+            continue
+        if not _rows_are_identical(existing, row):
+            raise ValueError(
+                "conflicting duplicate sentiment history composite key "
+                f"(as_of_date={key[0]!r}, category={key[1]!r}, "
+                f"methodology_version={key[2]!r})"
+            )
+    return [canonical[key] for key in sorted(canonical)]
 
 
 def _group_copies(
@@ -50,7 +96,7 @@ def label_turning_events(
     rows: Iterable[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Return copied rows with validation-only future peak/trough labels."""
-    grouped = _group_copies(rows)
+    grouped = _group_copies(_canonicalize_rows(rows))
 
     labeled: list[dict[str, Any]] = []
     radius = _LABEL_WINDOW_SESSIONS
@@ -61,10 +107,12 @@ def label_turning_events(
             result = dict(row)
             result["peak_label"] = False
             result["trough_label"] = False
+            result["label_window_complete"] = False
             if index < radius or index + radius >= len(group_rows):
                 labeled.append(result)
                 continue
 
+            result["label_window_complete"] = True
             window = scores[index - radius : index + radius + 1]
             future = scores[index + 1 : index + radius + 1]
             current = scores[index]
@@ -104,7 +152,7 @@ def walk_forward_predictions(
     rows: Iterable[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Calculate current-inclusive risk without exposing future labels as features."""
-    labels = label_turning_events(rows)
+    labels = label_turning_events(_canonicalize_rows(rows))
     grouped = _group_copies(labels)
     predictions: list[dict[str, Any]] = []
     for key in sorted(grouped):
@@ -114,7 +162,12 @@ def walk_forward_predictions(
                 {
                     field: value
                     for field, value in row.items()
-                    if field not in {"peak_label", "trough_label"}
+                    if field
+                    not in {
+                        "peak_label",
+                        "trough_label",
+                        "label_window_complete",
+                    }
                 }
                 for row in group_rows[: index + 1]
             ]
@@ -135,6 +188,9 @@ def walk_forward_predictions(
                     "trough_probability": _risk_probability(risk.get("trough_risk")),
                     "peak_label": bool(current.get("peak_label")),
                     "trough_label": bool(current.get("trough_label")),
+                    "label_window_complete": bool(
+                        current.get("label_window_complete")
+                    ),
                 }
             )
 
@@ -148,6 +204,10 @@ def walk_forward_predictions(
     assert all(
         row["feature_max_date"] <= row["as_of_date"] for row in predictions
     ), "walk-forward leakage audit failed"
+    prediction_keys = [_composite_key(row) for row in predictions]
+    assert len(prediction_keys) == len(set(prediction_keys)), (
+        "walk-forward predictions contain duplicate composite keys"
+    )
     return predictions
 
 
@@ -158,6 +218,8 @@ def _target_metrics(
     label_field = f"{target}_label"
     observations: list[tuple[float, bool]] = []
     for row in predictions:
+        if not bool(row.get("label_window_complete")):
+            continue
         probability = row.get(probability_field)
         if isinstance(probability, bool) or not isinstance(probability, (int, float)):
             continue
@@ -265,12 +327,15 @@ def build_sentiment_validation_report(
     rows: Iterable[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Build experimental metrics and mechanical promotion-readiness checks."""
-    source_rows = [dict(row) for row in rows]
+    source_rows = _canonicalize_rows(rows)
     predictions = walk_forward_predictions(source_rows)
+    evaluation_predictions = [
+        row for row in predictions if row["label_window_complete"]
+    ]
     session_count = len({str(row.get("as_of_date") or "") for row in source_rows})
     metrics = {
-        "peak": _target_metrics(predictions, "peak"),
-        "trough": _target_metrics(predictions, "trough"),
+        "peak": _target_metrics(evaluation_predictions, "peak"),
+        "trough": _target_metrics(evaluation_predictions, "trough"),
     }
     peak_event_count = int(metrics["peak"]["event_count"])
     trough_event_count = int(metrics["trough"]["event_count"])
@@ -287,7 +352,7 @@ def build_sentiment_validation_report(
     no_lookahead = not violations and all(
         bool(row.get("no_lookahead")) for row in predictions
     )
-    holdouts = _chronological_holdouts(predictions)
+    holdouts = _chronological_holdouts(evaluation_predictions)
     promotion_checks = {
         "minimum_sessions": session_count >= _PROMOTION_MINIMUM_SESSIONS,
         "minimum_peak_events": peak_event_count >= _PROMOTION_MINIMUM_EVENTS,

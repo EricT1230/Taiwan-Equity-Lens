@@ -1,3 +1,4 @@
+import csv
 from datetime import date, timedelta
 import json
 from pathlib import Path
@@ -83,6 +84,10 @@ class SentimentTurningLabelTests(unittest.TestCase):
                 for row in boundary_rows
             )
         )
+        self.assertEqual(
+            [row["label_window_complete"] for row in labels],
+            [False] * 5 + [True] * 11 + [False] * 5,
+        )
 
     def test_tied_plateau_labels_only_earliest_peak(self) -> None:
         rows = self.rows(
@@ -162,7 +167,9 @@ class SentimentWalkForwardTests(unittest.TestCase):
             self.assertTrue(prediction["no_lookahead"])
             self.assertTrue(
                 all(
-                    "peak_label" not in row and "trough_label" not in row
+                    "peak_label" not in row
+                    and "trough_label" not in row
+                    and "label_window_complete" not in row
                     for row in feature_rows
                 )
             )
@@ -237,6 +244,48 @@ class SentimentValidationReportTests(unittest.TestCase):
                 "trough_brier_beats_baseline",
                 "two_stable_holdouts",
             },
+        )
+
+    def test_final_five_predictions_are_excluded_from_evaluation_universe(self) -> None:
+        rows = SentimentWalkForwardTests.rows(65)
+        rows[54]["score_5d"] = 60.0
+        rows[55]["score_5d"] = 65.0
+        rows[56]["score_5d"] = 70.0
+        rows[57]["score_5d"] = 75.0
+        rows[58]["score_5d"] = 79.0
+        rows[59]["score_5d"] = 80.0
+        rows[60]["score_5d"] = 70.0
+        rows[61]["score_5d"] = 68.0
+        rows[62]["score_5d"] = 66.0
+        rows[63]["score_5d"] = 65.0
+        rows[64]["score_5d"] = 64.0
+
+        with patch(
+            "taiwan_stock_analysis.sentiment_validation.calculate_turning_risk",
+            return_value={"peak_risk": 90.0, "trough_risk": 10.0},
+        ):
+            predictions = walk_forward_predictions(rows)
+            report = build_sentiment_validation_report(rows)
+
+        self.assertEqual(len(predictions), 6)
+        self.assertEqual(
+            [row["label_window_complete"] for row in predictions],
+            [True, False, False, False, False, False],
+        )
+        self.assertEqual(report["prediction_count"], 6)
+        self.assertEqual(report["leakage_audit"]["prediction_count"], 6)
+        self.assertEqual(report["metrics"]["peak"]["observation_count"], 1)
+        self.assertEqual(report["metrics"]["trough"]["observation_count"], 1)
+        self.assertEqual(report["peak_event_count"], 1)
+        self.assertEqual(report["trough_event_count"], 0)
+        self.assertEqual(
+            report["metrics"]["peak"]["thresholds"]["0.50"]
+            ["predicted_positive_count"],
+            1,
+        )
+        self.assertEqual(
+            sum(row["observation_count"] for row in report["holdouts"]),
+            1,
         )
 
     def test_informative_large_walk_forward_report_passes_mechanical_gates(self) -> None:
@@ -322,6 +371,76 @@ class SentimentValidationWriterTests(unittest.TestCase):
                     for row in load_sentiment_history(history_path)
                 )
             )
+
+
+class SentimentValidationDuplicateTests(unittest.TestCase):
+    def test_identical_duplicates_including_final_row_collapse_once(self) -> None:
+        rows = SentimentWalkForwardTests.rows(65)
+        duplicated = [*rows, dict(rows[10]), dict(rows[-1])]
+        original = [dict(row) for row in duplicated]
+
+        with patch(
+            "taiwan_stock_analysis.sentiment_validation.calculate_turning_risk",
+            return_value={"peak_risk": 20.0, "trough_risk": 20.0},
+        ):
+            labels = label_turning_events(duplicated)
+            predictions = walk_forward_predictions(duplicated)
+            report = build_sentiment_validation_report(duplicated)
+
+        prediction_keys = [
+            (
+                row["as_of_date"],
+                row["category"],
+                row["methodology_version"],
+            )
+            for row in predictions
+        ]
+        self.assertEqual(len(labels), 65)
+        self.assertEqual(len(predictions), 6)
+        self.assertEqual(len(prediction_keys), len(set(prediction_keys)))
+        self.assertEqual(report["session_count"], 65)
+        self.assertEqual(report["prediction_count"], 6)
+        self.assertEqual(duplicated, original)
+
+    def test_conflicting_final_duplicate_raises_with_composite_key(self) -> None:
+        rows = SentimentWalkForwardTests.rows(65)
+        conflict = dict(rows[-1])
+        conflict["score_5d"] = 99.0
+        duplicated = [*rows, conflict]
+        expected = (
+            r"conflicting duplicate.*composite key.*2026-03-06.*"
+            r"Semiconductor.*industry-sentiment-v1"
+        )
+
+        for operation in (
+            label_turning_events,
+            walk_forward_predictions,
+            build_sentiment_validation_report,
+        ):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaisesRegex(ValueError, expected):
+                    operation(duplicated)
+
+    def test_writer_propagates_conflicting_duplicate_failure(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            history_path = root / "industry_sentiment_history.csv"
+            output_path = root / "validation.json"
+            first = SentimentValidationWriterTests.history_row("2026-07-17")
+            conflict = dict(first)
+            conflict["score_5d"] = 60.0
+            with history_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=SENTIMENT_HISTORY_COLUMNS)
+                writer.writeheader()
+                writer.writerows([first, conflict])
+
+            with self.assertRaisesRegex(
+                ValueError,
+                r"conflicting duplicate.*composite key.*2026-07-17.*半導體.*industry-sentiment-v1",
+            ):
+                write_sentiment_validation_report(history_path, output_path)
+
+            self.assertFalse(output_path.exists())
 
 
 if __name__ == "__main__":
