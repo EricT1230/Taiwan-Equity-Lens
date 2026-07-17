@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from taiwan_stock_analysis.industry_sentiment import (
     NewsSentimentReviewer,
+    _current_sentiment_snapshot,
     build_industry_sentiment_base,
     classify_sentiment_cycle,
     classify_sentiment_label,
@@ -12,6 +13,7 @@ from taiwan_stock_analysis.industry_sentiment import (
     score_news_component,
     score_price_component,
 )
+from taiwan_stock_analysis.sentiment_history import SENTIMENT_HISTORY_COLUMNS
 from taiwan_stock_analysis.sentiment_lexicon import (
     INTENSIFIERS,
     LEXICON_VERSION,
@@ -1233,7 +1235,7 @@ class SentimentCycleTests(unittest.TestCase):
 
                 self.assertEqual(cycle["ranking_streak"], 3)
 
-    def test_finalize_attaches_rank_phase_and_diagnostics_without_forecast(self):
+    def test_finalize_attaches_shadow_payloads_without_hiding_current_score(self):
         assessment = self.assessment(35.0)
         assessment.update(
             {
@@ -1256,8 +1258,81 @@ class SentimentCycleTests(unittest.TestCase):
         self.assertEqual(finalized["ranked_count"], 8)
         self.assertEqual(finalized["cycle_phase"], "expansion")
         self.assertEqual(finalized["cycle_diagnostics"]["recent_slope"], 7.5)
-        self.assertNotIn("forecast", finalized)
-        self.assertNotIn("turning_risk", finalized)
+        self.assertEqual(finalized["score_5d"], 35.0)
+        self.assertEqual(finalized["forecast"]["status"], "insufficient_history")
+        self.assertEqual(
+            finalized["turning_risk"]["status"], "insufficient_history"
+        )
+        self.assertIsNone(
+            finalized["turning_risk"]["calibrated_probability"]
+        )
+
+    def test_current_forecast_snapshot_uses_the_stable_history_shape(self):
+        assessment = self.assessment(35.0)
+        assessment["category"] = "Semiconductor"
+
+        snapshot = _current_sentiment_snapshot(assessment)
+
+        self.assertEqual(set(snapshot), set(SENTIMENT_HISTORY_COLUMNS))
+        self.assertEqual(snapshot["category"], "Semiconductor")
+
+    def test_finalize_appends_current_stable_snapshot_to_prior_history(self):
+        prior_scores = [
+            *[-30.0 + 0.5 * index for index in range(54)],
+            30.0,
+            45.0,
+            60.0,
+            75.0,
+            76.0,
+        ]
+        prior = self.history(prior_scores, rank=1, ranked_count=8)
+        for row in prior:
+            row["baseline_20d"] = row["score_5d"]
+        assessment = self.assessment(
+            77.0,
+            breadth_5d=0.50,
+            breadth_20d=0.80,
+            topic_concentration=0.65,
+            volume_ratio_5d=2.0,
+        )
+        assessment.update(
+            {
+                "as_of_date": "2026-09-01",
+                "status": "ready",
+                "baseline_20d": 77.0,
+                "confidence": "high",
+                "warnings": [],
+                "reasons": [],
+            }
+        )
+        assessment["components"]["price"]["return_5d"] = 1.0
+        assessment["components"]["news"].update(
+            {
+                "score_5d": 65.0,
+                "positive_topic_concentration": 0.65,
+                "negative_topic_concentration": 0.10,
+            }
+        )
+        assessment["components"]["fund_flow"].update(
+            {"score_5d": 0.0, "score_20d": 50.0}
+        )
+
+        finalized = finalize_industry_sentiment(
+            assessment,
+            prior_history=prior,
+            rank=1,
+            ranked_count=8,
+        )
+
+        self.assertEqual(len(prior), 59)
+        self.assertEqual(finalized["forecast"]["history_days"], 60)
+        self.assertEqual(finalized["forecast"]["status"], "experimental")
+        self.assertEqual(finalized["turning_risk"]["history_days"], 60)
+        self.assertEqual(finalized["turning_risk"]["status"], "experimental")
+        self.assertEqual(finalized["turning_risk"]["direction"], "peak")
+        self.assertIsNone(
+            finalized["turning_risk"]["calibrated_probability"]
+        )
 
 
 if __name__ == "__main__":

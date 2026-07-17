@@ -18,6 +18,10 @@ from taiwan_stock_analysis.sentiment_lexicon import (
     normalize_sentiment_text,
     score_news_text,
 )
+from taiwan_stock_analysis.sentiment_forecast import (
+    calculate_turning_risk,
+    project_sentiment,
+)
 
 
 METHODOLOGY_VERSION = "industry-sentiment-v1"
@@ -628,6 +632,49 @@ def classify_sentiment_cycle(
     )
 
 
+def _current_sentiment_snapshot(
+    assessment: Mapping[str, Any],
+) -> dict[str, Any]:
+    components = assessment.get("components")
+    components = components if isinstance(components, Mapping) else {}
+    news = components.get("news")
+    news = news if isinstance(news, Mapping) else {}
+    price = components.get("price")
+    price = price if isinstance(price, Mapping) else {}
+    fund_flow = components.get("fund_flow")
+    fund_flow = fund_flow if isinstance(fund_flow, Mapping) else {}
+    return {
+        "as_of_date": assessment.get("as_of_date"),
+        "category": assessment.get("category"),
+        "methodology_version": assessment.get("methodology_version"),
+        "status": assessment.get("status"),
+        "score_5d": assessment.get("score_5d"),
+        "baseline_20d": assessment.get("baseline_20d"),
+        "change": assessment.get("change"),
+        "news_score_5d": news.get("score_5d"),
+        "price_score_5d": price.get("score_5d"),
+        "fund_flow_score_5d": fund_flow.get("score_5d"),
+        "fund_flow_score_20d": fund_flow.get("score_20d"),
+        "price_return_5d": price.get("return_5d"),
+        "breadth_5d": price.get("breadth_5d"),
+        "breadth_20d": price.get("breadth_20d"),
+        "volume_ratio_5d": price.get("volume_ratio_5d"),
+        "flow_persistence_5d": fund_flow.get("persistence_5d"),
+        "news_novelty_5d": news.get("novelty"),
+        "news_topic_concentration_5d": news.get("topic_concentration"),
+        "news_positive_topic_concentration_5d": news.get(
+            "positive_topic_concentration"
+        ),
+        "news_negative_topic_concentration_5d": news.get(
+            "negative_topic_concentration"
+        ),
+        "rank": assessment.get("rank"),
+        "ranked_count": assessment.get("ranked_count"),
+        "cycle_phase": assessment.get("cycle_phase"),
+        "confidence": assessment.get("confidence"),
+    }
+
+
 def finalize_industry_sentiment(
     assessment: Mapping[str, Any],
     *,
@@ -643,4 +690,10 @@ def finalize_industry_sentiment(
     finalized["cycle_diagnostics"] = {
         key: value for key, value in cycle.items() if key != "phase"
     }
+    history_with_current = [
+        *prior_history,
+        _current_sentiment_snapshot(finalized),
+    ]
+    finalized["forecast"] = project_sentiment(history_with_current)
+    finalized["turning_risk"] = calculate_turning_risk(history_with_current)
     return finalized
