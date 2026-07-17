@@ -1129,6 +1129,65 @@ class MarketIntelligenceTests(unittest.TestCase):
             '<a href="http://example.test/news">' + escaped_title + "</a>",
         )
 
+    def test_event_links_reject_malformed_http_hosts_and_authorities(self):
+        escaped_title = "Unsafe event"
+        overlong_label = "a" * 64
+        overlong_dns_name = ".".join(["a" * 63] * 4)
+        unsafe_urls = (
+            "https://-bad-.example/news",
+            "https://example..com/news",
+            "https://exa_mple.com/news",
+            "https://evil.com%00.example/news",
+            "https://.example.com/news",
+            "https://evil.\x00example/news",
+            "https://evil.%0Aexample/news",
+            "https://exa mple.com/news",
+            "https://exa%20mple.com/news",
+            "https://example.com/news\x00item",
+            "https://example.com/news%09item",
+            "https://example.com/news%7Fitem",
+            f"https://{overlong_label}.example/news",
+            f"https://{overlong_dns_name}/news",
+            "https://999.999.999.999/news",
+            "https://01.2.3.4/news",
+            "https://1.2.3/news",
+            "https://0x7f000001/news",
+            "https://0x7f.0.0.1/news",
+            "https://user@example.com/news",
+            "https://user:secret@example.com/news",
+            "https://@example.com/news",
+            "https://example.com:/news",
+            "https://example.com:bad/news",
+            "https://example.com:65536/news",
+            "https://[2001:db8:::1]/news",
+            "https://2001:db8::1/news",
+            "https://[v1.bad]/news",
+        )
+
+        for url in unsafe_urls:
+            with self.subTest(url=repr(url)):
+                self.assertEqual(
+                    _event_link({"title": escaped_title, "url": url}),
+                    escaped_title,
+                )
+
+    def test_event_links_accept_valid_dns_idn_and_ip_hosts_without_rewriting_href(self):
+        title = "Valid event"
+        valid_urls = (
+            "https://sub-domain.example.test/news",
+            "https://example.com./news",
+            "https://例子.測試/新聞?left=1&right=2",
+            "http://192.0.2.10:8080/news",
+            "https://[2001:db8::1]:443/news",
+        )
+
+        for url in valid_urls:
+            with self.subTest(url=url):
+                self.assertEqual(
+                    _event_link({"title": title, "url": url}),
+                    f'<a href="{url.replace("&", "&amp;")}">{title}</a>',
+                )
+
     def test_quality_gate_blocks_missing_or_stale_sources(self):
         research = self.root / "stale-research.csv"
         research.write_text(

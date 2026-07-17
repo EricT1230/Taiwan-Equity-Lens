@@ -8,10 +8,11 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import escape
+from ipaddress import IPv4Address, IPv6Address
 from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -1319,18 +1320,98 @@ def _evidence_list_html(value: Any, *, empty_text: str) -> str:
 
 def _event_link(item: dict[str, Any]) -> str:
     title = escape(str(item.get("title") or "-"))
-    url = str(item.get("url") or "").strip()
-    if not url or any(character.isspace() for character in url) or "\\" in url:
-        return title
+    url = _safe_http_url(item.get("url"))
+    return f'<a href="{escape(url, quote=True)}">{title}</a>' if url else title
+
+
+def _safe_http_url(value: Any) -> str | None:
+    url = str(value or "").strip()
+    if (
+        not url
+        or "\\" in url
+        or any(character.isspace() for character in url)
+        or _has_control_character(url)
+    ):
+        return None
     try:
+        decoded_url = unquote(url, errors="strict")
         parsed = urlsplit(url)
         hostname = parsed.hostname
         parsed.port
-    except ValueError:
-        return title
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or not hostname:
-        return title
-    return f'<a href="{escape(url, quote=True)}">{title}</a>'
+    except (UnicodeError, ValueError):
+        return None
+    if (
+        _has_control_character(decoded_url)
+        or parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.netloc.endswith(":")
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or "@" in parsed.netloc
+        or not _valid_http_host(hostname, parsed.netloc)
+    ):
+        return None
+    return url
+
+
+def _valid_http_host(hostname: str, netloc: str) -> bool:
+    try:
+        normalized_host = unquote(hostname, errors="strict")
+    except UnicodeError:
+        return False
+    if (
+        not normalized_host
+        or _has_control_character(normalized_host)
+        or any(character.isspace() for character in normalized_host)
+    ):
+        return False
+
+    if netloc.startswith("["):
+        if "%" in normalized_host:
+            return False
+        try:
+            IPv6Address(normalized_host)
+        except ValueError:
+            return False
+        return True
+    if ":" in normalized_host:
+        return False
+
+    numeric_labels = normalized_host.split(".")
+    if all(
+        re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", label, flags=re.ASCII | re.IGNORECASE)
+        for label in numeric_labels
+    ):
+        try:
+            IPv4Address(normalized_host)
+        except ValueError:
+            return False
+        return True
+
+    try:
+        ascii_host = normalized_host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    if ascii_host.endswith("."):
+        ascii_host = ascii_host[:-1]
+    if not ascii_host or len(ascii_host.encode("ascii")) > 253:
+        return False
+    labels = ascii_host.split(".")
+    return all(
+        len(label.encode("ascii")) <= 63
+        and re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+            label,
+            flags=re.ASCII | re.IGNORECASE,
+        )
+        is not None
+        for label in labels
+    )
+
+
+def _has_control_character(value: str) -> bool:
+    return any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in value)
 
 
 def _context_lines(trend: dict[str, Any], news_count: int, flow: dict[str, Any]) -> list[str]:
