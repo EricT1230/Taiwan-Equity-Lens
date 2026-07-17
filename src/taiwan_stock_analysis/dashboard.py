@@ -666,8 +666,10 @@ def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = F
       }}[key] || 'sentimentScore';
       const cards = Array.from(grid.querySelectorAll('[data-industry-sentiment]'));
       cards.sort((left, right) => {{
-        const a = Number(left.dataset[attribute]);
-        const b = Number(right.dataset[attribute]);
+        const leftValue = left.dataset[attribute];
+        const rightValue = right.dataset[attribute];
+        const a = leftValue && leftValue.trim() ? Number(leftValue) : NaN;
+        const b = rightValue && rightValue.trim() ? Number(rightValue) : NaN;
         const av = Number.isFinite(a) ? a : -Infinity;
         const bv = Number.isFinite(b) ? b : -Infinity;
         return bv - av || left.dataset.marketIntelligenceIndustry.localeCompare(
@@ -2863,6 +2865,7 @@ def _market_intelligence_phase_label(phase: str) -> str:
         "distribution": "派發",
         "cooling": "降溫",
         "contraction": "收縮",
+        "consolidation": "盤整",
         "insufficient_history": "歷史資料不足",
         "missing": "-",
     }.get(phase, phase.replace("_", " ") or "-")

@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -687,6 +689,156 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("TPEX", html)
         self.assertIn("半導體業", html)
         self.assertIn("42", html)
+
+    def test_render_dashboard_localizes_consolidation_sentiment_phase(self):
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+                "market_intelligence_reports": [
+                    {
+                        "quality_gate": {"status": "ready", "blockers": []},
+                        "industries": [
+                            {
+                                "category": "Semiconductor",
+                                "sentiment": {
+                                    "status": "ready",
+                                    "score_5d": 0.0,
+                                    "baseline_20d": 0.0,
+                                    "change": 0.0,
+                                    "temperature": "stable",
+                                    "label": "neutral",
+                                    "cycle_phase": "consolidation",
+                                    "confidence": "high",
+                                    "components": {},
+                                    "forecast": {
+                                        "status": "insufficient_history",
+                                        "warnings": [],
+                                    },
+                                    "turning_risk": {
+                                        "status": "insufficient_history",
+                                        "warnings": [],
+                                    },
+                                    "reasons": [],
+                                    "warnings": [],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn('data-industry-sentiment-phase="consolidation"', html)
+        self.assertIn("階段：盤整", html)
+
+    def test_industry_sentiment_sorting_executes_with_source_isolation(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node runtime is not available")
+        html = render_dashboard_html(
+            {
+                "reports": [],
+                "comparisons": [],
+                "batch_summaries": [],
+                "workflow_summaries": [],
+                "research_summaries": [],
+            }
+        )
+        function_start = html.index("function sortIndustrySentimentCards(source, key)")
+        function_end = html.index("function initIndustrySentimentSorting()", function_start)
+        function_source = html[function_start:function_end]
+        harness = function_source + r"""
+const assert = (condition, message) => {
+  if (!condition) throw new Error(message);
+};
+const card = (category, dataset) => ({
+  dataset: { marketIntelligenceIndustry: category, ...dataset }
+});
+const makeGrid = (cards) => ({
+  cards: cards.slice(),
+  querySelectorAll(selector) {
+    assert(selector === '[data-industry-sentiment]', 'unexpected card selector');
+    return this.cards.slice();
+  },
+  appendChild(item) {
+    const previousIndex = this.cards.indexOf(item);
+    if (previousIndex >= 0) this.cards.splice(previousIndex, 1);
+    this.cards.push(item);
+  }
+});
+const source = (grid) => ({
+  querySelector(selector) {
+    assert(selector === '[data-industry-sentiment-grid="true"]', 'unexpected grid selector');
+    return grid;
+  }
+});
+const order = (grid) => grid.cards.map((item) => item.dataset.marketIntelligenceIndustry);
+const attributes = {
+  score: 'sentimentScore',
+  change: 'sentimentChange',
+  peak_risk: 'sentimentPeakRisk',
+  trough_risk: 'sentimentTroughRisk',
+  confidence: 'sentimentConfidenceOrder'
+};
+
+for (const [key, selectedAttribute] of Object.entries(attributes)) {
+  const targetData = {};
+  const decoyData = {};
+  for (const attribute of Object.values(attributes)) {
+    targetData[attribute] = attribute === selectedAttribute ? '100' : '0';
+    decoyData[attribute] = attribute === selectedAttribute ? '-10' : '200';
+  }
+  const tieAData = { [selectedAttribute]: '50' };
+  const tieBData = { [selectedAttribute]: '50' };
+  const negativeData = { [selectedAttribute]: '-5' };
+  const blankData = { [selectedAttribute]: '' };
+  const infiniteData = { [selectedAttribute]: 'Infinity' };
+  const invalidData = { [selectedAttribute]: 'not-a-number' };
+  const selectedGrid = makeGrid([
+    card('Tie B', tieBData),
+    card('Blank', blankData),
+    card('Decoy', decoyData),
+    card('Target', targetData),
+    card('Absent', {}),
+    card('Tie A', tieAData),
+    card('Infinite', infiniteData),
+    card('Negative', negativeData),
+    card('Invalid', invalidData)
+  ]);
+  const untouchedGrid = makeGrid([card('Untouched B', {}), card('Untouched A', {})]);
+  const selectedSource = source(selectedGrid);
+  const untouchedSource = source(untouchedGrid);
+
+  sortIndustrySentimentCards(selectedSource, key);
+
+  const actual = order(selectedGrid);
+  assert(actual[0] === 'Target', key + ' did not use ' + selectedAttribute);
+  assert(actual[1] === 'Tie A' && actual[2] === 'Tie B', key + ' tie-break was not deterministic');
+  assert(actual.indexOf('Negative') < actual.indexOf('Absent'), key + ' absent value did not sort last');
+  assert(actual.indexOf('Negative') < actual.indexOf('Blank'), key + ' blank value did not sort last');
+  assert(actual.indexOf('Negative') < actual.indexOf('Infinite'), key + ' infinite value did not sort last');
+  assert(actual.indexOf('Negative') < actual.indexOf('Invalid'), key + ' invalid value did not sort last');
+  assert(
+    JSON.stringify(order(untouchedGrid)) === JSON.stringify(['Untouched B', 'Untouched A']),
+    key + ' reordered a different source block'
+  );
+  assert(untouchedSource.querySelector('[data-industry-sentiment-grid="true"]') === untouchedGrid, 'invalid source stub');
+}
+"""
+
+        result = subprocess.run(
+            [node, "-e", harness],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
