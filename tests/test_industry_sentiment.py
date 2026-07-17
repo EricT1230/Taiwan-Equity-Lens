@@ -559,6 +559,22 @@ class PriceComponentTests(unittest.TestCase):
 
 
 class FundFlowComponentTests(unittest.TestCase):
+    @staticmethod
+    def three_valid_day_rows() -> tuple[list[str], list[dict[str, object]]]:
+        dates = [f"2026-07-{day:02d}" for day in range(1, 6)]
+        rows = [
+            {
+                "date": value,
+                "stock_id": stock_id,
+                "total_net": 10.0,
+                "traded_shares": 1000.0,
+                "source": "primary",
+            }
+            for value in dates[:3]
+            for stock_id in ("1111", "2222")
+        ]
+        return dates, rows
+
     def test_flow_uses_only_valid_expected_dates_for_both_windows(self):
         dates = [f"2026-06-{day:02d}" for day in range(1, 21)]
         valid_dates = {*dates[:7], *dates[-3:]}
@@ -647,6 +663,60 @@ class FundFlowComponentTests(unittest.TestCase):
         self.assertEqual(component["expected_stocks"], 0)
         self.assertEqual(component["status"], "insufficient_data")
         self.assertIn("fund_flow unavailable: no price-covered stocks", component["warnings"])
+
+    def test_identical_flow_pairs_contribute_once_independent_of_input_order(self):
+        dates, rows = self.three_valid_day_rows()
+        duplicate = {**rows[0], "source": "backup"}
+
+        results = [
+            score_fund_flow_component(
+                ordered_rows,
+                price_covered_stock_ids=["1111", "2222"],
+                expected_session_dates=dates,
+            )
+            for ordered_rows in ([*rows, duplicate], [duplicate, *rows])
+        ]
+
+        for component in results:
+            self.assertEqual(component["valid_days_5d"], 3)
+            self.assertEqual(component["net_shares_5d"], 60.0)
+            self.assertEqual(component["traded_shares_5d"], 6000.0)
+            self.assertIn(
+                "fund_flow 5d collapsed identical duplicate pair "
+                "(2026-07-01, 1111) from sources backup, primary",
+                component["warnings"],
+            )
+        self.assertEqual(results[0], results[1])
+
+    def test_conflicting_flow_pairs_are_rejected_from_coverage_and_sums(self):
+        dates, rows = self.three_valid_day_rows()
+        conflicting = {
+            **rows[0],
+            "total_net": 999.0,
+            "source": "backup",
+        }
+
+        results = [
+            score_fund_flow_component(
+                ordered_rows,
+                price_covered_stock_ids=["1111", "2222"],
+                expected_session_dates=dates,
+            )
+            for ordered_rows in ([*rows, conflicting], [conflicting, *rows])
+        ]
+
+        for component in results:
+            self.assertEqual(component["coverage_by_date_5d"][dates[0]], 0.5)
+            self.assertEqual(component["valid_days_5d"], 2)
+            self.assertEqual(component["net_shares_5d"], 40.0)
+            self.assertEqual(component["traded_shares_5d"], 4000.0)
+            self.assertIsNone(component["score_5d"])
+            self.assertIn(
+                "fund_flow 5d rejected conflicting duplicate pair "
+                "(2026-07-01, 1111) from sources backup, primary",
+                component["warnings"],
+            )
+        self.assertEqual(results[0], results[1])
 
 
 class CompositeSentimentTests(unittest.TestCase):
@@ -843,6 +913,105 @@ class CompositeSentimentTests(unittest.TestCase):
         self.assertEqual(assessment["status"], "ready")
         self.assertEqual(assessment["confidence"], "high")
 
+    def test_build_preserves_specific_source_freshness_states(self):
+        assessment = build_industry_sentiment_base(
+            news_rows=[],
+            trend={},
+            flow_rows=[],
+            expected_session_dates=[],
+            freshness={
+                "news": {"status": "stale", "latest": "2026-07-01"},
+                "industry_trend": {"status": "missing", "latest": ""},
+                "fund_flow": {
+                    "status": "source_error",
+                    "error": "TWSE timeout",
+                },
+            },
+            source_errors=[],
+            as_of=AS_OF,
+        )
+
+        self.assertIn(
+            "news removed from composite: freshness status stale",
+            assessment["warnings"],
+        )
+        self.assertIn(
+            "price removed from composite: freshness status missing",
+            assessment["warnings"],
+        )
+        self.assertIn(
+            "fund_flow removed from composite: freshness status source_error",
+            assessment["warnings"],
+        )
+        self.assertEqual(assessment["components"]["news"]["freshness"]["status"], "stale")
+        self.assertEqual(assessment["components"]["price"]["freshness"]["status"], "missing")
+        self.assertEqual(
+            assessment["components"]["fund_flow"]["freshness"]["status"],
+            "source_error",
+        )
+
+    def test_build_reports_industry_local_freshness_failures(self):
+        dates = [f"2026-06-{day:02d}" for day in range(1, 21)]
+        trend = {
+            "average_return_5d": 4.0,
+            "average_return_20d": 7.5,
+            "positive_breadth_5d": 0.75,
+            "positive_breadth_20d": 0.60,
+            "average_volume_ratio_5d": 1.5,
+            "coverage_ratio_5d": 1.0,
+            "coverage_ratio_20d": 1.0,
+            "high_count_20d": 1,
+            "low_count_20d": 0,
+            "covered_stock_ids": ["1111"],
+        }
+        flow_rows = [
+            {
+                "date": value,
+                "stock_id": "1111",
+                "total_net": 10.0,
+                "traded_shares": 1000.0,
+            }
+            for value in dates[:18]
+        ]
+
+        assessment = build_industry_sentiment_base(
+            news_rows=[
+                news_row(
+                    "產業成長",
+                    "2026-07-14T11:00:00+08:00",
+                    url="https://example.test/old-local-news",
+                )
+            ],
+            trend=trend,
+            flow_rows=flow_rows,
+            expected_session_dates=dates,
+            freshness={
+                "news": {"status": "fresh"},
+                "industry_trend": {"status": "fresh"},
+                "fund_flow": {"status": "fresh"},
+            },
+            source_errors=[],
+            as_of=AS_OF,
+        )
+
+        self.assertIn("freshness", assessment["components"]["news"])
+        self.assertEqual(
+            assessment["components"]["news"]["freshness"]["status"],
+            "no_recent_industry_news_48h",
+        )
+        self.assertEqual(
+            assessment["components"]["fund_flow"]["freshness"]["status"],
+            "no_recent_expected_flow_session",
+        )
+        self.assertEqual(
+            assessment["components"]["news"]["freshness"]["source_status"],
+            "fresh",
+        )
+        self.assertEqual(
+            assessment["components"]["fund_flow"]["freshness"]["source_status"],
+            "fresh",
+        )
+
 
 class SentimentCycleTests(unittest.TestCase):
     @staticmethod
@@ -999,16 +1168,21 @@ class SentimentCycleTests(unittest.TestCase):
         self.assertEqual(changed["ranking_streak"], 2)
         self.assertEqual(missing["ranking_streak"], 1)
 
-    def test_ranking_streak_stops_at_a_dated_snapshot_gap(self):
-        assessment = self.assessment(40.0)
-        assessment["as_of_date"] = "2026-07-05"
+    def test_ranking_streak_treats_adjacent_supplied_sessions_as_consecutive(self):
+        for prior_dates, current_date in (
+            (("2026-07-02", "2026-07-03"), "2026-07-06"),
+            (("2026-02-12", "2026-02-13"), "2026-02-23"),
+        ):
+            with self.subTest(prior_dates=prior_dates, current_date=current_date):
+                prior = self.history([10.0, 20.0])
+                for row, as_of_date in zip(prior, prior_dates, strict=True):
+                    row["as_of_date"] = as_of_date
+                assessment = self.assessment(30.0)
+                assessment["as_of_date"] = current_date
 
-        cycle = classify_sentiment_cycle(
-            assessment,
-            self.history([10.0, 20.0, 30.0]),
-        )
+                cycle = classify_sentiment_cycle(assessment, prior)
 
-        self.assertEqual(cycle["ranking_streak"], 1)
+                self.assertEqual(cycle["ranking_streak"], 3)
 
     def test_finalize_attaches_rank_phase_and_diagnostics_without_forecast(self):
         assessment = self.assessment(35.0)

@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import datetime
 import math
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -138,9 +138,9 @@ def score_price_component(trend: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _flow_score(
-    valid_rows: list[dict[str, Any]], valid_dates: list[str]
-) -> float:
+def _flow_metrics(
+    valid_rows: Sequence[Mapping[str, Any]], valid_dates: Sequence[str]
+) -> dict[str, float | None]:
     net_shares = sum(float(row["total_net"]) for row in valid_rows)
     traded_shares = sum(float(row["traded_shares"]) for row in valid_rows)
     day_totals = {
@@ -153,7 +153,22 @@ def _flow_score(
     }
     buy_days = sum(value > 0 for value in day_totals.values())
     sell_days = sum(value < 0 for value in day_totals.values())
-    persistence = (buy_days - sell_days) / len(valid_dates)
+    persistence = (
+        (buy_days - sell_days) / len(valid_dates) if valid_dates else None
+    )
+    return {
+        "net_shares": net_shares,
+        "traded_shares": traded_shares,
+        "persistence": persistence,
+    }
+
+
+def _flow_score(
+    *,
+    net_shares: float,
+    traded_shares: float,
+    persistence: float,
+) -> float:
     flow_ratio = net_shares / traded_shares
     return 100.0 * _clamp(
         0.75 * (flow_ratio / 0.05) + 0.25 * persistence,
@@ -162,29 +177,69 @@ def _flow_score(
     )
 
 
-def _flow_window(
+def _flow_pair_sources(rows: Sequence[Mapping[str, Any]]) -> str:
+    return ", ".join(
+        sorted(
+            {
+                str(row.get("source") or "unknown").strip() or "unknown"
+                for row in rows
+            }
+        )
+    )
+
+
+def _normalize_flow_pairs(
     rows: Sequence[Mapping[str, Any]],
     *,
     covered_stock_ids: set[str],
-    expected_dates: list[str],
-    minimum_valid_days: int,
+    expected_dates: set[str],
     window: str,
-) -> tuple[dict[str, Any], list[str]]:
-    expected_stocks = len(covered_stock_ids)
-    expected_date_set = set(expected_dates)
-    joined_rows: list[dict[str, Any]] = []
-    excluded_invalid = 0
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
         date_value = str(row.get("date") or "").strip()
         stock_id = str(row.get("stock_id") or "").strip()
-        if date_value not in expected_date_set or stock_id not in covered_stock_ids:
+        if date_value in expected_dates and stock_id in covered_stock_ids:
+            grouped[(date_value, stock_id)].append(row)
+
+    normalized: list[dict[str, Any]] = []
+    excluded_invalid = 0
+    warnings: list[str] = []
+    for (date_value, stock_id), pair_rows in sorted(grouped.items()):
+        values: list[tuple[float, float] | None] = []
+        for row in pair_rows:
+            total_net = _finite_float(row.get("total_net"))
+            traded_shares = _finite_float(row.get("traded_shares"))
+            values.append(
+                (total_net, traded_shares)
+                if total_net is not None
+                and traded_shares is not None
+                and traded_shares > 0.0
+                else None
+            )
+
+        valid_values = {value for value in values if value is not None}
+        if len(pair_rows) == 1:
+            if not valid_values:
+                excluded_invalid += 1
+                continue
+            total_net, traded_shares = valid_values.pop()
+        elif len(valid_values) == 1 and all(value is not None for value in values):
+            total_net, traded_shares = valid_values.pop()
+            warnings.append(
+                f"fund_flow {window} collapsed identical duplicate pair "
+                f"({date_value}, {stock_id}) from sources "
+                f"{_flow_pair_sources(pair_rows)}"
+            )
+        else:
+            excluded_invalid += sum(value is None for value in values)
+            warnings.append(
+                f"fund_flow {window} rejected conflicting duplicate pair "
+                f"({date_value}, {stock_id}) from sources "
+                f"{_flow_pair_sources(pair_rows)}"
+            )
             continue
-        total_net = _finite_float(row.get("total_net"))
-        traded_shares = _finite_float(row.get("traded_shares"))
-        if total_net is None or traded_shares is None or traded_shares <= 0.0:
-            excluded_invalid += 1
-            continue
-        joined_rows.append(
+        normalized.append(
             {
                 "date": date_value,
                 "stock_id": stock_id,
@@ -192,7 +247,15 @@ def _flow_window(
                 "traded_shares": traded_shares,
             }
         )
+    return normalized, excluded_invalid, warnings
 
+
+def _flow_date_coverage(
+    joined_rows: Sequence[Mapping[str, Any]],
+    *,
+    expected_dates: Sequence[str],
+    expected_stocks: int,
+) -> tuple[dict[str, float], list[str]]:
     stock_ids_by_date = {
         value: {
             str(row["stock_id"])
@@ -212,32 +275,22 @@ def _flow_window(
     valid_dates = [
         value for value in expected_dates if coverage_by_date[value] >= 0.60
     ]
-    valid_date_set = set(valid_dates)
-    valid_rows = [row for row in joined_rows if row["date"] in valid_date_set]
-    net_shares = sum(float(row["total_net"]) for row in valid_rows)
-    traded_shares = sum(float(row["traded_shares"]) for row in valid_rows)
-    day_totals = {
-        value: sum(
-            float(row["total_net"])
-            for row in valid_rows
-            if row["date"] == value
-        )
-        for value in valid_dates
-    }
-    buy_days = sum(value > 0 for value in day_totals.values())
-    sell_days = sum(value < 0 for value in day_totals.values())
-    persistence = (
-        (buy_days - sell_days) / len(valid_dates) if valid_dates else None
-    )
-    score = (
-        _flow_score(valid_rows, valid_dates)
-        if len(valid_dates) >= minimum_valid_days
-        else None
-    )
+    return coverage_by_date, valid_dates
+
+
+def _flow_window_warnings(
+    *,
+    score: float | None,
+    valid_days: int,
+    minimum_valid_days: int,
+    excluded_invalid: int,
+    pair_warnings: Sequence[str],
+    window: str,
+) -> list[str]:
     warnings: list[str] = []
     if score is None:
         warnings.append(
-            f"fund_flow {window} unavailable: {len(valid_dates)} valid sessions; "
+            f"fund_flow {window} unavailable: {valid_days} valid sessions; "
             f"requires {minimum_valid_days}"
         )
     if excluded_invalid:
@@ -246,27 +299,87 @@ def _flow_window(
             f"fund_flow {window} excluded {excluded_invalid} {noun} without valid "
             "total_net and positive traded_shares"
         )
-    return (
-        {
-            "score": score,
-            "valid_days": len(valid_dates),
-            "valid_dates": valid_dates,
-            "missing_dates": [
-                value for value in expected_dates if value not in valid_date_set
-            ],
-            "joined_stocks": len(
-                {str(row["stock_id"]) for row in joined_rows}
-            ),
-            "joined_stock_ids": sorted(
-                {str(row["stock_id"]) for row in joined_rows}
-            ),
-            "expected_stocks": expected_stocks,
-            "coverage_by_date": coverage_by_date,
-            "net_shares": net_shares,
-            "traded_shares": traded_shares,
-            "persistence": persistence,
-        },
-        warnings,
+    warnings.extend(pair_warnings)
+    return warnings
+
+
+def _flow_window_payload(
+    *,
+    score: float | None,
+    joined_rows: Sequence[Mapping[str, Any]],
+    expected_dates: Sequence[str],
+    expected_stocks: int,
+    coverage_by_date: Mapping[str, float],
+    valid_dates: Sequence[str],
+    metrics: Mapping[str, float | None],
+) -> dict[str, Any]:
+    valid_date_set = set(valid_dates)
+    joined_stock_ids = sorted({str(row["stock_id"]) for row in joined_rows})
+    return {
+        "score": score,
+        "valid_days": len(valid_dates),
+        "valid_dates": list(valid_dates),
+        "missing_dates": [
+            value for value in expected_dates if value not in valid_date_set
+        ],
+        "joined_stocks": len(joined_stock_ids),
+        "joined_stock_ids": joined_stock_ids,
+        "expected_stocks": expected_stocks,
+        "coverage_by_date": dict(coverage_by_date),
+        "net_shares": metrics["net_shares"],
+        "traded_shares": metrics["traded_shares"],
+        "persistence": metrics["persistence"],
+    }
+
+
+def _flow_window(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    covered_stock_ids: set[str],
+    expected_dates: list[str],
+    minimum_valid_days: int,
+    window: str,
+) -> tuple[dict[str, Any], list[str]]:
+    expected_stocks = len(covered_stock_ids)
+    expected_date_set = set(expected_dates)
+    joined_rows, excluded_invalid, pair_warnings = _normalize_flow_pairs(
+        rows,
+        covered_stock_ids=covered_stock_ids,
+        expected_dates=expected_date_set,
+        window=window,
+    )
+    coverage_by_date, valid_dates = _flow_date_coverage(
+        joined_rows,
+        expected_dates=expected_dates,
+        expected_stocks=expected_stocks,
+    )
+    valid_date_set = set(valid_dates)
+    valid_rows = [row for row in joined_rows if row["date"] in valid_date_set]
+    metrics = _flow_metrics(valid_rows, valid_dates)
+    score = (
+        _flow_score(
+            net_shares=float(metrics["net_shares"]),
+            traded_shares=float(metrics["traded_shares"]),
+            persistence=float(metrics["persistence"]),
+        )
+        if len(valid_dates) >= minimum_valid_days
+        else None
+    )
+    return _flow_window_payload(
+        score=score,
+        joined_rows=joined_rows,
+        expected_dates=expected_dates,
+        expected_stocks=expected_stocks,
+        coverage_by_date=coverage_by_date,
+        valid_dates=valid_dates,
+        metrics=metrics,
+    ), _flow_window_warnings(
+        score=score,
+        valid_days=len(valid_dates),
+        minimum_valid_days=minimum_valid_days,
+        excluded_invalid=excluded_invalid,
+        pair_warnings=pair_warnings,
+        window=window,
     )
 
 
@@ -811,12 +924,28 @@ def _coverage_downgrades(
     return downgrades
 
 
-def combine_sentiment_components(
+def _missing_score_windows(component: Mapping[str, Any]) -> list[str]:
+    return [
+        window
+        for window in ("5d", "20d")
+        if _finite_float(component.get(f"score_{window}")) is None
+    ]
+
+
+def _freshness_payload(value: Any, *, fresh: bool) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {
+        "status": _freshness_description(value),
+        "fresh": fresh,
+    }
+
+
+def _select_usable_components(
     components: Mapping[str, Mapping[str, Any]],
     *,
     freshness: Mapping[str, Any],
-    source_errors: Sequence[str],
-) -> dict[str, Any]:
+) -> tuple[dict[str, dict[str, Any]], list[str], list[str], list[str]]:
     normalized_components: dict[str, dict[str, Any]] = {
         name: dict(components.get(name, {})) for name in CONFIGURED_WEIGHTS
     }
@@ -833,13 +962,7 @@ def combine_sentiment_components(
         for warning in component.get("warnings") or []:
             _append_unique(warnings, _component_warning(name, warning))
 
-        score_5d = _finite_float(component.get("score_5d"))
-        score_20d = _finite_float(component.get("score_20d"))
-        missing_windows = [
-            window
-            for window, score in (("5d", score_5d), ("20d", score_20d))
-            if score is None
-        ]
+        missing_windows = _missing_score_windows(component)
         if missing_windows:
             if len(missing_windows) == 1:
                 missing_text = f"missing {missing_windows[0]} score"
@@ -852,6 +975,10 @@ def combine_sentiment_components(
 
         freshness_value = _freshness_entry(freshness, name)
         fresh = _is_fresh(freshness_value)
+        component["freshness"] = _freshness_payload(
+            freshness_value,
+            fresh=fresh,
+        )
         if fresh:
             fresh_names.append(name)
         else:
@@ -862,20 +989,19 @@ def combine_sentiment_components(
             )
         if not missing_windows and fresh:
             usable.append(name)
+    return normalized_components, warnings, usable, fresh_names
 
-    normalized_source_errors = sorted(
-        {str(error).strip() for error in source_errors if str(error).strip()}
-    )
-    for error in normalized_source_errors:
-        _append_unique(warnings, f"source error: {error}")
 
+def _composite_from_usable(
+    components: dict[str, dict[str, Any]], usable: list[str]
+) -> dict[str, Any]:
     if len(usable) >= 2:
         effective_weights = _effective_weights(usable)
         score_5d = 0.0
         baseline_20d = 0.0
         reason_rows: list[tuple[float, str, str]] = []
         for name in usable:
-            component = normalized_components[name]
+            component = components[name]
             effective_weight = effective_weights[name]
             component_score_5d = float(component["score_5d"])
             component_score_20d = float(component["score_20d"])
@@ -904,96 +1030,142 @@ def combine_sentiment_components(
         label = classify_sentiment_label(score_5d)
         reasons = [row[2] for row in sorted(reason_rows)[:3]]
         status = "ready" if len(usable) == len(CONFIGURED_WEIGHTS) else "partial"
-    else:
-        effective_weights = {}
-        score_5d = None
-        baseline_20d = None
-        change = None
-        temperature = None
-        label = None
-        reasons = []
-        status = "insufficient_data"
+        return {
+            "status": status,
+            "score_5d": score_5d,
+            "baseline_20d": baseline_20d,
+            "change": change,
+            "temperature": temperature,
+            "label": label,
+            "effective_weights": effective_weights,
+            "reasons": reasons,
+        }
+    return {
+        "status": "insufficient_data",
+        "score_5d": None,
+        "baseline_20d": None,
+        "change": None,
+        "temperature": None,
+        "label": None,
+        "effective_weights": {},
+        "reasons": [],
+    }
 
+
+def _news_articles_5d(components: Mapping[str, Mapping[str, Any]]) -> float | None:
+    coverage = components["news"].get("coverage")
+    return (
+        _finite_float(coverage.get("articles_5d"))
+        if isinstance(coverage, Mapping)
+        else None
+    )
+
+
+def _meets_high_confidence_gates(
+    components: Mapping[str, Mapping[str, Any]],
+    usable: Sequence[str],
+    fresh_names: Sequence[str],
+    news_articles_5d: float | None,
+) -> bool:
+    price_coverage = _finite_float(
+        components["price"].get("coverage_ratio_5d")
+    )
+    flow_valid_days = _finite_float(
+        components["fund_flow"].get("valid_days_5d")
+    )
+    return (
+        len(usable) == 3
+        and len(fresh_names) == 3
+        and news_articles_5d is not None
+        and news_articles_5d >= 5.0
+        and price_coverage is not None
+        and price_coverage >= 0.80
+        and flow_valid_days is not None
+        and flow_valid_days >= 4.0
+    )
+
+
+def _component_confidence(
+    components: Mapping[str, Mapping[str, Any]],
+    *,
+    usable: Sequence[str],
+    fresh_names: Sequence[str],
+    source_errors: Sequence[str],
+) -> tuple[str | None, list[str]]:
     if len(usable) < 2:
-        confidence = None
-        _append_unique(
-            warnings,
-            "confidence unavailable: fewer than two usable fresh components",
-        )
+        return None, [
+            "confidence unavailable: fewer than two usable fresh components"
+        ]
+
+    warnings: list[str] = []
+    coverage_downgrades = _coverage_downgrades(components, usable)
+    if source_errors or coverage_downgrades:
+        for reason in coverage_downgrades:
+            warnings.append(f"confidence downgraded to low: {reason}")
+        if source_errors:
+            warnings.append(
+                "confidence downgraded to low: required-source errors present"
+            )
+        return "low", warnings
+
+    news_articles_5d = _news_articles_5d(components)
+    if _meets_high_confidence_gates(
+        components,
+        usable,
+        fresh_names,
+        news_articles_5d,
+    ):
+        return "high", []
+    if len(usable) < 3:
+        reason = "fewer than three complete fresh components"
     else:
-        coverage_downgrades = _coverage_downgrades(
-            normalized_components,
-            usable,
+        article_count = (
+            "missing"
+            if news_articles_5d is None
+            else str(int(news_articles_5d))
         )
-        if normalized_source_errors or coverage_downgrades:
-            confidence = "low"
-            for reason in coverage_downgrades:
-                _append_unique(
-                    warnings,
-                    f"confidence downgraded to low: {reason}",
-                )
-            if normalized_source_errors:
-                _append_unique(
-                    warnings,
-                    "confidence downgraded to low: required-source errors present",
-                )
-        else:
-            news_coverage = normalized_components["news"].get("coverage")
-            news_articles_5d = (
-                _finite_float(news_coverage.get("articles_5d"))
-                if isinstance(news_coverage, Mapping)
-                else None
-            )
-            high = (
-                len(usable) == 3
-                and len(fresh_names) == 3
-                and news_articles_5d is not None
-                and news_articles_5d >= 5.0
-                and _finite_float(
-                    normalized_components["price"].get("coverage_ratio_5d")
-                )
-                is not None
-                and float(
-                    normalized_components["price"]["coverage_ratio_5d"]
-                )
-                >= 0.80
-                and _finite_float(
-                    normalized_components["fund_flow"].get("valid_days_5d")
-                )
-                is not None
-                and float(normalized_components["fund_flow"]["valid_days_5d"])
-                >= 4.0
-            )
-            confidence = "high" if high else "medium"
-            if confidence == "medium":
-                if len(usable) < 3:
-                    reason = "fewer than three complete fresh components"
-                else:
-                    article_count = (
-                        "missing"
-                        if news_articles_5d is None
-                        else str(int(news_articles_5d))
-                    )
-                    reason = (
-                        f"news has {article_count} articles in 5d; high confidence requires 5"
-                    )
-                _append_unique(
-                    warnings,
-                    f"confidence downgraded to medium: {reason}",
-                )
+        reason = (
+            f"news has {article_count} articles in 5d; high confidence requires 5"
+        )
+    return "medium", [f"confidence downgraded to medium: {reason}"]
+
+
+def combine_sentiment_components(
+    components: Mapping[str, Mapping[str, Any]],
+    *,
+    freshness: Mapping[str, Any],
+    source_errors: Sequence[str],
+) -> dict[str, Any]:
+    normalized_components, warnings, usable, fresh_names = (
+        _select_usable_components(components, freshness=freshness)
+    )
+    normalized_source_errors = sorted(
+        {str(error).strip() for error in source_errors if str(error).strip()}
+    )
+    for error in normalized_source_errors:
+        _append_unique(warnings, f"source error: {error}")
+    composite = _composite_from_usable(normalized_components, usable)
+    confidence, confidence_warnings = _component_confidence(
+        normalized_components,
+        usable=usable,
+        fresh_names=fresh_names,
+        source_errors=normalized_source_errors,
+    )
+    for warning in confidence_warnings:
+        _append_unique(warnings, warning)
 
     return {
         "methodology_version": METHODOLOGY_VERSION,
-        "status": status,
-        "score_5d": score_5d,
-        "baseline_20d": baseline_20d,
-        "change": change,
-        "temperature": temperature,
-        "label": label,
+        "status": composite["status"],
+        "score_5d": composite["score_5d"],
+        "baseline_20d": composite["baseline_20d"],
+        "change": composite["change"],
+        "temperature": composite["temperature"],
+        "label": composite["label"],
         "confidence": confidence,
         "components": normalized_components,
-        "effective_weights": effective_weights,
-        "reasons": reasons,
+        "effective_weights": composite["effective_weights"],
+        "reasons": composite["reasons"],
         "warnings": warnings,
     }
 
@@ -1028,6 +1200,32 @@ def _has_recent_flow(
     return bool(acceptable_dates.intersection(valid_dates))
 
 
+def _component_freshness_state(
+    source_value: Any,
+    *,
+    local_fresh: bool,
+    local_failure: str,
+) -> dict[str, Any]:
+    source_status = _freshness_description(source_value)
+    source_fresh = _is_fresh(source_value)
+    status = (
+        source_status
+        if not source_fresh
+        else "fresh"
+        if local_fresh
+        else local_failure
+    )
+    return {
+        "status": status,
+        "source_status": source_status,
+        "local_status": "fresh" if local_fresh else local_failure,
+        "fresh": source_fresh and local_fresh,
+        "source": dict(source_value)
+        if isinstance(source_value, Mapping)
+        else source_value,
+    }
+
+
 def build_industry_sentiment_base(
     *,
     news_rows: Sequence[Mapping[str, Any]],
@@ -1046,11 +1244,24 @@ def build_industry_sentiment_base(
         expected_session_dates=expected_session_dates,
     )
     local_freshness = {
-        "news": _is_fresh(_freshness_entry(freshness, "news"))
-        and _has_recent_news(news_component, as_of=as_of),
-        "price": _is_fresh(_freshness_entry(freshness, "price")),
-        "fund_flow": _is_fresh(_freshness_entry(freshness, "fund_flow"))
-        and _has_recent_flow(fund_flow_component, expected_session_dates),
+        "news": _component_freshness_state(
+            _freshness_entry(freshness, "news"),
+            local_fresh=_has_recent_news(news_component, as_of=as_of),
+            local_failure="no_recent_industry_news_48h",
+        ),
+        "price": _component_freshness_state(
+            _freshness_entry(freshness, "price"),
+            local_fresh=True,
+            local_failure="missing_price_coverage",
+        ),
+        "fund_flow": _component_freshness_state(
+            _freshness_entry(freshness, "fund_flow"),
+            local_fresh=_has_recent_flow(
+                fund_flow_component,
+                expected_session_dates,
+            ),
+            local_failure="no_recent_expected_flow_session",
+        ),
     }
     assessment = combine_sentiment_components(
         {
@@ -1150,17 +1361,7 @@ def _ranking_streak(
 ) -> int:
     rows = [*_ordered_prior_history(prior_history), dict(current)]
     streak = 0
-    later_date: date | None = None
     for row in reversed(rows):
-        raw_date = str(row.get("as_of_date") or "")
-        try:
-            row_date = date.fromisoformat(raw_date) if raw_date else None
-        except ValueError:
-            break
-        if later_date is not None and (
-            row_date is None or (later_date - row_date).days != 1
-        ):
-            break
         row_version = str(row.get("methodology_version") or methodology_version)
         if row_version != methodology_version:
             break
@@ -1174,8 +1375,6 @@ def _ranking_streak(
         if rank > top_quartile_count:
             break
         streak += 1
-        if row_date is not None:
-            later_date = row_date
     return streak
 
 
@@ -1187,7 +1386,7 @@ def _trailing_percentile(
     return 100.0 * sum(value <= current_score for value in scores) / len(scores)
 
 
-def classify_sentiment_cycle(
+def _cycle_history_diagnostics(
     assessment: Mapping[str, Any],
     prior_history: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -1209,7 +1408,26 @@ def classify_sentiment_cycle(
         scores_with_current.append(score)
     recent_slope = _ols_slope(scores_with_current)
     prior_slope = _ols_slope(prior_scores)
-    slope_direction = _slope_direction(recent_slope)
+    return {
+        "recent_slope": recent_slope,
+        "prior_slope": prior_slope,
+        "slope_direction": _slope_direction(recent_slope),
+        "trailing_percentile": _trailing_percentile(
+            scores_with_current,
+            score,
+        ),
+        "ranking_streak": _ranking_streak(
+            prior_history,
+            assessment,
+            methodology_version,
+        ),
+        "history_scores": len(scores_with_current),
+    }
+
+
+def _cycle_breadth_diagnostics(
+    assessment: Mapping[str, Any],
+) -> dict[str, Any]:
 
     breadth_5d = _assessment_number(
         assessment,
@@ -1237,7 +1455,69 @@ def classify_sentiment_cycle(
         if breadth_change is not None
         else "unavailable"
     )
+    return {
+        "breadth_5d": breadth_5d,
+        "breadth_20d": breadth_20d,
+        "breadth_change": breadth_change,
+        "breadth_state": breadth_state,
+    }
 
+
+def _cycle_crowding_signals(
+    *,
+    score: float | None,
+    ranking_streak: int,
+    topic_concentration: float | None,
+    volume_ratio_5d: float | None,
+) -> list[str]:
+    signals: list[str] = []
+    if ranking_streak >= 5:
+        signals.append("top_quartile_streak")
+    if topic_concentration is not None and topic_concentration >= 0.60:
+        signals.append("topic_concentration")
+    if (
+        volume_ratio_5d is not None
+        and volume_ratio_5d >= 1.8
+        and score is not None
+        and abs(score) >= 60.0
+    ):
+        signals.append("high_volume_extreme_score")
+    return signals
+
+
+def _cycle_deceleration(
+    *,
+    score: float | None,
+    recent_slope: float | None,
+    prior_slope: float | None,
+) -> tuple[bool, str | None]:
+    positive = (
+        score is not None
+        and score >= 50.0
+        and prior_slope is not None
+        and prior_slope >= 2.0
+        and recent_slope is not None
+        and recent_slope <= 0.5 * prior_slope
+    )
+    negative = (
+        score is not None
+        and score <= -50.0
+        and prior_slope is not None
+        and prior_slope <= -2.0
+        and recent_slope is not None
+        and recent_slope >= 0.5 * prior_slope
+    )
+    direction = "positive" if positive else "negative" if negative else None
+    return positive or negative, direction
+
+
+def _cycle_diagnostics(
+    assessment: Mapping[str, Any],
+    prior_history: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    history = _cycle_history_diagnostics(assessment, prior_history)
+    breadth = _cycle_breadth_diagnostics(assessment)
+    score = _finite_float(assessment.get("score_5d"))
     topic_concentration = _assessment_number(
         assessment,
         "news_topic_concentration_5d",
@@ -1250,52 +1530,50 @@ def classify_sentiment_cycle(
         component_name="price",
         component_key="volume_ratio_5d",
     )
-    ranking_streak = _ranking_streak(
-        prior_history,
-        assessment,
-        methodology_version,
+    crowding_signals = _cycle_crowding_signals(
+        score=score,
+        ranking_streak=int(history["ranking_streak"]),
+        topic_concentration=topic_concentration,
+        volume_ratio_5d=volume_ratio_5d,
     )
-    trailing_percentile = _trailing_percentile(scores_with_current, score)
-
-    crowding_signals: list[str] = []
-    if ranking_streak >= 5:
-        crowding_signals.append("top_quartile_streak")
-    if topic_concentration is not None and topic_concentration >= 0.60:
-        crowding_signals.append("topic_concentration")
-    if (
-        volume_ratio_5d is not None
-        and volume_ratio_5d >= 1.8
-        and score is not None
-        and abs(score) >= 60.0
-    ):
-        crowding_signals.append("high_volume_extreme_score")
     crowding = bool(crowding_signals)
+    decelerating, deceleration_direction = _cycle_deceleration(
+        score=score,
+        recent_slope=history["recent_slope"],
+        prior_slope=history["prior_slope"],
+    )
+    return {
+        "recent_slope": history["recent_slope"],
+        "prior_slope": history["prior_slope"],
+        "slope_direction": history["slope_direction"],
+        "breadth_5d": breadth["breadth_5d"],
+        "breadth_20d": breadth["breadth_20d"],
+        "breadth_change": breadth["breadth_change"],
+        "breadth_state": breadth["breadth_state"],
+        "trailing_percentile": history["trailing_percentile"],
+        "ranking_streak": history["ranking_streak"],
+        "topic_concentration": topic_concentration,
+        "volume_ratio_5d": volume_ratio_5d,
+        "crowding": crowding,
+        "crowding_signals": crowding_signals,
+        "decelerating": decelerating,
+        "deceleration_direction": deceleration_direction,
+        "history_scores": history["history_scores"],
+    }
 
-    positive_deceleration = (
-        score is not None
-        and score >= 50.0
-        and prior_slope is not None
-        and prior_slope >= 2.0
-        and recent_slope is not None
-        and recent_slope <= 0.5 * prior_slope
-    )
-    negative_deceleration = (
-        score is not None
-        and score <= -50.0
-        and prior_slope is not None
-        and prior_slope <= -2.0
-        and recent_slope is not None
-        and recent_slope >= 0.5 * prior_slope
-    )
-    decelerating = positive_deceleration or negative_deceleration
-    deceleration_direction = (
-        "positive"
-        if positive_deceleration
-        else "negative"
-        if negative_deceleration
-        else None
-    )
+
+def _select_cycle_phase(
+    assessment: Mapping[str, Any], diagnostics: Mapping[str, Any]
+) -> str:
+    score = _finite_float(assessment.get("score_5d"))
     change = _finite_float(assessment.get("change"))
+    slope_direction = str(diagnostics.get("slope_direction") or "unavailable")
+    breadth_5d = _finite_float(diagnostics.get("breadth_5d"))
+    breadth_state = str(diagnostics.get("breadth_state") or "unavailable")
+    trailing_percentile = _finite_float(diagnostics.get("trailing_percentile"))
+    ranking_streak = int(diagnostics.get("ranking_streak") or 0)
+    crowding = diagnostics.get("crowding") is True
+    decelerating = diagnostics.get("decelerating") is True
 
     if (
         score is not None
@@ -1309,9 +1587,9 @@ def classify_sentiment_cycle(
         )
         and (crowding or decelerating)
     ):
-        phase = "overheating"
+        return "overheating"
     elif score is not None and score <= -60.0 and slope_direction == "negative":
-        phase = "capitulation"
+        return "capitulation"
     elif (
         score is not None
         and score <= 20.0
@@ -1319,7 +1597,7 @@ def classify_sentiment_cycle(
         and change >= 10.0
         and slope_direction == "positive"
     ):
-        phase = "recovery"
+        return "recovery"
     elif (
         score is not None
         and -20.0 <= score < 40.0
@@ -1328,7 +1606,7 @@ def classify_sentiment_cycle(
         and slope_direction == "positive"
         and breadth_state == "expanding"
     ):
-        phase = "ignition"
+        return "ignition"
     elif (
         score is not None
         and 20.0 <= score < 70.0
@@ -1336,7 +1614,7 @@ def classify_sentiment_cycle(
         and breadth_5d is not None
         and breadth_5d >= 0.55
     ):
-        phase = "expansion"
+        return "expansion"
     elif (
         score is not None
         and score > -20.0
@@ -1348,28 +1626,18 @@ def classify_sentiment_cycle(
             )
         )
     ):
-        phase = "cooling"
-    else:
-        phase = "consolidation"
+        return "cooling"
+    return "consolidation"
 
+
+def classify_sentiment_cycle(
+    assessment: Mapping[str, Any],
+    prior_history: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    diagnostics = _cycle_diagnostics(assessment, prior_history)
     return {
-        "phase": phase,
-        "recent_slope": recent_slope,
-        "prior_slope": prior_slope,
-        "slope_direction": slope_direction,
-        "breadth_5d": breadth_5d,
-        "breadth_20d": breadth_20d,
-        "breadth_change": breadth_change,
-        "breadth_state": breadth_state,
-        "trailing_percentile": trailing_percentile,
-        "ranking_streak": ranking_streak,
-        "topic_concentration": topic_concentration,
-        "volume_ratio_5d": volume_ratio_5d,
-        "crowding": crowding,
-        "crowding_signals": crowding_signals,
-        "decelerating": decelerating,
-        "deceleration_direction": deceleration_direction,
-        "history_scores": len(scores_with_current),
+        "phase": _select_cycle_phase(assessment, diagnostics),
+        **diagnostics,
     }
 
 
