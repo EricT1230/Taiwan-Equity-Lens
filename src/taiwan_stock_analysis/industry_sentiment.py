@@ -31,7 +31,15 @@ def _parse_published_at(value: Any, *, as_of: datetime) -> datetime | None:
     return published
 
 
-def _event_signature(row: Mapping[str, Any], normalized_title: str) -> tuple[str, ...]:
+def _event_signature(
+    row: Mapping[str, Any],
+    normalized_title: str,
+    *,
+    normalized_summary: str,
+    published_at: str,
+    source: str,
+    url: str,
+) -> tuple[str, ...]:
     raw_keywords = row.get("keywords")
     if isinstance(raw_keywords, Sequence) and not isinstance(raw_keywords, (str, bytes)):
         keywords = raw_keywords
@@ -52,7 +60,30 @@ def _event_signature(row: Mapping[str, Any], normalized_title: str) -> tuple[str
             break
     if normalized_keywords:
         return tuple(normalized_keywords)
-    return ("__title__", normalized_title)
+    if normalized_title:
+        return ("__title__", normalized_title)
+    normalized_url = normalize_sentiment_text(url)
+    if normalized_url:
+        return ("__url__", normalized_url)
+    return (
+        "__summary__",
+        normalized_summary,
+        published_at,
+        normalize_sentiment_text(source),
+    )
+
+
+def _uniquify_summary_signatures(rows: Sequence[dict[str, Any]]) -> None:
+    occurrences: dict[tuple[str, ...], int] = defaultdict(int)
+    for row in rows:
+        signature = tuple(row["event_signature"])
+        if not signature or signature[0] != "__summary__":
+            continue
+        occurrences[signature] += 1
+        row["event_signature"] = (
+            *signature,
+            f"occurrence:{occurrences[signature]}",
+        )
 
 
 def _prepare_news(
@@ -104,7 +135,14 @@ def _prepare_news(
                     -100.0,
                     100.0,
                 ),
-                "event_signature": _event_signature(row, normalized_title),
+                "event_signature": _event_signature(
+                    row,
+                    normalized_title,
+                    normalized_summary=normalized_summary,
+                    published_at=published.isoformat(),
+                    source=source,
+                    url=url,
+                ),
             }
         )
         candidates.append((published, item, normalized_summary))
@@ -115,6 +153,7 @@ def _prepare_news(
             str(candidate[1]["url"]),
             str(candidate[1]["normalized_title"]),
             candidate[2],
+            str(candidate[1]["summary"]),
             str(candidate[1]["source"]),
             tuple(candidate[1]["event_signature"]),
         )
@@ -136,6 +175,7 @@ def _prepare_news(
         if normalized_title:
             seen_titles.add(normalized_title)
         prepared.append(item)
+    _uniquify_summary_signatures(prepared)
     return prepared, exclusions
 
 

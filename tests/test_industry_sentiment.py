@@ -323,6 +323,69 @@ class NewsComponentTests(unittest.TestCase):
         self.assertEqual(component["status"], "insufficient_data")
         self.assertIn("missing scorable text: 3 articles excluded", component["warnings"])
 
+    def test_summary_only_articles_have_distinct_deterministic_event_signatures(self):
+        url_article = news_row(
+            "",
+            "2026-07-17T11:00:00+08:00",
+            source="SOURCE-A",
+            summary="伺服器供應鏈近況",
+            url="HTTPS://EXAMPLE.TEST/STORY",
+        )
+        composite_article = news_row(
+            "",
+            "2026-07-17T10:00:00+08:00",
+            source="ＳＯＵＲＣＥ-B",
+            summary="成熟製程供需觀察",
+        )
+        signatures_by_order = []
+
+        for rows in ([url_article, composite_article], [composite_article, url_article]):
+            with self.subTest(order=[row["summary"] for row in rows]):
+                component = score_news_component(rows, as_of=AS_OF)
+                signatures = {
+                    row["summary"]: tuple(row["event_signature"])
+                    for row in component["article_scores"]
+                }
+                signatures_by_order.append(signatures)
+
+                self.assertEqual(component["coverage"]["articles_5d"], 2)
+                self.assertEqual(component["topic_concentration"], 0.5)
+                self.assertNotEqual(
+                    signatures["伺服器供應鏈近況"],
+                    signatures["成熟製程供需觀察"],
+                )
+                self.assertEqual(signatures["伺服器供應鏈近況"][0], "__url__")
+                self.assertEqual(signatures["成熟製程供需觀察"][0], "__summary__")
+
+        self.assertEqual(signatures_by_order[0], signatures_by_order[1])
+
+    def test_summary_signature_exact_collisions_use_stable_occurrence_order(self):
+        compact = news_row(
+            "",
+            "2026-07-17T11:00:00+08:00",
+            source="source-a",
+            summary="供需觀察",
+        )
+        padded = news_row(
+            "",
+            "2026-07-17T11:00:00+08:00",
+            source="source-a",
+            summary="  供需觀察  ",
+        )
+        signatures_by_order = []
+
+        for rows in ([compact, padded], [padded, compact]):
+            component = score_news_component(rows, as_of=AS_OF)
+            signatures_by_order.append(
+                {
+                    row["summary"]: tuple(row["event_signature"])
+                    for row in component["article_scores"]
+                }
+            )
+            self.assertEqual(component["topic_concentration"], 0.5)
+
+        self.assertEqual(signatures_by_order[0], signatures_by_order[1])
+
     def test_event_signatures_use_first_three_distinct_normalized_keywords(self):
         rows = [
             news_row(
