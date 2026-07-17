@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import escape
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlencode
@@ -248,6 +249,7 @@ def parse_twse_fund_flow_payload(
 ) -> list[dict[str, Any]]:
     if not isinstance(payload, dict) or payload.get("stat") != "OK":
         return []
+    data_date = _required_payload_date(payload, requested_date, "TWSE T86")
     fields = [str(field) for field in payload.get("fields", [])]
     indexes = {
         "stock_id": _field_index(fields, "證券代號"),
@@ -257,22 +259,33 @@ def parse_twse_fund_flow_payload(
         "dealer_net": _field_index(fields, "自營商買賣超股數"),
         "total_net": _field_index(fields, "三大法人買賣超股數"),
     }
-    data_date = _parse_date(payload.get("date")) or requested_date
     rows = []
-    for raw_row in payload.get("data", []):
+    required_index = max(indexes.values())
+    for row_index, raw_row in enumerate(payload.get("data", []), start=1):
         if not isinstance(raw_row, list):
-            continue
+            raise ValueError(f"TWSE T86 row {row_index} is missing required flow columns")
+        if len(raw_row) <= required_index:
+            raise ValueError(f"TWSE T86 row {row_index} is missing required flow columns")
         rows.append(
             {
                 "date": data_date.isoformat(),
                 "stock_id": str(raw_row[indexes["stock_id"]]).strip(),
                 "company_name": str(raw_row[indexes["company_name"]]).strip(),
-                "foreign_net": _plain_number(raw_row[indexes["foreign_net"]]),
-                "investment_trust_net": _plain_number(
-                    raw_row[indexes["investment_trust_net"]]
+                "foreign_net": _required_flow_number(
+                    raw_row[indexes["foreign_net"]], "TWSE T86", row_index, "foreign_net"
                 ),
-                "dealer_net": _plain_number(raw_row[indexes["dealer_net"]]),
-                "total_net": _plain_number(raw_row[indexes["total_net"]]),
+                "investment_trust_net": _required_flow_number(
+                    raw_row[indexes["investment_trust_net"]],
+                    "TWSE T86",
+                    row_index,
+                    "investment_trust_net",
+                ),
+                "dealer_net": _required_flow_number(
+                    raw_row[indexes["dealer_net"]], "TWSE T86", row_index, "dealer_net"
+                ),
+                "total_net": _required_flow_number(
+                    raw_row[indexes["total_net"]], "TWSE T86", row_index, "total_net"
+                ),
                 "source": "TWSE T86",
             }
         )
@@ -285,23 +298,33 @@ def parse_tpex_fund_flow_payload(
 ) -> list[dict[str, Any]]:
     if not isinstance(payload, dict) or payload.get("stat") != "ok":
         return []
+    data_date = _required_payload_date(payload, requested_date, "TPEx dailyTrade")
     tables = payload.get("tables", [])
     if not isinstance(tables, list) or not tables or not isinstance(tables[0], dict):
         return []
-    data_date = _parse_date(payload.get("date")) or requested_date
     rows = []
-    for raw_row in tables[0].get("data", []):
-        if not isinstance(raw_row, list) or len(raw_row) <= 23:
-            continue
+    for row_index, raw_row in enumerate(tables[0].get("data", []), start=1):
+        if not isinstance(raw_row, list):
+            raise ValueError(f"TPEx dailyTrade row {row_index} is missing required flow columns")
+        if len(raw_row) <= 23:
+            raise ValueError(f"TPEx dailyTrade row {row_index} is missing required flow columns")
         rows.append(
             {
                 "date": data_date.isoformat(),
                 "stock_id": str(raw_row[0]).strip(),
                 "company_name": str(raw_row[1]).strip(),
-                "foreign_net": _plain_number(raw_row[4]),
-                "investment_trust_net": _plain_number(raw_row[13]),
-                "dealer_net": _plain_number(raw_row[22]),
-                "total_net": _plain_number(raw_row[23]),
+                "foreign_net": _required_flow_number(
+                    raw_row[4], "TPEx dailyTrade", row_index, "foreign_net"
+                ),
+                "investment_trust_net": _required_flow_number(
+                    raw_row[13], "TPEx dailyTrade", row_index, "investment_trust_net"
+                ),
+                "dealer_net": _required_flow_number(
+                    raw_row[22], "TPEx dailyTrade", row_index, "dealer_net"
+                ),
+                "total_net": _required_flow_number(
+                    raw_row[23], "TPEx dailyTrade", row_index, "total_net"
+                ),
                 "source": "TPEx dailyTrade",
             }
         )
@@ -1033,6 +1056,40 @@ def _number(value: Any, row_index: int, field: str) -> float:
 
 def _plain_number(value: Any) -> float:
     return float(str(value or "0").replace(",", "").strip())
+
+
+def _required_payload_date(
+    payload: dict[str, Any],
+    requested_date: date,
+    source: str,
+) -> date:
+    payload_date = _parse_date(payload.get("date"))
+    if payload_date is None:
+        raise ValueError(f"{source} returned a missing or invalid payload date")
+    if payload_date != requested_date:
+        raise ValueError(
+            f"{source} payload date {payload_date.isoformat()} does not match requested date "
+            f"{requested_date.isoformat()}"
+        )
+    return payload_date
+
+
+def _required_flow_number(
+    value: Any,
+    source: str,
+    row_index: int,
+    field: str,
+) -> float:
+    text = str(value if value is not None else "").replace(",", "").strip()
+    if not text:
+        raise ValueError(f"{source} row {row_index} is missing {field}")
+    try:
+        number = float(text)
+    except ValueError as exc:
+        raise ValueError(f"{source} row {row_index} has invalid {field}") from exc
+    if not isfinite(number):
+        raise ValueError(f"{source} row {row_index} has invalid {field}")
+    return number
 
 
 def _split_terms(value: str) -> list[str]:

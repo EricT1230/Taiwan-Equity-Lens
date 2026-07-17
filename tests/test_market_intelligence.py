@@ -122,13 +122,112 @@ class MarketIntelligenceTests(unittest.TestCase):
             "data": [["2330", "TSMC", "1,000", "-200", "50", "850"]],
         }
 
-        rows = parse_twse_fund_flow_payload(payload, date(2026, 7, 17))
+        rows = parse_twse_fund_flow_payload(payload, date(2026, 7, 16))
 
         self.assertEqual(rows[0]["date"], "2026-07-16")
         self.assertEqual(rows[0]["stock_id"], "2330")
         self.assertEqual(rows[0]["foreign_net"], 1000.0)
         self.assertEqual(rows[0]["total_net"], 850.0)
         self.assertEqual(rows[0]["source"], "TWSE T86")
+
+    def test_dated_fund_flow_parsers_reject_missing_invalid_or_mismatched_payload_dates(self):
+        def twse_payload(payload_date):
+            return {
+                "stat": "OK",
+                "date": payload_date,
+                "fields": [
+                    "證券代號",
+                    "證券名稱",
+                    "外陸資買賣超股數(不含外資自營商)",
+                    "投信買賣超股數",
+                    "自營商買賣超股數",
+                    "三大法人買賣超股數",
+                ],
+                "data": [["2330", "TSMC", "1", "2", "3", "6"]],
+            }
+
+        def tpex_payload(payload_date):
+            return {
+                "stat": "ok",
+                "date": payload_date,
+                "tables": [
+                    {
+                        "data": [
+                            [
+                                "6223", "MPI", "0", "0", "1", "0", "0", "0",
+                                "0", "0", "0", "0", "0", "2", "0", "0", "0",
+                                "0", "0", "0", "0", "0", "3", "6",
+                            ]
+                        ]
+                    }
+                ],
+            }
+
+        for parser, payload_factory in (
+            (parse_twse_fund_flow_payload, twse_payload),
+            (parse_tpex_fund_flow_payload, tpex_payload),
+        ):
+            for payload_date in (None, "not-a-date", "20260715"):
+                with self.subTest(parser=parser.__name__, payload_date=payload_date):
+                    with self.assertRaisesRegex(ValueError, "date"):
+                        parser(payload_factory(payload_date), date(2026, 7, 16))
+
+    def test_dated_fund_flow_parsers_reject_missing_or_non_numeric_net_cells(self):
+        twse_fields = [
+            "證券代號",
+            "證券名稱",
+            "外陸資買賣超股數(不含外資自營商)",
+            "投信買賣超股數",
+            "自營商買賣超股數",
+            "三大法人買賣超股數",
+        ]
+        tpex_base_row = [
+            "6223", "MPI", "0", "0", "1", "0", "0", "0",
+            "0", "0", "0", "0", "0", "2", "0", "0", "0",
+            "0", "0", "0", "0", "0", "3", "6",
+        ]
+        parser_cases = (
+            (
+                parse_twse_fund_flow_payload,
+                [2, 3, 4, 5],
+                lambda row: {
+                    "stat": "OK",
+                    "date": "20260716",
+                    "fields": twse_fields,
+                    "data": [row],
+                },
+                ["2330", "TSMC", "1", "2", "3", "6"],
+            ),
+            (
+                parse_tpex_fund_flow_payload,
+                [4, 13, 22, 23],
+                lambda row: {
+                    "stat": "ok",
+                    "date": "20260716",
+                    "tables": [{"data": [row]}],
+                },
+                tpex_base_row,
+            ),
+        )
+
+        for parser, indexes, payload_factory, base_row in parser_cases:
+            for index in indexes:
+                for invalid_value in (None, "", "not-a-number", "NaN", "inf"):
+                    row = list(base_row)
+                    row[index] = invalid_value
+                    with self.subTest(
+                        parser=parser.__name__,
+                        index=index,
+                        invalid_value=invalid_value,
+                    ):
+                        with self.assertRaises(ValueError):
+                            parser(payload_factory(row), date(2026, 7, 16))
+            with self.subTest(parser=parser.__name__, missing_column=True):
+                with self.assertRaises(ValueError):
+                    parser(payload_factory(list(base_row[:-1])), date(2026, 7, 16))
+            with self.subTest(parser=parser.__name__, missing_row=True):
+                with self.assertRaises(ValueError):
+                    parser(payload_factory(None), date(2026, 7, 16))
 
     @patch("taiwan_stock_analysis.market_intelligence._http_json")
     def test_fetch_twse_fund_flow_for_date_uses_official_t86_query(self, http_json):
