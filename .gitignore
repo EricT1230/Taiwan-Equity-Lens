@@ -17,3 +17,4 @@ valuation.csv
 !examples/valuation.csv
 *.egg-info/
 .worktrees/
+.superpowers/
