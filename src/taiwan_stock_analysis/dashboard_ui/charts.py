@@ -52,3 +52,17 @@ def signed_hbar(value, max_abs, *, height: int = 16) -> str:
     pct = min(abs(value) / abs(max_abs) * 100, 100)
     cls = "up" if value >= 0 else "down"
     return f'<div class="chart-hbar"><span class="chart-hbar-fill {cls}" style="width:{pct:.0f}%"></span></div>'
+
+
+def contribution_bars(rows: list) -> str:
+    out = ['<div class="chart-contrib">']
+    for label, value, max_abs in rows:
+        v = float(value) if isinstance(value, (int, float)) and isfinite(value) else 0.0
+        pct = 0.0 if not max_abs else min(abs(v) / abs(max_abs) * 100, 100)
+        out.append(
+            f'<div class="chart-contrib-row"><span>{escape(str(label))}</span>'
+            f'<div class="chart-track"><span class="chart-fill" style="width:{pct:.0f}%"></span></div>'
+            f'<span class="chart-num mono">{v:+.1f}</span></div>'
+        )
+    out.append("</div>")
+    return "".join(out)

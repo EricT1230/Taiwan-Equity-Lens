@@ -1,7 +1,7 @@
 import re
 import unittest
 
-from taiwan_stock_analysis.dashboard_ui.charts import sparkline, signed_hbar
+from taiwan_stock_analysis.dashboard_ui.charts import sparkline, signed_hbar, contribution_bars
 
 
 class SparklineTests(unittest.TestCase):
@@ -50,3 +50,18 @@ class SignedHbarTests(unittest.TestCase):
 
     def test_caps_at_100_percent(self):
         self.assertIn("width:100%", signed_hbar(99999, 100))
+
+
+class ContributionBarsTests(unittest.TestCase):
+    def test_renders_one_row_per_input_with_signed_values(self):
+        out = contribution_bars([("新聞", 0.0, 26.6), ("價格", 2.5, 26.6), ("資金流", 26.6, 26.6)])
+        self.assertEqual(out.count("chart-contrib-row"), 3)
+        self.assertIn("+0.0", out)
+        self.assertIn("+26.6", out)
+        self.assertIn("新聞", out)
+
+    def test_escapes_label(self):
+        self.assertIn("&lt;x&gt;", contribution_bars([("<x>", 1.0, 1.0)]))
+
+    def test_zero_maxabs_yields_zero_width(self):
+        self.assertIn("width:0%", contribution_bars([("a", 5.0, 0)]))
