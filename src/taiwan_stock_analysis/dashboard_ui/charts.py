@@ -43,6 +43,7 @@ def signed_hbar(value, max_abs, *, height: int = 16) -> str:
     valid = (
         isinstance(value, (int, float))
         and isfinite(value)
+        and value != 0
         and isinstance(max_abs, (int, float))
         and max_abs
     )

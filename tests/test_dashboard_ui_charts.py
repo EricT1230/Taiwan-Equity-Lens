@@ -45,6 +45,8 @@ class SignedHbarTests(unittest.TestCase):
     def test_zero_and_none_and_zero_maxabs_render_empty_track(self):
         for out in (signed_hbar(0, 5900), signed_hbar(None, 5900), signed_hbar(100, 0)):
             self.assertIn("width:0%", out)
+            self.assertNotIn("chart-hbar-fill up", out)
+            self.assertNotIn("chart-hbar-fill down", out)
 
     def test_caps_at_100_percent(self):
         self.assertIn("width:100%", signed_hbar(99999, 100))
