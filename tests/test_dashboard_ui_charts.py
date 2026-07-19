@@ -1,7 +1,7 @@
 import re
 import unittest
 
-from taiwan_stock_analysis.dashboard_ui.charts import sparkline
+from taiwan_stock_analysis.dashboard_ui.charts import sparkline, signed_hbar
 
 
 class SparklineTests(unittest.TestCase):
@@ -30,3 +30,21 @@ class SparklineTests(unittest.TestCase):
         self.assertIsNotNone(match)
         cx = float(match.group(1))
         self.assertLessEqual(cx, 316, f"Endpoint circle cx={cx} exceeds width - pad (320 - 4)")  # width - pad
+
+
+class SignedHbarTests(unittest.TestCase):
+    def test_positive_uses_up_class(self):
+        out = signed_hbar(5900, 5900)
+        self.assertIn("chart-hbar-fill up", out)
+        self.assertIn("width:100%", out)
+
+    def test_negative_uses_down_class(self):
+        out = signed_hbar(-800, 5900)
+        self.assertIn("chart-hbar-fill down", out)
+
+    def test_zero_and_none_and_zero_maxabs_render_empty_track(self):
+        for out in (signed_hbar(0, 5900), signed_hbar(None, 5900), signed_hbar(100, 0)):
+            self.assertIn("width:0%", out)
+
+    def test_caps_at_100_percent(self):
+        self.assertIn("width:100%", signed_hbar(99999, 100))

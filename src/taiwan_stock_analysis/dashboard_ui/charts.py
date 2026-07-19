@@ -37,3 +37,17 @@ def sparkline(values: list, *, width: int = 320, height: int = 64) -> str:
         f'<circle cx="{ex}" cy="{ey}" r="3" fill="{color}"/>'
         f'</svg>'
     )
+
+
+def signed_hbar(value, max_abs, *, height: int = 16) -> str:
+    valid = (
+        isinstance(value, (int, float))
+        and isfinite(value)
+        and isinstance(max_abs, (int, float))
+        and max_abs
+    )
+    if not valid:
+        return '<div class="chart-hbar"><span class="chart-hbar-fill" style="width:0%"></span></div>'
+    pct = min(abs(value) / abs(max_abs) * 100, 100)
+    cls = "up" if value >= 0 else "down"
+    return f'<div class="chart-hbar"><span class="chart-hbar-fill {cls}" style="width:{pct:.0f}%"></span></div>'
