@@ -1,7 +1,7 @@
 import re
 import unittest
 
-from taiwan_stock_analysis.dashboard_ui.charts import sparkline, signed_hbar, contribution_bars
+from taiwan_stock_analysis.dashboard_ui.charts import sparkline, signed_hbar, contribution_bars, progress_bar
 
 
 class SparklineTests(unittest.TestCase):
@@ -65,3 +65,17 @@ class ContributionBarsTests(unittest.TestCase):
 
     def test_zero_maxabs_yields_zero_width(self):
         self.assertIn("width:0%", contribution_bars([("a", 5.0, 0)]))
+
+
+class ProgressBarTests(unittest.TestCase):
+    def test_empty_when_total_zero(self):
+        self.assertEqual(progress_bar(0, 0), "")
+
+    def test_zero_done(self):
+        self.assertIn("width:0%", progress_bar(0, 11))
+
+    def test_full_done(self):
+        self.assertIn("width:100%", progress_bar(11, 11))
+
+    def test_clamps_over_100(self):
+        self.assertIn("width:100%", progress_bar(20, 11))

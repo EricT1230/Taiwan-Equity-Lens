@@ -66,3 +66,10 @@ def contribution_bars(rows: list) -> str:
         )
     out.append("</div>")
     return "".join(out)
+
+
+def progress_bar(done: int, total: int) -> str:
+    if not total:
+        return ""
+    pct = min(max(done / total * 100, 0), 100)
+    return f'<div class="chart-progress"><span style="width:{pct:.0f}%"></span></div>'
