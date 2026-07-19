@@ -19,11 +19,11 @@ def sparkline(values: list, *, width: int = 320, height: int = 64) -> str:
     color = TOKENS["accent"]
     lo, hi = min(points), max(points)
     span = (hi - lo) or 1.0
-    step = width / (len(points) - 1)
     pad = 4
+    step = (width - 2 * pad) / (len(points) - 1)
     coords = []
     for i, v in enumerate(points):
-        x = round(i * step, 2)
+        x = round(pad + i * step, 2)
         y = round(height - pad - (v - lo) / span * (height - 2 * pad), 2)
         coords.append((x, y))
     line = " ".join(("M" if i == 0 else "L") + f"{x},{y}" for i, (x, y) in enumerate(coords))

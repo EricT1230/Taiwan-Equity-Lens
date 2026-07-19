@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from taiwan_stock_analysis.dashboard_ui.charts import sparkline
@@ -22,3 +23,10 @@ class SparklineTests(unittest.TestCase):
 
     def test_deterministic(self):
         self.assertEqual(sparkline([1.0, 2.0, 3.0]), sparkline([1.0, 2.0, 3.0]))
+
+    def test_endpoint_inside_viewbox(self):
+        out = sparkline([1.0, 2.0, 3.0, 4.0])
+        match = re.search(r'cx="([\d.]+)"', out)
+        self.assertIsNotNone(match)
+        cx = float(match.group(1))
+        self.assertLessEqual(cx, 316, f"Endpoint circle cx={cx} exceeds width - pad (320 - 4)")  # width - pad
