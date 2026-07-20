@@ -90,6 +90,7 @@ class MarketViewTests(unittest.TestCase):
         self.assertIn("chart-spark", html)                 # sparkline
         self.assertEqual(html.count("chart-contrib-row"), 3)
         self.assertIn("29.1", html)
+        self.assertIn("資料完整", html)                     # sentiment.status "ready" -> label
 
     def test_fund_flow_uses_market_up_down_grammar(self):
         html = render_market_view(_MI)

@@ -24,6 +24,15 @@ _PHASE_LABELS = {
 _CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低", "missing": "-"}
 _CONFIDENCE_TONES = {"high": "ok", "medium": "info", "low": "warn"}
 
+# Ported from dashboard.py:_market_intelligence_sentiment_status_label.
+_STATUS_LABELS = {
+    "ready": "資料完整",
+    "partial": "資料不完整",
+    "insufficient_data": "資料不足",
+    "missing": "尚無情緒資料",
+}
+_STATUS_TONES = {"partial": "warn"}
+
 _DIRECTION_LABELS = {
     "up": "輪動偏強",
     "down": "輪動偏弱",
@@ -87,6 +96,10 @@ def _phase_label(phase: str) -> str:
 
 def _confidence_label(confidence: str) -> str:
     return _CONFIDENCE_LABELS.get(confidence, confidence.replace("_", " ") if confidence else "-")
+
+
+def _status_label(status: str) -> str:
+    return _STATUS_LABELS.get(status, status.replace("_", " ") if status else "-")
 
 
 def _direction_label(direction: str) -> str:
@@ -165,6 +178,8 @@ def _sentiment_card(industry: dict[str, Any]) -> str:
     contrib_max = max([abs(news_c), abs(price_c), abs(flow_c)], default=1) or 1
 
     change_cls = _signed_class(sentiment.get("change"))
+    status = str(sentiment.get("status") or "missing")
+    status_pill = pill(_status_label(status), tone=_STATUS_TONES.get(status, "info"))
     phase_pill = pill(_phase_label(str(sentiment.get("cycle_phase") or "missing")))
     confidence = str(sentiment.get("confidence") or "missing")
     confidence_pill = pill(
@@ -195,7 +210,7 @@ def _sentiment_card(industry: dict[str, Any]) -> str:
         f'<span class="mkt-delta mono {change_cls}">{esc(_signed_score_text(sentiment.get("change")))}</span>'
         f'<span class="mkt-baseline">20D 基準 {esc(_score_text(sentiment.get("baseline_20d")))}</span>'
         "</div>"
-        f'<div class="mkt-pills">{phase_pill}{confidence_pill}</div>'
+        f'<div class="mkt-pills">{status_pill}{phase_pill}{confidence_pill}</div>'
         f"{sparkline(_sentiment_history(sentiment))}"
         f'{contribution_bars([("新聞", news_c, contrib_max), ("價格", price_c, contrib_max), ("資金流", flow_c, contrib_max)])}'
         '<div class="mkt-flow">'
