@@ -115,3 +115,90 @@ def base_css() -> str:
       .topbar {{ align-items: flex-start; }}
     }}
     """
+
+
+def view_css() -> str:
+    """CSS for the mkt-*/wb-*/out-* classes emitted by dashboard_ui.views (Tasks
+    7-9) plus the small set of page-shell-only classes page.py's topbar/tabs
+    introduce (Task 10). Kept as a sibling of base_css() -- not merged into it --
+    so base_css()'s own selectors (asserted byte-for-byte by ThemeTests) stay
+    untouched; page.py embeds `base_css() + view_css()` together in one
+    <style> block. Every color below is either a direct TOKENS reference or one
+    of the exact translucent rgba(...) tuples base_css() itself already uses for
+    the same semantic tone (blocked/warn/ok glow overlays) -- no new stray hex.
+    """
+    t = TOKENS
+    return f"""
+    /* -- page shell: topbar meta row + tab backlog badge --------------------- */
+    .topbar-status {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }}
+    .topbar-dot {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 3px; }}
+    .topbar-dot-ok {{ background: {t['ok']}; box-shadow: 0 0 7px rgba(52,211,153,0.8); }}
+    .topbar-dot-warn {{ background: {t['warn']}; box-shadow: 0 0 7px rgba(245,158,11,0.7); }}
+    .ui-tab-count {{ font-size: 12px; margin-left: 5px; opacity: 0.85; }}
+
+    /* -- shared section-heading + empty-state conventions --------------------- */
+    h2 {{ margin: 26px 0 14px; font-size: 20px; font-weight: 800; color: {t['text']};
+      letter-spacing: 0.3px; grid-column: 1 / -1; }}
+    .ui-panel > section:first-child h2 {{ margin-top: 0; }}
+    .mkt-empty, .wb-empty, .out-empty {{ color: {t['text_muted']}; font-size: 13.5px; margin: 4px 0; }}
+    .out-empty-cell {{ text-align: center; color: {t['text_muted']}; padding: 16px; font-size: 13px; }}
+
+    /* -- market view (mkt-*): bento grid of industry/rotation cards ----------- */
+    .mkt-section {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 16px; margin: 0 0 6px; }}
+    .mkt-section > .ui-card {{ margin-bottom: 0; }}
+    .mkt-sentiment-head {{ display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }}
+    .mkt-score {{ font-size: 40px; font-weight: 700; line-height: 1.05; color: {t['text']}; }}
+    .mkt-delta {{ font-size: 15px; font-weight: 700; }}
+    .mkt-baseline {{ color: {t['text_muted']}; font-size: 13px; }}
+    .mkt-pills {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }}
+    .mkt-flow {{ margin-top: 14px; }}
+    .mkt-flow-row, .mkt-rotation-row {{ display: grid; grid-template-columns: 64px 1fr 88px;
+      align-items: center; gap: 11px; font-size: 14px; color: {t['text_2']}; margin-top: 10px; }}
+    .mkt-flow-label, .mkt-rotation-label {{ grid-column: 1; color: {t['text_3']}; font-size: 13.5px; }}
+    .mkt-flow-row > :last-child, .mkt-rotation-row > :last-child {{
+      grid-column: 3; text-align: right; font-weight: 700; }}
+    .mkt-flow .mkt-flow-row:last-child {{ border-top: 1px solid {t['border']}; padding-top: 10px; margin-top: 6px; }}
+    .mkt-rotation-bars {{ margin-top: 4px; }}
+    .mkt-rotation-head {{ display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }}
+    .mkt-rotation-phase {{ color: {t['text_muted']}; font-size: 13px; }}
+    .mkt-rotation-note {{ margin: 6px 0 0; font-size: 13.5px; color: {t['text_3']}; }}
+    .mkt-keywords {{ display: flex; flex-wrap: wrap; gap: 7px; margin: 13px 0 0; }}
+    .mkt-news {{ list-style: none; margin: 9px 0 0; padding: 0; }}
+    .mkt-news li {{ font-size: 14px; color: {t['text_2']}; margin: 7px 0; }}
+
+    /* -- workbench view (wb-*): unified review queue -------------------------- */
+    .wb-gate-row {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }}
+    .wb-gate-row .chart-progress {{ flex: 1; min-width: 180px; }}
+    .wb-gate-stat {{ font-size: 15px; color: {t['text_2']}; }}
+    .wb-gate-stat strong {{ font-size: 26px; color: {t['blocked']}; margin-right: 4px; }}
+    .wb-gate-actions {{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }}
+    .queue-expand p {{ margin: 0 0 10px; font-size: 14px; color: {t['text_2']}; }}
+    .wb-evidence-hint {{ color: {t['text_3']}; font-size: 13px; margin: 4px 0; }}
+    .wb-actions-row {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }}
+    .wb-cli {{ color: {t['text_muted']}; font-size: 12px; }}
+    .wb-actions {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }}
+    .wb-next-tag {{ font-size: 11px; font-weight: 800; letter-spacing: 1px; color: {t['accent']}; }}
+    .wb-next-indicator {{ color: {t['accent']}; font-size: 13px; text-align: center; }}
+    .wb-queue-note {{ color: {t['text_faint']}; font-size: 12px; text-align: center; margin-top: 10px; }}
+
+    /* -- outputs view (out-*): stacked report/status tables ------------------- */
+    .out-section {{ margin: 0; }}
+    .out-badges {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }}
+    .out-command-code {{ display: block; background: {t['topbar']}; border: 1px solid {t['border_bright']};
+      border-radius: 8px; padding: 10px 14px; margin: 4px 0 10px; overflow-x: auto;
+      white-space: nowrap; font-size: 13px; color: {t['text_2']}; }}
+    .out-command-code + a.ui-btn {{ margin-right: 8px; }}
+    .out-section[data-outputs-commands-section] {{ display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }}
+    .out-section[data-outputs-commands-section] .ui-card {{ margin-bottom: 0; }}
+
+    /* -- Task 1 gap: contribution_bars()'s wrapper div had no rule ------------ */
+    .chart-contrib {{ margin-top: 15px; display: grid; gap: 9px; }}
+
+    @media (max-width: 900px) {{
+      .mkt-section {{ grid-template-columns: 1fr; }}
+      .mkt-flow-row, .mkt-rotation-row {{ grid-template-columns: 52px 1fr 72px; }}
+    }}
+    """

@@ -1,5 +1,6 @@
 import unittest
 
+from taiwan_stock_analysis.dashboard_ui.page import render as render_page
 from taiwan_stock_analysis.dashboard_ui.views.market import render_market_view
 from taiwan_stock_analysis.dashboard_ui.views.outputs import render_outputs_view
 from taiwan_stock_analysis.dashboard_ui.views.workbench import render_workbench_view
@@ -609,3 +610,39 @@ class OutputsViewTests(unittest.TestCase):
         self.assertNotIn("<script>evil</script>", html)
         self.assertIn("&lt;script&gt;evil&lt;/script&gt;", html)
         self.assertIn("fresh&lt;: 1&amp;", html)
+
+
+class PageTests(unittest.TestCase):
+    def _items(self):
+        d = {}
+        d.update(_MI)
+        d.update(_RS)
+        d.update(_OUT)
+        return d
+
+    def test_full_document_structure(self):
+        html = render_page(self._items())
+        self.assertTrue(html.startswith("<!DOCTYPE html>"))
+        self.assertIn("<title>台股基本面儀表板</title>", html)
+        self.assertEqual(html.count('class="ui-tab"'), 3)
+        self.assertIn('class="ui-panel active"', html)      # market default
+
+    def test_single_disclaimer(self):
+        self.assertEqual(render_page(self._items()).count("不構成投資建議"), 1)
+
+    def test_topbar_status_pills_present(self):
+        html = render_page(self._items())
+        self.assertIn("交接", html)
+        self.assertIn("待辦", html)
+
+    def test_offline_no_external_asset_tags(self):
+        html = render_page(self._items())
+        self.assertNotIn("cdn", html.lower())
+        self.assertNotIn("<link", html)
+        self.assertNotIn("googleapis", html)
+
+    def test_inline_script_has_tab_and_copy_handlers(self):
+        html = render_page(self._items())
+        self.assertIn("<script>", html)
+        self.assertIn("data-copy", html)
+        self.assertIn("ui-tab", html)
