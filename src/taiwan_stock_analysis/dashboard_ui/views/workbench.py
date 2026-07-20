@@ -195,10 +195,13 @@ def _gate_card(
 
     body = (
         '<div class="wb-gate-row">'
-        f'<span class="wb-gate-stat"><strong>{esc(blocker_count)}</strong> 件阻塞</span>'
-        f"{progress_bar(done, total)}"
-        f'<span class="wb-gate-stat mono">{esc(done)} / {esc(total)} 已處理</span>'
-        f"{pill(readiness, tone=tone)}"
+        f'<span class="wb-gate-stat"><strong id="wb-gate-blockers">{esc(blocker_count)}</strong> 件阻塞</span>'
+        # Stable ids below are resync hooks for served-mode JS (page_script.py):
+        # after a review-actions/set POST, the topbar pill updates immediately,
+        # but without these the gate card itself kept showing stale numbers.
+        f"{progress_bar(done, total, container_id='wb-gate-progress')}"
+        f'<span class="wb-gate-stat mono" id="wb-gate-processed">{esc(done)} / {esc(total)} 已處理</span>'
+        f'<span id="wb-gate-readiness">{pill(readiness, tone=tone)}</span>'
         "</div>"
         '<div class="wb-gate-actions">'
         f'<a class="ui-btn primary" href="{next_href}">⚡ 處理建議下一步</a>'

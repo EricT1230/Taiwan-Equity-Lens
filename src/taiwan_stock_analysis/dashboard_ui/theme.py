@@ -182,6 +182,12 @@ def view_css() -> str:
     .wb-next-tag {{ font-size: 11px; font-weight: 800; letter-spacing: 1px; color: {t['accent']}; }}
     .wb-next-indicator {{ color: {t['accent']}; font-size: 13px; text-align: center; }}
     .wb-queue-note {{ color: {t['text_faint']}; font-size: 12px; text-align: center; margin-top: 10px; }}
+    /* Bug fix: workbench.py emits .queue-expand as the immediate next sibling of
+       its .queue-row (row_html + expand_html, no separator -- confirmed by
+       reading _queue_row_block/_queue_card). Filtering a row (adding .hidden)
+       must also hide its paired expand panel, or an expanded row's detail
+       block is left floating after the row itself disappears. */
+    .queue-row.hidden + .queue-expand {{ display: none; }}
 
     /* -- outputs view (out-*): stacked report/status tables ------------------- */
     .out-section {{ margin: 0; }}

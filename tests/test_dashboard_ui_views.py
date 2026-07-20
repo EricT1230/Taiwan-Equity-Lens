@@ -323,6 +323,16 @@ class WorkbenchViewTests(unittest.TestCase):
         self.assertIn("處理建議下一步", html)
         self.assertIn("產出 Evidence Pack", html)
 
+    def test_gate_card_has_stable_resync_ids(self):
+        # Regression: served-mode JS (page_script.py:syncGateCard) needs these
+        # hooks to resync the gate card after a review-actions/set POST, or it
+        # keeps showing stale numbers next to an updated topbar pill (Bug 2).
+        html = render_workbench_view(_RS)
+        self.assertIn('id="wb-gate-blockers"', html)
+        self.assertIn('id="wb-gate-progress"', html)
+        self.assertIn('id="wb-gate-processed"', html)
+        self.assertIn('id="wb-gate-readiness"', html)
+
     def test_single_queue_first_row_is_next_action_high_priority_first(self):
         html = render_workbench_view(_RS)
         self.assertEqual(html.count('class="queue"'), 1)
@@ -646,3 +656,11 @@ class PageTests(unittest.TestCase):
         self.assertIn("<script>", html)
         self.assertIn("data-copy", html)
         self.assertIn("ui-tab", html)
+
+    def test_hidden_queue_row_css_hides_paired_expand(self):
+        # Regression: workbench.py emits .queue-expand as the immediate next
+        # sibling of its .queue-row. Filtering only toggled .hidden on the row
+        # itself, leaving an expanded row's detail panel floating after the
+        # row disappeared (Bug 1). Fixed via an adjacent-sibling CSS rule.
+        html = render_page(self._items())
+        self.assertIn(".queue-row.hidden + .queue-expand", html)

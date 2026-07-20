@@ -68,8 +68,12 @@ def contribution_bars(rows: list) -> str:
     return "".join(out)
 
 
-def progress_bar(done: int, total: int) -> str:
+def progress_bar(done: int, total: int, *, container_id: str | None = None) -> str:
     if not total:
         return ""
     pct = min(max(done / total * 100, 0), 100)
-    return f'<div class="chart-progress"><span style="width:{pct:.0f}%"></span></div>'
+    # container_id lets a caller give the outer div a stable DOM hook (e.g.
+    # workbench.py's gate card, so served-mode JS can resync the fill width
+    # after a review-action POST without duplicating this calculation).
+    id_attr = f' id="{escape(str(container_id))}"' if container_id else ""
+    return f'<div class="chart-progress"{id_attr}><span style="width:{pct:.0f}%"></span></div>'

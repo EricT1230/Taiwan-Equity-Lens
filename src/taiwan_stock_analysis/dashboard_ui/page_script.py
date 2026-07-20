@@ -158,9 +158,59 @@ SCRIPT = """<script>
         ready ? "可交接" : "交接 Gate：阻塞 " + data.blocker_count + " 件",
         ready ? "ok" : "blocked"
       );
+      syncGateCard(data);
     }
     if (typeof data.open_count === "number") {
       setTopbarPill("topbar-backlog-pill", "待辦 " + data.open_count, "info");
+    }
+  }
+
+  // Resyncs the workbench gate card (views/workbench.py:_gate_card) so it
+  // doesn't contradict the just-updated topbar pill. Every number used here is
+  // taken directly from (or is a plain sum of) fields dashboard_server.py's
+  // /api/review-actions/set and /api/handoff-pack/write responses already
+  // return -- blocker_count/ready always; by_status (open/done/deferred/
+  // ignored counts, from review_action_state.py:build_review_action_state_report)
+  // only on review-actions/set. Nothing here is invented client-side: total and
+  // processed are exact sums of the server's own per-status counts, and the
+  // readiness pill text mirrors workbench.py's own
+  // `"交付門檻已通過" if ready else f"尚有 {blocker_count} 件待交接阻塞"` template verbatim.
+  function syncGateCard(data) {
+    var blockersEl = document.getElementById("wb-gate-blockers");
+    if (blockersEl) { blockersEl.textContent = String(data.blocker_count); }
+
+    var readinessEl = document.getElementById("wb-gate-readiness");
+    if (readinessEl) {
+      var ready = !!data.ready;
+      readinessEl.innerHTML = "";
+      var pillSpan = document.createElement("span");
+      pillSpan.className = "ui-pill ui-pill-" + (ready ? "ok" : "blocked");
+      pillSpan.textContent = ready ? "交付門檻已通過" : "尚有 " + data.blocker_count + " 件待交接阻塞";
+      readinessEl.appendChild(pillSpan);
+    }
+
+    // by_status is absent from the handoff-pack response (it doesn't change any
+    // action's status) -- skip the processed/total + progress-bar update rather
+    // than showing a fabricated 0/0.
+    var byStatus = data.by_status;
+    if (!byStatus || typeof byStatus !== "object") { return; }
+    var openCt = byStatus.open || 0;
+    var doneCt = byStatus.done || 0;
+    var deferredCt = byStatus.deferred || 0;
+    var ignoredCt = byStatus.ignored || 0;
+    var total = openCt + doneCt + deferredCt + ignoredCt;
+    var processed = doneCt + deferredCt + ignoredCt;
+
+    var processedEl = document.getElementById("wb-gate-processed");
+    if (processedEl) { processedEl.textContent = processed + " / " + total + " 已處理"; }
+
+    var progressEl = document.getElementById("wb-gate-progress");
+    if (progressEl && total > 0) {
+      var fill = progressEl.querySelector("span");
+      if (fill) {
+        var pct = Math.min(Math.max((processed / total) * 100, 0), 100);
+        fill.style.width = Math.round(pct) + "%";
+      }
     }
   }
 
