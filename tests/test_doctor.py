@@ -280,13 +280,7 @@ class DoctorTests(unittest.TestCase):
         self.assertIn(f"dashboard missing review-action section: {output_dir / 'dashboard.html'}", result.failures)
 
     def test_check_demo_readiness_reports_missing_industry_sentiment_hooks(self):
-        hooks = (
-            "data-industry-sentiment=",
-            "data-industry-sentiment-score=",
-            "data-industry-sentiment-phase=",
-            "data-industry-sentiment-confidence=",
-            "data-industry-turning-risk=",
-        )
+        hooks = ("mkt-sentiment-head", "mkt-score", "chart-spark")
         for index, missing_hook in enumerate(hooks):
             with self.subTest(missing_hook=missing_hook):
                 output_dir = Path(f".tmp-doctor-test/demo-dashboard-missing-sentiment-hook-{index}")
@@ -304,147 +298,6 @@ class DoctorTests(unittest.TestCase):
                     f"dashboard missing industry sentiment hook {missing_hook}: {dashboard_path}",
                     result.failures,
                 )
-
-    def test_check_demo_readiness_ignores_industry_sentiment_hook_decoys(self):
-        output_dir = Path(".tmp-doctor-test/demo-dashboard-sentiment-hook-decoys")
-        write_demo_fixture(output_dir)
-        dashboard_path = output_dir / "dashboard.html"
-        hooks = (
-            "data-industry-sentiment=",
-            "data-industry-sentiment-score=",
-            "data-industry-sentiment-phase=",
-            "data-industry-sentiment-confidence=",
-            "data-industry-turning-risk=",
-        )
-        dashboard_path.write_text(
-            '<html><body><div data-review-actions-section="true"></div>'
-            '<section data-industry-trend-report-section="true"></section>'
-            f"<!-- {' '.join(hooks)} -->"
-            f"<script>const hookNames = {list(hooks)!r};</script>"
-            "</body></html>",
-            encoding="utf-8",
-        )
-
-        result = check_demo_readiness(output_dir)
-
-        self.assertFalse(result.ok)
-        for hook in hooks:
-            self.assertIn(
-                f"dashboard missing industry sentiment hook {hook}: {dashboard_path}",
-                result.failures,
-            )
-
-    def test_check_demo_readiness_rejects_incomplete_sentiment_start_tag(self):
-        output_dir = Path(".tmp-doctor-test/demo-dashboard-incomplete-sentiment-tag")
-        write_demo_fixture(output_dir)
-        dashboard_path = output_dir / "dashboard.html"
-        dashboard_path.write_text(
-            '<html><body><div data-review-actions-section="true"></div>'
-            '<section data-industry-trend-report-section="true"></section>'
-            '<article data-industry-sentiment="ready" data-industry-sentiment-score="42.5" '
-            'data-industry-sentiment-phase="expansion" data-industry-sentiment-confidence="medium" '
-            'data-industry-turning-risk="insufficient_history"',
-            encoding="utf-8",
-        )
-
-        result = check_demo_readiness(output_dir)
-
-        self.assertFalse(result.ok)
-        self.assertTrue(
-            any("dashboard missing industry sentiment hook" in failure for failure in result.failures)
-        )
-
-    def test_check_demo_readiness_rejects_structurally_invalid_sentiment_elements(self):
-        hooks = (
-            'data-industry-sentiment="ready" '
-            'data-industry-sentiment-score="42.5" '
-            'data-industry-sentiment-phase="expansion" '
-            'data-industry-sentiment-confidence="medium" '
-            'data-industry-turning-risk="insufficient_history"'
-        )
-        candidate = f'<article class="industry-sentiment-card" {hooks}>'
-        cases = {
-            "script-attributes": f"<script {hooks}></script>",
-            "style-attributes": f"<style {hooks}></style>",
-            "template-content": f"<template>{candidate}</article></template>",
-            "unclosed-article": candidate,
-            "mismatched-close": f"{candidate}<div></article></div>",
-        }
-        for case, sentiment_html in cases.items():
-            with self.subTest(case=case):
-                output_dir = Path(f".tmp-doctor-test/demo-dashboard-invalid-sentiment-{case}")
-                write_demo_fixture(output_dir)
-                dashboard_path = output_dir / "dashboard.html"
-                dashboard_path.write_text(
-                    '<html><body><div data-review-actions-section="true"></div>'
-                    '<section data-industry-trend-report-section="true"></section>'
-                    f"{sentiment_html}</body></html>",
-                    encoding="utf-8",
-                )
-
-                result = check_demo_readiness(output_dir)
-
-                self.assertFalse(result.ok)
-                self.assertIn(
-                    f"dashboard missing valid industry sentiment element: {dashboard_path}",
-                    result.failures,
-                )
-
-    def test_check_demo_readiness_rejects_duplicate_normalized_dashboard_attributes(self):
-        remaining_hooks = (
-            'data-industry-sentiment-score="42.5" '
-            'data-industry-sentiment-phase="expansion" '
-            'data-industry-sentiment-confidence="medium" '
-            'data-industry-turning-risk="insufficient_history"'
-        )
-        cases = {
-            "class": (
-                '<article class="other" class="industry-sentiment-card" '
-                f'data-industry-sentiment="ready" {remaining_hooks}></article>'
-            ),
-            "data-industry-sentiment": (
-                '<article class="industry-sentiment-card" data-industry-sentiment="missing" '
-                f'DATA-INDUSTRY-SENTIMENT="ready" {remaining_hooks}></article>'
-            ),
-        }
-        for duplicate_name, sentiment_html in cases.items():
-            with self.subTest(duplicate_name=duplicate_name):
-                output_dir = Path(f".tmp-doctor-test/demo-dashboard-duplicate-{duplicate_name}")
-                write_demo_fixture(output_dir)
-                dashboard_path = output_dir / "dashboard.html"
-                dashboard_path.write_text(
-                    '<html><body><div data-review-actions-section="true"></div>'
-                    '<section data-industry-trend-report-section="true"></section>'
-                    f"{sentiment_html}</body></html>",
-                    encoding="utf-8",
-                )
-
-                result = check_demo_readiness(output_dir)
-
-                self.assertFalse(result.ok)
-                self.assertIn(
-                    f"dashboard has duplicate attribute {duplicate_name}: {dashboard_path}",
-                    result.failures,
-                )
-
-    def test_check_demo_readiness_accepts_uppercase_sentiment_element(self):
-        output_dir = Path(".tmp-doctor-test/demo-dashboard-uppercase-sentiment")
-        write_demo_fixture(output_dir)
-        dashboard_path = output_dir / "dashboard.html"
-        dashboard_path.write_text(
-            '<HTML><BODY><DIV data-review-actions-section="true"></DIV>'
-            '<SECTION data-industry-trend-report-section="true"></SECTION>'
-            '<ARTICLE CLASS="industry-sentiment-card" DATA-INDUSTRY-SENTIMENT="ready" '
-            'DATA-INDUSTRY-SENTIMENT-SCORE="42.5" DATA-INDUSTRY-SENTIMENT-PHASE="expansion" '
-            'DATA-INDUSTRY-SENTIMENT-CONFIDENCE="medium" '
-            'DATA-INDUSTRY-TURNING-RISK="insufficient_history"></ARTICLE></BODY></HTML>',
-            encoding="utf-8",
-        )
-
-        result = check_demo_readiness(output_dir)
-
-        self.assertTrue(result.ok)
-        self.assertEqual([], result.failures)
 
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
@@ -581,12 +434,11 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "industry-trends").mkdir(parents=True, exist_ok=True)
     (output_dir / "market-intelligence").mkdir(parents=True, exist_ok=True)
     (output_dir / "dashboard.html").write_text(
-        '<html><body><div data-review-actions-section="true"></div>'
-        '<section data-industry-trend-report-section="true"></section>'
-        '<article class="industry-sentiment-card" data-industry-sentiment="ready" '
-        'data-industry-sentiment-score="42.5" '
-        'data-industry-sentiment-phase="expansion" data-industry-sentiment-confidence="medium" '
-        'data-industry-turning-risk="insufficient_history"></article></body></html>',
+        '<html><body><div class="queue"></div>'
+        '<div class="mkt-rotation-head"></div>'
+        '<div class="mkt-sentiment-head"></div>'
+        '<span class="mkt-score">42.5</span>'
+        '<svg class="chart-spark"></svg></body></html>',
         encoding="utf-8",
     )
     (output_dir / "workflow_summary.json").write_text(

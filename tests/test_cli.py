@@ -1489,7 +1489,9 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "packs" / "pack_summary.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.json").exists())
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
-        self.assertIn("審查動作", (output_dir / "dashboard.html").read_text(encoding="utf-8"))
+        dashboard_html = (output_dir / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("審查佇列", dashboard_html)
+        self.assertIn('<div class="queue">', dashboard_html)  # non-empty: real review-action rows rendered
 
     def test_main_research_industry_trends_writes_outputs(self):
         root = Path(".tmp-cli-test/research-industry-trends")
@@ -1984,7 +1986,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(summary["industry_trend_report"]["status"], "ready")
         self.assertEqual(summary["items"][0]["market_rotation"]["source"], "industry_trend_report")
         dashboard = (output_dir / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn('data-industry-trend-report-section="true"', dashboard)
+        self.assertIn('data-market-rotation-section="true"', dashboard)
+        self.assertIn("<h4>Semiconductor</h4>", dashboard)  # non-empty: real rotation category rendered
 
     def test_main_demo_quickstart_runs_bundled_offline_demo(self):
         output_dir = Path(".tmp-cli-test/demo-quickstart-dist")

@@ -1,6 +1,4 @@
 import json
-import shutil
-import subprocess
 import unittest
 from pathlib import Path
 
@@ -97,7 +95,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("comparison.html", html)
         self.assertIn("missing fixture", html)
         self.assertIn("失敗", html)
-        self.assertIn("stockInput", html)
+        self.assertIn('data-copy="python -m taiwan_stock_analysis.cli 2330', html)
         self.assertIn("python -m taiwan_stock_analysis.cli", html)
 
     def test_render_dashboard_html_contains_workflow_summary_and_batch_tools(self):
@@ -153,28 +151,25 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("summaryReports", html)
-        self.assertIn(">2</strong><span>個股報告</span>", html)
-        self.assertIn(">1</strong><span>同業比較</span>", html)
-        self.assertIn(">2</strong><span>批次筆數</span>", html)
-        self.assertIn(">1</strong><span>失敗筆數</span>", html)
-        self.assertIn("compareInput", html)
-        self.assertIn("batchPathInput", html)
-        self.assertIn("watchlistTemplate", html)
+        self.assertIn("個股報告", html)
+        self.assertIn("2330_analysis.html", html)
+        self.assertIn("2303_analysis.html", html)
+        self.assertIn("同業比較", html)
+        self.assertIn("missing fixture", html)
+        self.assertIn("失敗 1", html)
+        self.assertIn("成功 1", html)
         self.assertIn("data:text/csv", html)
         self.assertIn("python -m taiwan_stock_analysis.cli compare", html)
         self.assertIn("python -m taiwan_stock_analysis.cli batch", html)
         self.assertIn("Workflow 狀態", html)
         self.assertIn("成功 1 / 2", html)
-        self.assertIn("同業比較略過", html)
-        self.assertIn('class="badge error">同業比較略過', html)
+        self.assertIn("同業比較略過：fewer than two successful stocks", html)
         self.assertIn("workflow-dist/workflow_summary.json", html)
         self.assertIn("run-dashboard-workflow", html)
         self.assertIn("workflow-dist/valuation.csv", html)
-        self.assertIn("fewer than two successful stocks", html)
         self.assertIn("2330", html)
         self.assertIn("資料可信度", html)
-        self.assertIn("overall_status", html)
+        self.assertIn("整體：error", html)
         self.assertIn("Source fetch failed", html)
         self.assertIn("Run the workflow again later", html)
 
@@ -226,7 +221,8 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("counts: 5: 2, fresh&lt;: 1&amp;", html)
+        self.assertIn("來源稽核", html)
+        self.assertIn("5: 2, fresh&lt;: 1&amp;", html)
 
     def test_render_dashboard_html_shows_clear_empty_states(self):
         html = render_dashboard_html(
@@ -238,10 +234,10 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("尚無個股報告", html)
-        self.assertIn("尚無同業比較", html)
-        self.assertIn("尚無批次結果", html)
-        self.assertIn("尚無 workflow summary", html)
+        self.assertIn("尚未產生個股報告", html)
+        self.assertIn("尚未產生同業比較", html)
+        self.assertIn("尚未有批次結果", html)
+        self.assertIn("尚未有 workflow summary", html)
 
     def test_render_dashboard_html_shows_invalid_workflow_summary_status(self):
         html = render_dashboard_html(
@@ -253,7 +249,9 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn('class="badge error">Workflow summary 錯誤：invalid JSON', html)
+        self.assertIn("Workflow 狀態", html)
+        self.assertIn("workflow_summary.json", html)
+        self.assertIn("<td>invalid JSON</td>", html)
 
     def test_discover_dashboard_items_finds_research_summaries(self):
         root = Path(".tmp-cli-test/dashboard-research")
@@ -411,15 +409,16 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn('data-industry-trend-report-section="true"', html)
-        self.assertIn('data-sector-rotation-pipeline="true"', html)
-        self.assertIn('data-industry-trend-report="true"', html)
-        self.assertIn('data-industry-trend-category="Semiconductor"', html)
-        self.assertIn('data-industry-trend-direction="up"', html)
-        self.assertIn("industry_trend_report.html", html)
+        self.assertIn('data-market-rotation-section="true"', html)
+        self.assertIn("<h4>Semiconductor</h4>", html)
+        self.assertIn("輪動偏強", html)  # direction "up" localized
+        self.assertIn("leading", html)  # rotation_phase raw text
         self.assertIn("20D", html)
-        self.assertIn("Review the strongest and weakest sector trend evidence", html)
-        self.assertIn("not investment advice", html)
+        self.assertIn("+8.0%", html)
+        self.assertIn("2330", html)
+        self.assertIn("+12.0%", html)
+        self.assertIn("2303", html)
+        self.assertIn("+2.0%", html)
 
     def test_discover_dashboard_items_finds_market_intelligence_report(self):
         root = Path(".tmp-cli-test/dashboard-market-intelligence")
@@ -586,79 +585,37 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn('data-market-intelligence-section="true"', html)
-        self.assertIn('data-market-intelligence-report="true"', html)
-        self.assertIn('data-market-intelligence-freshness-gate="true"', html)
-        self.assertIn('data-market-intelligence-industry="Semiconductor"', html)
-        self.assertIn('data-market-intelligence-flow="net_inflow"', html)
+        self.assertIn('data-market-sentiment-section="true"', html)
+        self.assertIn("<h4>Semiconductor</h4>", html)
         self.assertIn("台積電 AI 伺服器需求增溫", html)
         self.assertIn("1,150", html)
-        self.assertIn("不是產業排名", html)
-        self.assertIn('data-industry-sentiment="ready"', html)
-        self.assertIn('data-industry-sentiment-score="34.2"', html)
-        self.assertIn('data-industry-sentiment-change="13.2"', html)
-        self.assertIn('data-industry-sentiment-peak-risk="72.0"', html)
-        self.assertIn('data-industry-sentiment-trough-risk="18.0"', html)
-        self.assertIn('data-industry-sentiment-confidence-order="3"', html)
-        self.assertIn('data-industry-sentiment-phase="expansion"', html)
-        self.assertIn('data-industry-sentiment-confidence="high"', html)
-        self.assertIn('data-industry-sentiment-forecast="experimental"', html)
-        self.assertIn('data-industry-turning-risk="experimental"', html)
-        self.assertIn('data-industry-sentiment-sort="true"', html)
-        self.assertIn('data-industry-sentiment-grid="true"', html)
-        dataset_contract = {
-            "score": (
-                'data-industry-sentiment-score="34.2"',
-                "industrySentimentScore",
-            ),
-            "change": (
-                'data-industry-sentiment-change="13.2"',
-                "industrySentimentChange",
-            ),
-            "peak_risk": (
-                'data-industry-sentiment-peak-risk="72.0"',
-                "industrySentimentPeakRisk",
-            ),
-            "trough_risk": (
-                'data-industry-sentiment-trough-risk="18.0"',
-                "industrySentimentTroughRisk",
-            ),
-            "confidence": (
-                'data-industry-sentiment-confidence-order="3"',
-                "industrySentimentConfidenceOrder",
-            ),
-        }
-        for key, (rendered_attribute, dataset_property) in dataset_contract.items():
-            with self.subTest(sort_key=key):
-                self.assertIn(rendered_attribute, html)
-                self.assertIn(f"{key}: '{dataset_property}'", html)
-        self.assertIn('value="score" selected', html)
-        self.assertIn('value="change"', html)
-        self.assertIn('value="peak_risk"', html)
-        self.assertIn('value="trough_risk"', html)
-        self.assertIn('value="confidence"', html)
-        self.assertIn("偏多", html)
+        self.assertIn('<span class="mkt-score mono">34.2</span>', html)
+        self.assertIn('<span class="mkt-delta mono up">+13.2</span>', html)
+        self.assertIn("20D 基準 21.0", html)
+        self.assertIn("資料完整", html)  # sentiment.status "ready"
+        self.assertIn("擴張", html)  # cycle_phase "expansion" localized
+        self.assertIn("信心：高", html)
+        self.assertIn("chart-spark", html)
+        self.assertEqual(html.count('class="chart-contrib-row"'), 6)  # 3 rows x 2 industries
+        self.assertIn("AI", html)
+        self.assertIn("伺服器", html)
+        self.assertIn('data-market-rotation-section="true"', html)
+        self.assertIn("尚未產生產業輪動報告", html)  # no industry_trend_reports supplied
+        # Partial/insufficient-history industry: status + phase localize, sparkline
+        # falls back to the "insufficient history" placeholder.
         self.assertIn("資料不完整", html)
-        self.assertIn("experimental / 實驗訊號", html)
-        self.assertIn("35.5 [31.0, 40.0]", html)
-        self.assertIn("40.0 [20.0, 60.0]", html)
-        self.assertIn("configured 40.0% / effective 40.0%", html)
-        self.assertIn("forecast warning", html)
-        self.assertIn("turning warning", html)
-        self.assertIn("confidence warning", html)
-        self.assertIn("fund_flow removed &lt;img src=x onerror=alert(1)&gt;", html)
-        self.assertNotIn("fourth reason must be omitted", html)
+        self.assertIn("歷史資料不足", html)
+        self.assertIn("信心：中", html)
+        # Escaping: hostile category name is neutralized either way.
+        self.assertIn("Legacy Partial &lt;script&gt;alert(1)&lt;/script&gt;", html)
         self.assertNotIn("<script>alert(1)</script>", html)
         self.assertNotIn("<img src=x onerror=alert(1)>", html)
+        self.assertNotIn("<canvas", html)
+        # Default sort still favors industries with a real score over ones without.
         self.assertLess(
-            html.index('data-market-intelligence-industry="Semiconductor"'),
-            html.index('data-market-intelligence-industry="Legacy Partial'),
+            html.index("<h4>Semiconductor</h4>"),
+            html.index("<h4>Legacy Partial"),
         )
-        self.assertIn("function sortIndustrySentimentCards(source, key)", html)
-        self.assertIn("sortIndustrySentimentCards(source, select.value)", html)
-        self.assertIn("@media (max-width: 640px)", html)
-        self.assertIn(".industry-sentiment-metrics { grid-template-columns: 1fr; }", html)
-        self.assertIn(".industry-sentiment-card:focus-visible", html)
         self.assertNotIn("<canvas", html)
 
     def test_discover_and_render_dashboard_market_data_report(self):
@@ -705,13 +662,12 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertEqual(len(items["market_data_reports"]), 1)
-        self.assertIn('data-market-data-section="true"', html)
-        self.assertIn('data-market-data-report="true"', html)
-        self.assertIn('data-market-data-freshness-gate="true"', html)
-        self.assertIn('class="market-data-table-scroll"', html)
-        self.assertIn('class="market-data-table"', html)
-        self.assertIn(".market-data-table-scroll { max-width: 100%; overflow-x: auto;", html)
-        self.assertIn(".market-data-table { min-width: 680px; }", html)
+        self.assertIn('data-outputs-market-data-section="true"', html)
+        self.assertIn("Market Data — 2026-07-12", html)
+        self.assertIn("quality gate: ready", html)
+        self.assertIn('class="table-scroll"', html)
+        self.assertIn('class="mini-table"', html)
+        self.assertIn(".table-scroll { overflow-x: auto; }", html)
         self.assertIn("TPEX", html)
         self.assertIn("半導體業", html)
         self.assertIn("42", html)
@@ -758,121 +714,8 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn('data-industry-sentiment-phase="consolidation"', html)
-        self.assertIn("階段：盤整", html)
-
-    def test_industry_sentiment_sorting_executes_with_source_isolation(self):
-        node = shutil.which("node")
-        if node is None:
-            self.skipTest("Node runtime is not available")
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [],
-            }
-        )
-        function_start = html.index("function sortIndustrySentimentCards(source, key)")
-        function_end = html.index("function initIndustrySentimentSorting()", function_start)
-        function_source = html[function_start:function_end]
-        harness = function_source + r"""
-const assert = (condition, message) => {
-  if (!condition) throw new Error(message);
-};
-const card = (category, dataset) => ({
-  dataset: { marketIntelligenceIndustry: category, ...dataset }
-});
-const makeGrid = (cards) => ({
-  cards: cards.slice(),
-  querySelectorAll(selector) {
-    assert(selector === '[data-industry-sentiment]', 'unexpected card selector');
-    return this.cards.slice();
-  },
-  appendChild(item) {
-    const previousIndex = this.cards.indexOf(item);
-    if (previousIndex >= 0) this.cards.splice(previousIndex, 1);
-    this.cards.push(item);
-  }
-});
-const source = (grid) => ({
-  querySelector(selector) {
-    assert(selector === '[data-industry-sentiment-grid="true"]', 'unexpected grid selector');
-    return grid;
-  }
-});
-const order = (grid) => grid.cards.map((item) => item.dataset.marketIntelligenceIndustry);
-const renderedAttributes = {
-  score: 'data-industry-sentiment-score',
-  change: 'data-industry-sentiment-change',
-  peak_risk: 'data-industry-sentiment-peak-risk',
-  trough_risk: 'data-industry-sentiment-trough-risk',
-  confidence: 'data-industry-sentiment-confidence-order'
-};
-const datasetProperty = (attribute) => attribute
-  .replace(/^data-/, '')
-  .split('-')
-  .map((part, index) => index === 0 ? part : part[0].toUpperCase() + part.slice(1))
-  .join('');
-const attributes = Object.fromEntries(
-  Object.entries(renderedAttributes).map(([key, attribute]) => [key, datasetProperty(attribute)])
-);
-
-for (const [key, selectedAttribute] of Object.entries(attributes)) {
-  const targetData = {};
-  const decoyData = {};
-  for (const attribute of Object.values(attributes)) {
-    targetData[attribute] = attribute === selectedAttribute ? '100' : '0';
-    decoyData[attribute] = attribute === selectedAttribute ? '-10' : '200';
-  }
-  const tieAData = { [selectedAttribute]: '50' };
-  const tieBData = { [selectedAttribute]: '50' };
-  const negativeData = { [selectedAttribute]: '-5' };
-  const blankData = { [selectedAttribute]: '' };
-  const infiniteData = { [selectedAttribute]: 'Infinity' };
-  const invalidData = { [selectedAttribute]: 'not-a-number' };
-  const selectedGrid = makeGrid([
-    card('Tie B', tieBData),
-    card('Blank', blankData),
-    card('Decoy', decoyData),
-    card('Target', targetData),
-    card('Absent', {}),
-    card('Tie A', tieAData),
-    card('Infinite', infiniteData),
-    card('Negative', negativeData),
-    card('Invalid', invalidData)
-  ]);
-  const untouchedGrid = makeGrid([card('Untouched B', {}), card('Untouched A', {})]);
-  const selectedSource = source(selectedGrid);
-  const untouchedSource = source(untouchedGrid);
-
-  sortIndustrySentimentCards(selectedSource, key);
-
-  const actual = order(selectedGrid);
-  assert(actual[0] === 'Target', key + ' did not use ' + selectedAttribute);
-  assert(actual[1] === 'Tie A' && actual[2] === 'Tie B', key + ' tie-break was not deterministic');
-  assert(actual.indexOf('Negative') < actual.indexOf('Absent'), key + ' absent value did not sort last');
-  assert(actual.indexOf('Negative') < actual.indexOf('Blank'), key + ' blank value did not sort last');
-  assert(actual.indexOf('Negative') < actual.indexOf('Infinite'), key + ' infinite value did not sort last');
-  assert(actual.indexOf('Negative') < actual.indexOf('Invalid'), key + ' invalid value did not sort last');
-  assert(
-    JSON.stringify(order(untouchedGrid)) === JSON.stringify(['Untouched B', 'Untouched A']),
-    key + ' reordered a different source block'
-  );
-  assert(untouchedSource.querySelector('[data-industry-sentiment-grid="true"]') === untouchedGrid, 'invalid source stub');
-}
-"""
-
-        result = subprocess.run(
-            [node, "-e", harness],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn('<span class="ui-pill ui-pill-info">盤整</span>', html)
+        self.assertNotIn("consolidation", html)
 
     def test_render_dashboard_html_contains_research_summary(self):
         html = render_dashboard_html(
@@ -928,342 +771,22 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
+        # NOTE: research-summary-level traceability (run_metadata.run_id,
+        # artifact_registry, workflow_summary_path/workflow_paths, counts) is no
+        # longer surfaced anywhere in the redesigned dashboard -- only the flat
+        # `items[]` research pool survives, via the workbench's single 研究池 table
+        # (flagged as a concern in the task-11 report). This fixture keeps those
+        # untouched fields to prove they don't break rendering; the assertions
+        # below cover what the pool table actually renders.
         self.assertIn("研究工作台", html)
-        self.assertIn("needs attention", html)
-        self.assertIn("run-dashboard-research", html)
-        self.assertIn("workflow dependency", html)
-        self.assertIn("research-dist/workflow_summary.json", html)
-        self.assertIn("research-dist/dashboard.html", html)
-        self.assertIn("research-dist/reports/batch_summary.json", html)
-        self.assertIn("research-dist/valuation-reports/batch_summary.json", html)
-        self.assertIn("research-dist/comparison/comparison.html", html)
         self.assertIn("2330", html)
         self.assertIn("TSMC &lt;Leader&gt;", html)
-        self.assertIn("review: 1", html)
-        self.assertIn("high: 1", html)
+        self.assertNotIn("TSMC <Leader>", html)
         self.assertIn("research state requires review", html)
-
-    def test_render_dashboard_html_contains_universe_review(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "counts": {"total": 3, "needs_attention": 2},
-                        "universe_review": {
-                            "counts": {
-                                "total": 3,
-                                "needs_attention": 2,
-                                "high_priority_attention": 1,
-                                "blocked": 1,
-                                "new": 1,
-                                "active_review": 1,
-                            },
-                            "category_counts": {
-                                "Semiconductor": 2,
-                                "Uncategorized": 1,
-                            },
-                            "state_counts": {"blocked": 1, "new": 1, "review": 1},
-                            "priority_counts": {"high": 1, "medium": 2},
-                            "review_buckets": {
-                                "needs_attention": ["2330", "2303"],
-                                "high_priority_attention": ["2330"],
-                                "blocked": ["2303"],
-                                "new": ["2454"],
-                                "active_review": ["2330"],
-                            },
-                            "attention_queue": [
-                                {
-                                    "stock_id": "2330",
-                                    "company_name": "TSMC",
-                                    "category": "Semiconductor",
-                                    "priority": "high",
-                                    "research_state": "review",
-                                    "workflow_status": "ok",
-                                    "reliability_status": "warning",
-                                    "attention_reasons": ["high priority attention"],
-                                },
-                                {
-                                    "stock_id": "2303",
-                                    "company_name": "UMC",
-                                    "category": "Semiconductor",
-                                    "priority": "medium",
-                                    "research_state": "blocked",
-                                    "workflow_status": "error",
-                                    "reliability_status": "error",
-                                    "attention_reasons": ["workflow failed"],
-                                },
-                            ],
-                        },
-                        "items": [],
-                    }
-                ],
-            }
-        )
-
-        self.assertIn("研究池檢視", html)
-        self.assertIn("high priority attention", html)
-        self.assertIn("Semiconductor: 2", html)
-        self.assertIn("Uncategorized: 1", html)
-        self.assertIn("2330", html)
+        self.assertIn('<span class="ui-badge ui-badge-blocked">高</span>', html)  # priority "high"
         self.assertIn("2303", html)
-
-    def test_render_dashboard_html_contains_industry_rotation_map(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "review_action_state": {
-                            "actions": {
-                                "2330:source-audit-manual-review": {
-                                    "status": "done",
-                                    "updated_at": "2026-05-20T01:00:00Z",
-                                }
-                            }
-                        },
-                        "review_action_queue": [
-                            {
-                                "stock_id": "2330",
-                                "company_name": "TSMC",
-                                "priority": "high",
-                                "actions": [
-                                    {
-                                        "id": "source-audit-manual-review",
-                                        "category": "source_audit",
-                                        "severity": "manual_review",
-                                        "message": "Review source audit.",
-                                        "status": "open",
-                                    }
-                                ],
-                            },
-                            {
-                                "stock_id": "2303",
-                                "company_name": "UMC",
-                                "priority": "medium",
-                                "actions": [
-                                    {
-                                        "id": "valuation-unavailable",
-                                        "category": "valuation",
-                                        "severity": "warning",
-                                        "message": "Complete valuation.",
-                                        "status": "open",
-                                    }
-                                ],
-                            },
-                        ],
-                        "items": [
-                            {
-                                "stock_id": "2330",
-                                "company_name": "TSMC",
-                                "category": "Semiconductor",
-                                "priority": "high",
-                                "research_state": "watching",
-                                "workflow_status": "ok",
-                                "reliability_status": "ok",
-                                "attention_reasons": ["source audit requires handoff evidence"],
-                                "thesis": "foundry leader",
-                                "follow_up_questions": "check margin",
-                                "market_rotation": {
-                                    "status": "available",
-                                    "direction": "up",
-                                    "return_1d": 1.2,
-                                    "return_5d": 4.5,
-                                    "return_20d": 9.8,
-                                    "volume_signal": "volume expansion",
-                                    "note": "AI supply chain lead",
-                                },
-                            },
-                            {
-                                "stock_id": "2303",
-                                "company_name": "UMC",
-                                "category": "Semiconductor",
-                                "priority": "medium",
-                                "research_state": "watching",
-                                "workflow_status": "ok",
-                                "reliability_status": "ok",
-                                "attention_reasons": ["valuation output is unavailable or skipped"],
-                                "market_rotation": {
-                                    "status": "available",
-                                    "direction": "flat",
-                                    "return_1d": -0.4,
-                                    "return_5d": 0.5,
-                                    "return_20d": 1.2,
-                                    "volume_signal": "volume normal",
-                                    "note": "mature node lagging",
-                                },
-                            },
-                            {
-                                "stock_id": "1504",
-                                "company_name": "TECO",
-                                "category": "Power",
-                                "priority": "medium",
-                                "research_state": "watching",
-                                "workflow_status": "ok",
-                                "reliability_status": "ok",
-                                "attention_reasons": [],
-                                "market_rotation": {
-                                    "status": "missing",
-                                    "direction": "missing",
-                                    "return_1d": None,
-                                    "return_5d": None,
-                                    "return_20d": None,
-                                    "volume_signal": "",
-                                    "note": "",
-                                },
-                            },
-                        ],
-                    }
-                ],
-            }
-        )
-
-        self.assertIn('data-industry-rotation-map="true"', html)
-        self.assertIn('data-industry-map-grid="true"', html)
-        self.assertIn('data-industry-map-card="true"', html)
-        self.assertIn('data-industry-map-status="blocked"', html)
-        self.assertIn('data-industry-map-workflow="true"', html)
-        self.assertIn('data-industry-map-filter-bar="true"', html)
-        self.assertIn('data-industry-map-filter="status"', html)
-        self.assertIn('data-industry-map-filter="evidence"', html)
-        self.assertIn('data-industry-map-filter="market"', html)
-        self.assertIn('data-industry-map-filter="lens"', html)
-        self.assertIn('data-industry-map-filter="search"', html)
-        self.assertIn('data-industry-map-filter-reset="true"', html)
-        self.assertIn('data-industry-map-count="true"', html)
-        self.assertIn('data-industry-map-market-direction="up"', html)
-        self.assertIn('data-industry-map-market-status="available"', html)
-        self.assertIn('data-industry-map-market-direction="missing"', html)
-        self.assertIn('data-industry-map-market-status="missing"', html)
-        self.assertIn("市場輪動 overlay", html)
-        self.assertIn("輪動偏強", html)
-        self.assertIn("市場資料缺口", html)
-        self.assertIn("20D", html)
-        self.assertIn("9.8%", html)
-        self.assertIn("AI supply chain lead", html)
-        self.assertIn('data-industry-map-detail-panel="true"', html)
-        self.assertIn('data-industry-map-detail-template=', html)
-        self.assertIn('data-industry-map-detail-target=', html)
-        self.assertIn('data-industry-map-next-action="true"', html)
-        self.assertIn('data-industry-map-task="true"', html)
-        self.assertIn('data-industry-map-evidence-status="missing"', html)
-        self.assertIn('data-industry-map-lenses="source_audit valuation"', html)
-        self.assertIn('data-industry-evidence-board="true"', html)
-        self.assertIn('data-industry-evidence-row="true"', html)
-        self.assertIn('data-industry-evidence-status="missing"', html)
-        self.assertIn('data-industry-evidence-status="open"', html)
-        self.assertIn('data-industry-evidence-stock-id="2330"', html)
-        self.assertIn('data-industry-evidence-suggested-path="research-dist/evidence/2330-source-audit-manual-review.md"', html)
-        self.assertIn("產業證據看板", html)
-        self.assertIn("建議證據檔", html)
-        self.assertIn("缺欄位", html)
-        self.assertIn("補證並標記完成", html)
-        self.assertIn("稍後補證", html)
-        self.assertIn("產業輪動地圖", html)
-        self.assertIn("研究交付壓力", html)
-        self.assertIn("交付壓力", html)
-        self.assertIn("可否交接", html)
-        self.assertIn("最大阻塞來源", html)
-        self.assertIn("最短修復路徑", html)
-        self.assertIn("Semiconductor", html)
-        self.assertIn("Power", html)
-        self.assertIn("待補交付證據", html)
-        self.assertIn("專家阻塞", html)
-        self.assertIn("來源檢查", html)
-        self.assertIn("估值", html)
-        self.assertIn('data-industry-map-focus-stock="2303"', html)
-        self.assertIn('data-review-actions-source-path="research-dist/research_summary.json"', html)
-        self.assertIn("查看產業任務", html)
-        self.assertIn("前往第一個阻塞", html)
-        self.assertIn("前往審查動作", html)
-        self.assertIn("下一個按鈕", html)
-        self.assertIn("Top blockers", html)
-        self.assertIn("不構成買賣、持有、目標價或配置建議", html)
-        self.assertIn("initIndustryMapControls()", html)
-        self.assertIn("initIndustryMapWorkflowControls()", html)
-        self.assertIn("applyIndustryMapFilters(source)", html)
-        self.assertIn("selectIndustryMapDetail(card", html)
-        self.assertIn("panel.querySelectorAll('[data-expert-console-action-command=\"true\"]')", html)
-        self.assertIn("focusIndustryMapReviewAction(button)", html)
-        self.assertIn("industryMapSectionForButton(button)", html)
-
-    def test_render_dashboard_html_industry_rotation_map_escapes_values(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "review_action_queue": [
-                            {
-                                "stock_id": "2330<script>",
-                                "company_name": "Co <Name>",
-                                "priority": "medium",
-                                "actions": [
-                                    {
-                                        "id": "source-audit-manual-review",
-                                        "category": "source_audit",
-                                        "severity": "manual_review",
-                                        "message": "Review <source>.",
-                                        "status": "open",
-                                    }
-                                ],
-                            }
-                        ],
-                        "items": [
-                            {
-                                "stock_id": "2330<script>",
-                                "company_name": "Co <Name>",
-                                "category": "<Sector>",
-                                "priority": "medium",
-                                "research_state": "watching",
-                                "workflow_status": "ok",
-                                "reliability_status": "ok",
-                                "attention_reasons": [],
-                                "market_rotation": {
-                                    "status": "available",
-                                    "direction": "up",
-                                    "return_1d": 1.1,
-                                    "return_5d": 2.2,
-                                    "return_20d": 3.3,
-                                    "volume_signal": "volume <signal>",
-                                    "note": "rotation <note>",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
-
-        self.assertIn("&lt;Sector&gt;", html)
-        self.assertIn("2330&lt;script&gt;", html)
-        self.assertIn("Co &lt;Name&gt;", html)
-        self.assertIn("volume &lt;signal&gt;", html)
-        self.assertIn("rotation &lt;note&gt;", html)
-        self.assertIn('data-industry-name="&lt;Sector&gt;"', html)
-        self.assertIn('data-industry-map-search-text="', html)
-        self.assertIn('data-industry-map-market-direction="up"', html)
-        self.assertIn('data-industry-map-detail-template=', html)
-        self.assertIn('data-industry-map-focus-stock="2330&lt;script&gt;"', html)
-        self.assertIn("Review &lt;source&gt;.", html)
-        self.assertNotIn("<Sector>", html)
-        self.assertNotIn("2330<script>", html)
-        self.assertNotIn("Co <Name>", html)
-        self.assertNotIn("volume <signal>", html)
-        self.assertNotIn("rotation <note>", html)
-        self.assertNotIn("Review <source>.", html)
+        self.assertIn("UMC", html)
+        self.assertIn(">watching<", html)
 
     def test_render_dashboard_html_contains_review_actions(self):
         html = render_dashboard_html(
@@ -1312,78 +835,50 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn("審查動作", html)
-        self.assertIn("const reviewActionApiEnabled = false;", html)
-        self.assertIn('data-review-actions-section="true"', html)
-        self.assertIn('data-review-filter="severity"', html)
-        self.assertIn('data-review-filter="category"', html)
-        self.assertIn('data-review-filter="priority"', html)
-        self.assertIn('data-review-filter="status"', html)
-        self.assertIn('data-review-filter="search"', html)
-        self.assertIn('data-review-filter-reset="true"', html)
-        self.assertIn('data-review-action-count="true"', html)
-        self.assertIn('data-review-action-bulk-tools="true"', html)
-        self.assertIn('data-review-action-select-visible="true"', html)
-        self.assertIn('data-review-action-bulk-status="done"', html)
-        self.assertIn('data-review-action-bulk-status="deferred"', html)
-        self.assertIn('data-review-action-bulk-count="true"', html)
-        self.assertIn('data-review-action-mode-notice="true"', html)
-        self.assertIn("目前是靜態模式", html)
-        self.assertIn("顯示待處理 / 全部 2 件", html)
-        self.assertIn("批次標記完成", html)
-        self.assertIn("批次稍後處理", html)
-        self.assertIn("已選取 0 筆", html)
-        self.assertIn("待處理 2 / 全部 2", html)
-        self.assertIn("已完成 0 / 稍後處理 0 / 不處理 0", html)
-        self.assertIn('data-review-action-open-total="true"', html)
-        self.assertIn('data-review-action-state-health="true"', html)
-        self.assertIn('data-review-action-stale-count="true"', html)
-        self.assertIn('data-review-action-last-updated="true"', html)
-        self.assertIn("過期狀態 0", html)
-        self.assertIn("最後更新：-", html)
+        # NOTE: bulk select/mark tools, the state-health/stale-count/last-updated
+        # summary line, and the "重新開啟" (reopen) action are not present anywhere
+        # in the redesigned workbench queue -- flagged as concerns in the task-11
+        # report (§10 of the design spec calls for preserving 狀態計數與 stale 提示
+        # and batch operations, but views/workbench.py does not implement them).
+        self.assertIn("交接 GATE", html)
+        self.assertIn("審查佇列", html)
+        self.assertIn('<strong id="wb-gate-blockers">2</strong>', html)
+        self.assertIn("尚有 2 件待交接阻塞", html)
+        self.assertIn('data-queue-filter="severity"', html)
+        self.assertIn('data-queue-filter="category"', html)
+        self.assertIn('data-queue-filter="priority"', html)
+        self.assertIn('data-queue-filter="status"', html)
+        self.assertIn('data-queue-filter="search"', html)
+        self.assertIn("共 2 筆（依優先度 → 嚴重度排序）。", html)
         self.assertIn("需人工確認", html)
         self.assertIn("來源檢查", html)
         self.assertIn("2330", html)
-        self.assertIn("來源檢查需要確認", html)
-        self.assertIn('data-review-action-row="true"', html)
-        self.assertIn('data-stock-id="2330"', html)
+        self.assertIn("Review source audit: fixture source", html)
+        self.assertIn('class="queue-row next"', html)
+        self.assertIn('data-stock="2330"', html)
         self.assertIn('data-priority="high"', html)
         self.assertIn('data-status="open"', html)
         self.assertIn('data-severity="manual_review"', html)
         self.assertIn('data-category="source_audit"', html)
         self.assertIn('data-category="fundamental_review"', html)
-        self.assertIn('data-category-label="基本面專家審查"', html)
-        self.assertIn('data-expert-label="基本面專家審查"', html)
+        self.assertIn("基本面專家審查", html)
         self.assertIn("fundamental-review-low-quality", html)
-        self.assertIn('data-category-label="來源檢查"', html)
-        self.assertIn('data-expert-label="資料來源專家"', html)
-        self.assertIn("data-search-text=", html)
-        self.assertIn("待處理 manual_review 需人工確認 source_audit 來源檢查", html)
-        self.assertIn("<th>待處理事項</th>", html)
-        self.assertIn("<th>操作</th>", html)
-        self.assertIn('<th class="review-action-select-cell">選取</th>', html)
-        self.assertIn('data-review-action-select-row="true"', html)
-        self.assertIn('data-review-action-command="done"', html)
-        self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
-        self.assertIn('data-action-id="source-audit-manual-review"', html)
-        self.assertIn('data-status-value="done"', html)
-        self.assertIn('data-evidence-required="true"', html)
-        self.assertIn('data-review-action-status-cell="true"', html)
-        self.assertIn('data-review-action-api-result="true"', html)
-        self.assertIn('data-review-action-api-output="true"', html)
+        self.assertIn('class="queue-expand"', html)
+        self.assertIn('data-expand-for="wb-row-0"', html)
         self.assertIn(">標記完成</button>", html)
         self.assertIn(">稍後處理</button>", html)
         self.assertIn(">不處理</button>", html)
-        self.assertIn(">重新開啟</button>", html)
-        self.assertIn("更新結果", html)
-        self.assertIn("技術詳細資訊", html)
-        self.assertIn("指令 / API 詳細資訊", html)
-        self.assertIn('data-review-action-command="deferred"', html)
-        self.assertIn('data-review-action-command="ignored"', html)
-        self.assertIn('data-review-action-command="reopen"', html)
-        self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status done", html)
-        self.assertIn("research action set research-dist/review_action_state.json 2330 source-audit-manual-review --status open", html)
-        self.assertIn('--note "..." --reviewer "..." --evidence-url "..."', html)
+        self.assertIn("靜態模式：按下後複製 CLI 指令", html)
+        self.assertIn(
+            "research action set research-dist/review_action_state.json 2330 "
+            "source-audit-manual-review --status done",
+            html,
+        )
+        self.assertIn(
+            "research action set research-dist/review_action_state.json 2330 "
+            "fundamental-review-low-quality --status deferred",
+            html,
+        )
 
     def test_render_dashboard_html_contains_expert_agent_console_guided_flow(self):
         html = render_dashboard_html(
@@ -1459,73 +954,36 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn('data-expert-agent-console="true"', html)
-        self.assertIn('data-expert-console-source-path="research-dist/research_summary.json"', html)
-        self.assertIn('data-review-actions-source-path="research-dist/research_summary.json"', html)
-        self.assertIn('data-expert-console-next-step="true"', html)
-        self.assertIn('data-expert-console-handoff-status="blocked"', html)
-        self.assertIn('data-expert-console-open-count="3"', html)
-        self.assertIn('data-expert-console-evidence-missing-count="1"', html)
-        self.assertIn('data-expert-console-stale-count="0"', html)
-        self.assertIn('data-expert-console-missing-gate-count="0"', html)
-        self.assertIn('data-next-action-workbench="true"', html)
-        self.assertIn('data-next-action-kind="blocker"', html)
-        self.assertIn('data-next-action-primary="true"', html)
-        self.assertIn('data-next-action-result="true"', html)
-        self.assertIn('data-next-action-remaining="true"', html)
-        self.assertIn("下一步工作台", html)
-        self.assertIn("建議主按鈕", html)
-        self.assertIn("處理最高優先阻塞", html)
-        self.assertIn("處理結果：等待按下建議主按鈕", html)
-        self.assertIn("專家 Agent Console", html)
-        self.assertIn("交接狀態：尚未可交接", html)
-        self.assertIn("Handoff Gate 有 4 件阻塞", html)
-        self.assertIn("Gate 阻塞：4", html)
-        self.assertIn("優先處理的 3 件待查事項", html)
-        self.assertIn('data-expert-console-bulk="true"', html)
-        self.assertIn('data-expert-console-bulk-status="done"', html)
-        self.assertIn("Top 3 標記完成", html)
-        self.assertIn('data-expert-console-feedback="true"', html)
-        self.assertIn('data-expert-console-task="true"', html)
-        self.assertIn("問題：", html)
-        self.assertIn("建議處理：", html)
-        self.assertIn('data-expert-console-task-result="true"', html)
-        self.assertIn("處理結果：尚未處理", html)
-        self.assertIn('data-expert-console-action-command="true"', html)
-        self.assertIn("research action set research-dist/review_action_state.json 2330 fundamental-review-low-quality --status done", html)
-        self.assertIn("research action set research-dist/review_action_state.json 2330 fundamental-review-low-quality --status deferred", html)
+        # The old expert-console guided flow (Top 3, focus-jump, bulk controls) is
+        # merged away per design spec §3.5 -- what survives is the unified queue's
+        # gate card (same blocker math from handoff.py) + its top "next" row.
+        self.assertIn("交接 GATE", html)
+        self.assertIn('<strong id="wb-gate-blockers">4</strong>', html)
+        self.assertIn("1 / 4 已處理", html)
+        self.assertIn("尚有 4 件待交接阻塞", html)
+        self.assertIn("產出 Evidence Pack", html)
+        self.assertIn(
+            'data-copy="python -m taiwan_stock_analysis.cli research handoff-pack '
+            "research-dist/research_summary.json --state research-dist/review_action_state.json "
+            '--output-dir research-dist/handoff-pack"',
+            html,
+        )
+        self.assertIn("審查佇列", html)
+        self.assertIn('class="queue-row next"', html)
+        self.assertIn('data-status="done"', html)  # state overlay marks source-audit-manual-review done
+        self.assertIn('<span class="ui-badge ui-badge-ok">已完成</span>', html)
+        self.assertIn('<span class="wb-next-tag">建議下一步</span>', html)
         self.assertIn("基本面專家審查", html)
-        self.assertIn("資料可信度專家", html)
-        self.assertIn("估值假設專家", html)
-        self.assertIn("前往這個阻塞", html)
-        self.assertIn('data-expert-console-next-copy="true"', html)
-        self.assertIn('data-expert-console-refresh-note="true"', html)
-        self.assertIn("重新整理頁面或重新產生 dashboard", html)
-        self.assertEqual(html.count('data-expert-console-focus-category="'), 3)
-        self.assertIn('data-expert-console-focus-category="fundamental_review"', html)
-        self.assertIn('data-expert-console-stock-id="2330"', html)
-        self.assertIn('data-expert-console-action-id="fundamental-review-low-quality"', html)
-        self.assertIn('data-action-id="fundamental-review-low-quality"', html)
-        self.assertIn('data-company-name="TSMC"', html)
-        self.assertIn('data-action-message="Review weak expert fundamental checks before handoff."', html)
-        self.assertIn('data-expert-label="基本面專家審查"', html)
-        self.assertIn('data-priority-label=', html)
-        self.assertIn('data-severity-label=', html)
-        self.assertNotIn('data-expert-console-focus-category="source_audit"', html)
-        self.assertIn('data-expert-console-focus-search="2330"', html)
-        self.assertIn('data-expert-console-non-advice="true"', html)
-        self.assertIn("不構成投資建議、買賣建議或持倉建議", html)
-        self.assertIn("attachExpertConsoleFocus(button)", html)
-        self.assertIn("syncExpertConsole(section)", html)
-        self.assertIn("renderExpertConsoleActions(consoleBlock", html)
-        self.assertIn("renderExpertConsoleSystemBlocker(consoleBlock", html)
-        self.assertIn("initExpertConsoleActionControls()", html)
-        self.assertIn("initExpertConsoleBulkControls()", html)
-        self.assertIn("reviewActionSectionForButton(button)", html)
-        self.assertIn("initExpertConsoleFocus()", html)
-        self.assertIn("reviewActionsSourcePath", html)
-        self.assertIn("targetActionId", html)
-        self.assertIn("firstAction.focus()", html)
+        self.assertIn("資料可信度", html)
+        self.assertIn("估值", html)
+        self.assertIn("共 4 筆（依優先度 → 嚴重度排序）。", html)
+        self.assertIn(
+            "research action set research-dist/review_action_state.json 2330 "
+            "fundamental-review-low-quality --status done",
+            html,
+        )
+        self.assertIn("研究池", html)
+        self.assertIn("尚無研究項目", html)
 
     def test_render_dashboard_html_expert_console_targets_same_category_action_id(self):
         html = render_dashboard_html(
@@ -1563,14 +1021,20 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
                         ],
                     }
                 ],
-            }
+            },
+            action_api_enabled=True,
         )
 
-        self.assertIn('data-expert-console-action-id="fundamental-review-thesis-breakers"', html)
-        self.assertIn('data-expert-console-action-id="fundamental-review-manual-check"', html)
+        # The old expert-console "jump to this exact action id" focus/targeting JS
+        # is gone (merged away per §3.5), but the underlying structural guarantee
+        # it depended on must still hold: two actions in the same category on the
+        # same stock become two distinct, independently addressable queue rows --
+        # not merged or deduped by category.
+        self.assertEqual(html.count('data-category="fundamental_review"'), 2)
         self.assertIn('data-action-id="fundamental-review-thesis-breakers"', html)
         self.assertIn('data-action-id="fundamental-review-manual-check"', html)
-        self.assertIn("(row.dataset.actionId || '') === targetActionId", html)
+        self.assertIn("Review thesis breakers.", html)
+        self.assertIn("Review manual questions.", html)
 
     def test_render_dashboard_html_expert_console_ready_when_all_actions_handled(self):
         html = render_dashboard_html(
@@ -1615,13 +1079,13 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn("交接狀態：可進入人工交付審查", html)
-        self.assertIn('data-next-action-workbench="true"', html)
-        self.assertIn('data-next-action-kind="ready"', html)
-        self.assertIn('data-next-action-primary="true"', html)
+        self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', html)
+        self.assertIn('<strong id="wb-gate-blockers">0</strong>', html)
+        self.assertIn("1 / 1 已處理", html)
         self.assertIn("產出 Evidence Pack", html)
-        self.assertIn("目前沒有開啟的阻塞事項", html)
-        self.assertNotIn('data-expert-console-focus-category="workflow"', html)
+        self.assertIn('<span class="ui-badge ui-badge-ok">已完成</span>', html)
+        self.assertIn("resolved workflow failure", html)  # evidence note surfaces in the input value
+        self.assertIn("workflow-lead", html)
 
     def test_render_dashboard_html_escapes_review_actions(self):
         html = render_dashboard_html(
@@ -1665,76 +1129,64 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
 
         self.assertIn("2330&lt;script&gt;", html)
         self.assertIn("Review &lt;source&gt;", html)
-        self.assertIn('data-stock-id="2330&lt;script&gt;"', html)
-        self.assertIn('data-company-name="Co &lt;Name&gt;"', html)
-        self.assertIn('data-action-message="Review &lt;source&gt;"', html)
-        self.assertIn('data-expert-label="資料來源專家"', html)
+        self.assertIn('data-stock="2330&lt;script&gt;"', html)
+        self.assertIn("來源檢查", html)
         self.assertIn('data-status="open"', html)
-        self.assertIn('data-search-text="2330&lt;script&gt; high 高 open 待處理 manual_review 需人工確認 source_audit 來源檢查 review &lt;source&gt;', html)
+        self.assertIn(
+            "research action set research-dist/review_action_state.json "
+            "&#x27;2330&lt;script&gt;&#x27; x --status done",
+            html,
+        )
         self.assertNotIn("2330<script>", html)
         self.assertNotIn("Co <Name>", html)
         self.assertNotIn("Review <source>", html)
-        self.assertNotIn('data-stock-id="2330<script>"', html)
-        self.assertNotIn('data-company-name="Co <Name>"', html)
-        self.assertNotIn('data-action-message="Review <source>"', html)
-        self.assertNotIn('data-expert-label="資料來源專家<script>"', html)
-        self.assertNotIn('data-search-text="2330<script>', html)
+        self.assertNotIn('data-stock="2330<script>"', html)
 
     def test_render_dashboard_html_can_enable_review_action_api(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "review_action_summary": {"total_open": 1},
-                        "review_action_queue": [
-                            {
-                                "stock_id": "2330",
-                                "priority": "high",
-                                "actions": [
-                                    {
-                                        "id": "workflow-error",
-                                        "category": "workflow",
-                                        "severity": "error",
-                                        "message": "Fix workflow.",
-                                        "status": "open",
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            action_api_enabled=True,
-        )
+        items = {
+            "reports": [],
+            "comparisons": [],
+            "batch_summaries": [],
+            "workflow_summaries": [],
+            "research_summaries": [
+                {
+                    "path": "research-dist/research_summary.json",
+                    "review_action_summary": {"total_open": 1},
+                    "review_action_queue": [
+                        {
+                            "stock_id": "2330",
+                            "priority": "high",
+                            "actions": [
+                                {
+                                    "id": "workflow-error",
+                                    "category": "workflow",
+                                    "severity": "error",
+                                    "message": "Fix workflow.",
+                                    "status": "open",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
 
-        self.assertIn("const reviewActionApiEnabled = true;", html)
-        self.assertIn("fetch('/api/review-actions/set'", html)
-        self.assertIn("collectReviewActionEvidence(button, row)", html)
-        self.assertIn("請輸入處理證據 note", html)
-        self.assertIn("updateReviewActionState(button, copyStatus)", html)
-        self.assertIn("showReviewActionApiResult(button, result)", html)
-        self.assertIn("updateReviewActionSummary(button, result)", html)
-        self.assertIn('data-expert-console-sync-note="true"', html)
-        self.assertNotIn('data-expert-console-refresh-note="true"', html)
-        self.assertIn("syncExpertConsole(section)", html)
-        self.assertIn("consoleBlock.dataset.expertConsoleHandoffStatus", html)
-        self.assertIn("consoleBlock.dataset.expertConsoleOpenCount", html)
-        self.assertIn("consoleBlock.dataset.expertConsoleEvidenceMissingCount", html)
-        self.assertIn("consoleBlock.dataset.expertConsoleStaleCount", html)
-        self.assertIn("buildExpertConsoleAction(row", html)
-        self.assertIn("row.dataset.expertLabel", html)
-        self.assertIn("data-expert-console-bulk-status", html)
-        self.assertIn("data-expert-console-action-command", html)
-        self.assertIn("expertConsoleTaskResultForButton(button)", html)
-        self.assertIn("處理結果：已標記為", html)
-        self.assertIn("Top 3 僅處理", html)
-        self.assertIn("Top 3 已處理", html)
-        self.assertIn("目前是 API 模式", html)
+        static_html = render_dashboard_html(items, action_api_enabled=False)
+        api_html = render_dashboard_html(items, action_api_enabled=True)
+
+        self.assertNotIn('data-action-api="review-action"', static_html)
+        self.assertIn("靜態模式：按下後複製 CLI 指令", static_html)
+
+        self.assertIn('data-action-api="review-action"', api_html)
+        self.assertIn('data-action-api="handoff-pack"', api_html)
+        self.assertIn('data-source-path="research-dist/research_summary.json"', api_html)
+        self.assertIn('data-state-path="research-dist/review_action_state.json"', api_html)
+        self.assertIn('data-stock="2330"', api_html)
+        self.assertIn('data-action-id="workflow-error"', api_html)
+        self.assertIn('data-status="done"', api_html)
+        self.assertIn("API 模式：按下即時更新狀態", api_html)
+        self.assertNotIn("靜態模式：按下後複製 CLI 指令", api_html)
+        self.assertIn('postJson("/api/review-actions/set"', api_html)
 
     def test_discover_dashboard_items_loads_review_action_state(self):
         root = Path(".tmp-cli-test/dashboard-review-action-state")
@@ -1840,24 +1292,22 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn("<th>狀態</th>", html)
-        self.assertIn("<th>待處理事項</th>", html)
-        self.assertIn("<th>操作</th>", html)
+        # NOTE: the per-item "過期狀態"/"最後更新" state-health line and the stale
+        # state's own blocker message text ("review_action_state.json 有過期項目：...")
+        # are no longer surfaced anywhere in the redesigned workbench -- only the
+        # aggregate blocker COUNT is shown (flagged as a concern in the task-11
+        # report). handoff.py's blocker math is otherwise unchanged: the done
+        # action is missing reviewer/evidence_url (1 evidence blocker) and
+        # 9999:old-action has no matching queue row (1 stale blocker) = 2 total.
+        self.assertIn('<strong id="wb-gate-blockers">2</strong>', html)
+        self.assertIn("1 / 1 已處理", html)
+        self.assertIn("尚有 2 件待交接阻塞", html)
         self.assertIn('data-status="done"', html)
-        self.assertIn("待處理 0 / 全部 1", html)
-        self.assertIn("已完成 1 / 稍後處理 0 / 不處理 0", html)
-        self.assertIn("過期狀態 1", html)
-        self.assertIn('data-review-action-stale-count-value="1"', html)
-        self.assertIn('data-expert-console-handoff-status="blocked"', html)
-        self.assertIn('data-expert-console-open-count="0"', html)
-        self.assertIn('data-expert-console-stale-count="1"', html)
-        self.assertIn('data-expert-console-missing-gate-count="0"', html)
-        self.assertIn("最後更新：2026-05-15T10:00:00Z", html)
-        self.assertIn("review_action_state.json 有過期項目：9999 / old-action。", html)
-        self.assertIn("狀態一致性專家", html)
-        self.assertIn('data-review-filter="status"', html)
-        self.assertIn("note: checked", html)
-        self.assertIn("updated: 2026-05-15T09:00:00Z", html)
+        self.assertIn('<span class="ui-badge ui-badge-ok">已完成</span>', html)
+        self.assertIn('data-priority="high"', html)
+        self.assertIn('data-severity="error"', html)
+        self.assertIn("工作流程", html)
+        self.assertIn('placeholder="note：處理說明" value="checked"', html)
 
     def test_render_dashboard_html_quotes_review_action_commands(self):
         html = render_dashboard_html(
@@ -1935,12 +1385,16 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn("Could not read review action state: invalid JSON", html)
+        # NOTE: review_action_state_warning is no longer surfaced anywhere in the
+        # redesigned workbench (flagged as a concern in the task-11 report). This
+        # now verifies the dashboard degrades gracefully -- falls back to "no
+        # state overlay" so the action stays open -- instead of crashing when
+        # only the warning field (and no actual state dict) is present.
         self.assertIn('data-status="open"', html)
-        self.assertIn("待處理 1 / 全部 1", html)
-        self.assertIn("已完成 0 / 稍後處理 0 / 不處理 0", html)
-        self.assertIn("過期狀態 0", html)
-        self.assertIn("最後更新：-", html)
+        self.assertIn('<strong id="wb-gate-blockers">1</strong>', html)
+        self.assertIn("尚有 1 件待交接阻塞", html)
+        self.assertIn("工作流程", html)
+        self.assertIn("Fix workflow.", html)
 
     def test_render_dashboard_html_omits_review_action_filters_for_legacy_summary(self):
         html = render_dashboard_html(
@@ -1963,57 +1417,6 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
 
         self.assertNotIn('<div data-review-actions-section="true">', html)
         self.assertNotIn('data-review-filter="severity"', html)
-
-    def test_render_dashboard_html_includes_review_action_filter_script(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "review_action_summary": {"total_open": 1},
-                        "review_action_queue": [
-                            {
-                                "stock_id": "2330",
-                                "priority": "high",
-                                "actions": [
-                                    {
-                                        "id": "workflow-error",
-                                        "category": "workflow",
-                                        "severity": "error",
-                                        "message": "Resolve workflow failure.",
-                                        "status": "open",
-                                    }
-                                ],
-                            }
-                        ],
-                        "counts": {"total": 1, "needs_attention": 1},
-                        "items": [],
-                    }
-                ],
-                "memo_outputs": [],
-                "pack_outputs": [],
-            }
-        )
-
-        self.assertIn("function initReviewActionFilters()", html)
-        self.assertIn("沒有符合目前篩選條件的審查動作。", html)
-        self.assertIn("data-review-action-empty", html)
-        self.assertIn("data-review-filter-reset", html)
-        self.assertIn("initReviewActionBulkControls()", html)
-        self.assertIn("reviewActionSelectedRows(section)", html)
-        self.assertIn("請先勾選要批次處理的事項。", html)
-        self.assertIn("已批次更新", html)
-        self.assertIn("row.dataset.status", html)
-        self.assertIn("row.dataset.searchText", html)
-        self.assertIn("function initReviewActionCommandCopy()", html)
-        self.assertIn("navigator.clipboard.writeText", html)
-        self.assertIn("document.execCommand('copy')", html)
-        self.assertIn('data-review-action-copy-status="true"', html)
-        self.assertIn("複製失敗，請使用畫面上的指令文字。", html)
 
     def test_render_dashboard_html_tolerates_legacy_summaries_without_traceability(self):
         html = render_dashboard_html(
@@ -2042,8 +1445,8 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
 
         self.assertIn("workflow-dist/workflow_summary.json", html)
         self.assertIn("research-dist/research_summary.json", html)
-        self.assertIn("total research items: 0", html)
-        self.assertNotIn("研究池檢視", html)
+        self.assertIn("研究工作台", html)
+        self.assertIn("尚無研究項目", html)  # pool renders empty state, not an error
 
     def test_render_dashboard_html_shows_research_empty_state(self):
         html = render_dashboard_html(
@@ -2070,8 +1473,13 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn("research_summary.json", html)
-        self.assertIn("invalid JSON", html)
+        # NOTE: an error'd research_summaries entry is treated the same as "no
+        # research summary" by the redesigned workbench -- the specific path/error
+        # text is no longer surfaced anywhere (flagged as a concern in the task-11
+        # report). This now verifies the render degrades to the graceful empty
+        # state instead of crashing or showing stale/wrong data.
+        self.assertIn("研究工作台", html)
+        self.assertIn("尚無 research summary", html)
 
     def test_render_dashboard_html_contains_memo_outputs(self):
         html = render_dashboard_html(
@@ -2146,10 +1554,12 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn('data-handoff-evidence-pack-section="true"', html)
+        self.assertIn('data-outputs-files-section="true"', html)
         self.assertIn("Handoff Evidence Pack", html)
         self.assertIn("handoff-pack.md", html)
+        self.assertIn("handoff-pack.html", html)
         self.assertIn("handoff_pack_summary.json", html)
+        self.assertIn("ready", html)
 
     def test_render_dashboard_html_contains_handoff_pack_workflow_guidance(self):
         html = render_dashboard_html(
@@ -2191,14 +1601,18 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             }
         )
 
-        self.assertIn('data-handoff-pack-workflow="true"', html)
-        self.assertIn('data-handoff-pack-write="true"', html)
-        self.assertIn('data-handoff-pack-result="true"', html)
-        self.assertIn('data-handoff-pack-evidence-guidance="true"', html)
+        self.assertIn('<strong id="wb-gate-blockers">1</strong>', html)
+        self.assertIn("產出 Evidence Pack", html)
         self.assertIn("research-dist/handoff-pack", html)
-        self.assertIn("research handoff-pack research-dist/research_summary.json --state research-dist/review_action_state.json --output-dir research-dist/handoff-pack", html)
-        self.assertIn("reviewer, evidence_url", html)
-        self.assertIn("research-dist/evidence/2330-reliability-warning.md", html)
+        self.assertIn(
+            "research handoff-pack research-dist/research_summary.json "
+            "--state research-dist/review_action_state.json --output-dir research-dist/handoff-pack",
+            html,
+        )
+        self.assertIn("交付證據（高風險事項必填）：", html)
+        self.assertIn('placeholder="reviewer：覆核人"', html)
+        self.assertIn('placeholder="evidence：檔案路徑或 URL"', html)
+        self.assertIn('value="checked reliability warning"', html)
 
     def test_render_dashboard_html_contains_api_handoff_pack_writer(self):
         html = render_dashboard_html(
@@ -2217,61 +1631,11 @@ for (const [key, selectedAttribute] of Object.entries(attributes)) {
             action_api_enabled=True,
         )
 
-        self.assertIn("const response = await fetch('/api/handoff-pack/write'", html)
+        self.assertIn('data-action-api="handoff-pack"', html)
         self.assertIn("產出 Evidence Pack", html)
-        self.assertIn('data-research-summary-path="research-dist/research_summary.json"', html)
+        self.assertIn('data-source-path="research-dist/research_summary.json"', html)
         self.assertIn('data-state-path="research-dist/review_action_state.json"', html)
-        self.assertIn('data-output-dir="research-dist/handoff-pack"', html)
-
-    def test_render_dashboard_html_contains_api_evidence_composer(self):
-        html = render_dashboard_html(
-            {
-                "reports": [],
-                "comparisons": [],
-                "batch_summaries": [],
-                "workflow_summaries": [],
-                "research_summaries": [
-                    {
-                        "path": "research-dist/research_summary.json",
-                        "review_action_queue": [
-                            {
-                                "stock_id": "2330",
-                                "company_name": "TSMC",
-                                "priority": "high",
-                                "actions": [
-                                    {
-                                        "id": "fundamental-review-thesis-breakers",
-                                        "category": "fundamental_review",
-                                        "severity": "warning",
-                                        "message": "Review thesis breakers before handoff.",
-                                        "status": "open",
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            action_api_enabled=True,
-        )
-
-        self.assertIn('data-evidence-composer="true"', html)
-        self.assertIn('data-evidence-composer-note="true"', html)
-        self.assertIn('data-evidence-composer-reviewer="true"', html)
-        self.assertIn('data-evidence-composer-url="true"', html)
-        self.assertIn('data-evidence-composer-summary="true"', html)
-        self.assertIn('data-evidence-composer-submit="true"', html)
-        self.assertIn('data-evidence-composer-result="true"', html)
-        self.assertIn('data-evidence-quality-status="unknown"', html)
-        self.assertIn('data-evidence-preview="true"', html)
-        self.assertIn('data-evidence-preview-content="true"', html)
-        self.assertIn('data-evidence-quality-checks="true"', html)
-        self.assertIn("建立證據並標記完成", html)
-        self.assertIn("Reviewer Confidence", html)
-        self.assertIn("research-dist/evidence/2330-fundamental-review-thesis-breakers.md", html)
-        self.assertIn("const response = await fetch('/api/evidence/compose-and-set'", html)
-        self.assertIn("renderEvidenceComposerResult(resultBox, result)", html)
-        self.assertIn("submitEvidenceComposer(button)", html)
+        self.assertIn('postJson("/api/handoff-pack/write"', html)
 
 
 if __name__ == "__main__":

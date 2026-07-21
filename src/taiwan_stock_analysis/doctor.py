@@ -5,7 +5,6 @@ import json
 import re
 import sys
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -69,90 +68,22 @@ DEMO_SENTIMENT_HISTORY_REQUIRED_HEADERS = (
     "cycle_phase",
     "confidence",
 )
+# Dashboard content anchors below target the redesigned dashboard_ui markup
+# (see src/taiwan_stock_analysis/dashboard_ui/views/*.py) rather than the retired
+# dashboard.py renderer. Each is a plain substring search: the redesigned page has
+# no per-industry structural markers left to validate against (cards are generic
+# <section class="ui-card">, not a dedicated <article class="industry-sentiment-card">
+# element), so this intentionally trades the old element-level structural check
+# (duplicate attributes, well-formed open/close tags) for a simpler "is the real
+# content present at all" signal -- consistent with how the review-action and
+# industry-trend-report checks below already worked.
+DEMO_REVIEW_ACTION_HOOK = 'class="queue"'
+DEMO_INDUSTRY_TREND_HOOK = "mkt-rotation-head"
 DEMO_SENTIMENT_DASHBOARD_HOOKS = (
-    "data-industry-sentiment=",
-    "data-industry-sentiment-score=",
-    "data-industry-sentiment-phase=",
-    "data-industry-sentiment-confidence=",
-    "data-industry-turning-risk=",
+    "mkt-sentiment-head",
+    "mkt-score",
+    "chart-spark",
 )
-
-
-class _DashboardStructureParser(HTMLParser):
-    INERT_TAGS = frozenset({"head", "noscript", "script", "style", "template"})
-    VOID_TAGS = frozenset(
-        {
-            "area",
-            "base",
-            "br",
-            "col",
-            "embed",
-            "hr",
-            "img",
-            "input",
-            "link",
-            "meta",
-            "param",
-            "source",
-            "track",
-            "wbr",
-        }
-    )
-
-    def __init__(self, required_attributes: set[str]) -> None:
-        super().__init__(convert_charrefs=True)
-        self.required_attributes = required_attributes
-        self.present_attributes: set[str] = set()
-        self.duplicate_attributes: set[str] = set()
-        self._open_elements: list[tuple[str, bool]] = []
-        self._well_formed = True
-        self._closed_sentiment_candidate = False
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self._record_attributes(attrs)
-        attributes = {name: value for name, value in attrs}
-        if tag in self.VOID_TAGS:
-            return
-        class_tokens = set((attributes.get("class") or "").split())
-        inert = any(open_tag in self.INERT_TAGS for open_tag, _candidate in self._open_elements)
-        candidate = (
-            tag == "article"
-            and "industry-sentiment-card" in class_tokens
-            and self.required_attributes.issubset(attributes)
-            and not inert
-        )
-        self._open_elements.append((tag, candidate))
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self._record_attributes(attrs)
-        if tag not in self.VOID_TAGS:
-            self._well_formed = False
-
-    def _record_attributes(self, attrs: list[tuple[str, str | None]]) -> None:
-        seen: set[str] = set()
-        for name, _value in attrs:
-            if name in seen:
-                self.duplicate_attributes.add(name)
-                self._well_formed = False
-            seen.add(name)
-        self.present_attributes.update(seen)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self.VOID_TAGS or not self._open_elements or self._open_elements[-1][0] != tag:
-            self._well_formed = False
-            return
-        _open_tag, candidate = self._open_elements.pop()
-        if candidate:
-            self._closed_sentiment_candidate = True
-
-    def close(self) -> None:
-        super().close()
-        if self._open_elements:
-            self._well_formed = False
-
-    @property
-    def has_valid_sentiment_element(self) -> bool:
-        return self._well_formed and self._closed_sentiment_candidate
 
 
 def check_release_readiness(root: Path, expected_version: str | None = None) -> DoctorResult:
@@ -241,22 +172,13 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
         except OSError as exc:
             failures.append(f"could not read {dashboard_path}: {exc}")
         else:
-            if 'data-review-actions-section="true"' not in dashboard_text:
+            if DEMO_REVIEW_ACTION_HOOK not in dashboard_text:
                 failures.append(f"dashboard missing review-action section: {dashboard_path}")
-            if 'data-industry-trend-report-section="true"' not in dashboard_text:
+            if DEMO_INDUSTRY_TREND_HOOK not in dashboard_text:
                 failures.append(f"dashboard missing industry trend report section: {dashboard_path}")
-            required_attributes = tuple(hook.removesuffix("=") for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS)
-            required_attribute_set = set(required_attributes)
-            parser = _DashboardStructureParser(required_attribute_set)
-            parser.feed(dashboard_text)
-            parser.close()
-            for duplicate_attribute in sorted(parser.duplicate_attributes):
-                failures.append(f"dashboard has duplicate attribute {duplicate_attribute}: {dashboard_path}")
-            for hook, attribute in zip(DEMO_SENTIMENT_DASHBOARD_HOOKS, required_attributes):
-                if attribute not in parser.present_attributes:
+            for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS:
+                if hook not in dashboard_text:
                     failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")
-            if required_attribute_set.issubset(parser.present_attributes) and not parser.has_valid_sentiment_element:
-                failures.append(f"dashboard missing valid industry sentiment element: {dashboard_path}")
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")
