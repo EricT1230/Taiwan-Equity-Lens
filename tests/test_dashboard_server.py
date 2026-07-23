@@ -21,14 +21,14 @@ class DashboardServerTests(unittest.TestCase):
         state_path = _write_sector_evidence_fixture(root)
 
         html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
-        button = _find_button_by_text(html, "補證並標記完成")
+        button = _find_button_by_text(html, "標記完成")
 
         result = set_review_action_status_from_payload(
             {
                 "state_path": button["data-state-path"],
-                "stock_id": button["data-stock-id"],
+                "stock_id": button["data-stock"],
                 "action_id": button["data-action-id"],
-                "status": button["data-status-value"],
+                "status": button["data-status"],
                 "note": "checked source filing",
                 "reviewer": "source-audit-lead",
                 "evidence_url": "evidence/2330-source.md",
@@ -47,9 +47,14 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("source-audit-lead", action["reviewer"])
         self.assertEqual("evidence/2330-source.md", action["evidence_url"])
 
+        # NOTE: the old sector evidence board (data-industry-evidence-status) is
+        # gone -- merged into the unified queue per design spec §3.5. Re-render and
+        # confirm the queue row + gate card reflect the state change instead.
         updated_html = render_dashboard_html(discover_dashboard_items([root.resolve()]), action_api_enabled=True)
-        self.assertIn('data-industry-evidence-status="ready"', updated_html)
-        self.assertIn("證據可交付", updated_html)
+        self.assertIn('data-status="done"', updated_html)
+        self.assertIn('<span class="ui-badge ui-badge-ok">已完成</span>', updated_html)
+        self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
+        self.assertIn('<strong id="wb-gate-blockers">0</strong>', updated_html)
 
     def test_served_dashboard_http_updates_sector_evidence_state(self):
         root = Path(".tmp-cli-test/dashboard-server-sector-evidence-http")
@@ -59,16 +64,17 @@ class DashboardServerTests(unittest.TestCase):
         thread.start()
         try:
             html = _http_get_text(url)
-            self.assertIn('data-industry-evidence-row="true"', html)
-            button = _find_button_by_text(html, "補證並標記完成")
+            self.assertIn('class="queue-row next"', html)
+            self.assertIn('data-action-api="review-action"', html)
+            button = _find_button_by_text(html, "標記完成")
 
             result = _http_post_json(
                 f"{url}api/review-actions/set",
                 {
                     "state_path": button["data-state-path"],
-                    "stock_id": button["data-stock-id"],
+                    "stock_id": button["data-stock"],
                     "action_id": button["data-action-id"],
-                    "status": button["data-status-value"],
+                    "status": button["data-status"],
                     "note": "checked source filing",
                     "reviewer": "source-audit-lead",
                     "evidence_url": "evidence/2330-source.md",
@@ -87,9 +93,11 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual("source-audit-lead", action["reviewer"])
             self.assertEqual("evidence/2330-source.md", action["evidence_url"])
 
+            # NOTE: the old sector evidence board (data-industry-evidence-status) is
+            # gone -- merged into the unified queue per design spec §3.5.
             updated_html = _http_get_text(url)
-            self.assertIn('data-industry-evidence-status="ready"', updated_html)
-            self.assertIn("證據可交付", updated_html)
+            self.assertIn('data-status="done"', updated_html)
+            self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
         finally:
             server.shutdown()
             thread.join(timeout=5)
@@ -103,17 +111,17 @@ class DashboardServerTests(unittest.TestCase):
         thread.start()
         try:
             html = _http_get_text(url)
-            self.assertIn('data-next-action-workbench="true"', html)
-            self.assertIn('data-next-action-kind="blocker"', html)
-            button = _find_button_by_attr(html, "data-next-action-primary", "true")
+            self.assertIn('class="queue-row next"', html)
+            self.assertIn("處理建議下一步", html)
+            button = _find_button_by_text(html, "標記完成")
 
             result = _http_post_json(
                 f"{url}api/review-actions/set",
                 {
                     "state_path": button["data-state-path"],
-                    "stock_id": button["data-stock-id"],
+                    "stock_id": button["data-stock"],
                     "action_id": button["data-action-id"],
-                    "status": button["data-status-value"],
+                    "status": button["data-status"],
                     "note": "checked source filing",
                     "reviewer": "source-audit-lead",
                     "evidence_url": "evidence/2330-source.md",
@@ -128,9 +136,12 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual(0, result["open_count"])
             self.assertIn("人工閱讀", result["next_step"])
 
+            # NOTE: the old dedicated "next action workbench" widget
+            # (data-next-action-*) is merged into the unified queue's gate card
+            # per design spec §3.5 -- same blocker math, different markup.
             updated_html = _http_get_text(url)
-            self.assertIn('data-next-action-kind="ready"', updated_html)
-            self.assertIn('data-next-action-primary="true"', updated_html)
+            self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
+            self.assertIn('<strong id="wb-gate-blockers">0</strong>', updated_html)
             self.assertIn("產出 Evidence Pack", updated_html)
         finally:
             server.shutdown()
@@ -220,10 +231,14 @@ class DashboardServerTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
+            # NOTE: the dashboard UI no longer renders an inline evidence-composer
+            # button (data-evidence-composer) -- that region was merged away per
+            # design spec §3.5. The /api/evidence/compose-and-set route itself is
+            # unchanged production behavior (dashboard_server.py has zero changes
+            # for Task 11 -- see design doc §7), so this now posts to it directly
+            # instead of driving it from a page button.
             html = _http_get_text(url)
-            self.assertIn('data-evidence-composer="true"', html)
-            self.assertIn('data-evidence-composer-submit="true"', html)
-            self.assertIn("api/evidence/compose-and-set", html)
+            self.assertIn('class="queue-row next"', html)
 
             result = _http_post_json(
                 f"{url}api/evidence/compose-and-set",
@@ -250,7 +265,7 @@ class DashboardServerTests(unittest.TestCase):
             self.assertTrue((root / "evidence" / "2330-source-audit-manual-review.md").exists())
 
             updated_html = _http_get_text(url)
-            self.assertIn('data-next-action-kind="ready"', updated_html)
+            self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
             self.assertIn("evidence/2330-source-audit-manual-review.md", updated_html)
         finally:
             server.shutdown()
@@ -512,15 +527,6 @@ def _find_button_by_text(html: str, text: str) -> dict[str, str]:
         if button_text == text:
             return attrs
     raise AssertionError(f"button not found: {text}")
-
-
-def _find_button_by_attr(html: str, attr_name: str, attr_value: str) -> dict[str, str]:
-    parser = _ButtonTextParser()
-    parser.feed(html)
-    for attrs, _button_text in parser.buttons:
-        if attrs.get(attr_name) == attr_value:
-            return attrs
-    raise AssertionError(f"button not found: {attr_name}={attr_value}")
 
 
 def _http_get_text(url: str) -> str:
