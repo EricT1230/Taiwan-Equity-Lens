@@ -41,6 +41,44 @@ _DIRECTION_LABELS = {
     "missing": "市場資料缺口",
 }
 
+# Ported from dashboard.py:1268 (_market_intelligence_experimental_status) -- the
+# short bilingual marker shown on both the forecast and turning-risk chips, so an
+# insufficient-history placeholder reads identically to how the pre-redesign
+# dashboard described it.
+_EXPERIMENTAL_STATUS_LABELS = {
+    "experimental": "experimental / 實驗訊號",
+    "insufficient_history": "insufficient history / 歷史資料不足",
+    "insufficient_data": "insufficient history / 歷史資料不足",
+}
+_INSUFFICIENT_STATUSES = {"insufficient_history", "insufficient_data", "missing"}
+
+# New vocabulary -- the old renderer never surfaced turning_risk.direction/window
+# (see dashboard.py:1250), spec 3.2 asks for them here. Values are the fixed enum
+# produced by sentiment_forecast.py's calculate_turning_risk/_resolve_turning_signal
+# (direction: peak/trough/unclear; window: 1_to_3_days/4_to_7_days/unclear).
+_TURNING_DIRECTION_LABELS = {"peak": "高點", "trough": "低點", "unclear": "不明朗", "missing": "-"}
+_TURNING_WINDOW_LABELS = {
+    "1_to_3_days": "1-3 天",
+    "4_to_7_days": "4-7 天",
+    "unclear": "不明朗",
+    "missing": "-",
+}
+
+# Ported from dashboard.py:1104 (_market_intelligence_industry_sort_key)'s local
+# confidence_order literal -- reused here for the card's data-confidence-order attr.
+_CONFIDENCE_ORDER = {"high": 3, "medium": 2, "low": 1}
+
+# Ported from dashboard.py:1002-1009 (the <select data-industry-sentiment-sort>
+# markup inside _market_intelligence_block) -- identical value/label pairs and
+# default-selected "score" option.
+_SORT_OPTIONS = (
+    ("score", "目前 5D 分數"),
+    ("change", "升溫／降溫變化"),
+    ("peak_risk", "高點風險"),
+    ("trough_risk", "低點風險"),
+    ("confidence", "信心"),
+)
+
 _MAX_KEYWORDS = 8
 _MAX_NEWS = 3
 _MAX_ROTATION_CARDS = 8
@@ -106,6 +144,32 @@ def _direction_label(direction: str) -> str:
     return _DIRECTION_LABELS.get(direction, direction or "-")
 
 
+# Ported from dashboard.py:1268 (_market_intelligence_experimental_status).
+def _experimental_status_text(status: str) -> str:
+    if status in _EXPERIMENTAL_STATUS_LABELS:
+        return _EXPERIMENTAL_STATUS_LABELS[status]
+    return status.replace("_", " ") if status != "missing" else "-"
+
+
+def _turning_direction_label(direction: str) -> str:
+    return _TURNING_DIRECTION_LABELS.get(direction, direction.replace("_", " ") if direction else "-")
+
+
+def _turning_window_label(window: str) -> str:
+    return _TURNING_WINDOW_LABELS.get(window, window.replace("_", " ") if window else "-")
+
+
+# Ported from dashboard.py:1220 (_market_intelligence_interval).
+def _interval_text(value: Any) -> str:
+    if not isinstance(value, list) or len(value) != 2:
+        return ""
+    lower = _finite(value[0])
+    upper = _finite(value[1])
+    if lower is None or upper is None:
+        return ""
+    return f" [{lower:.1f}, {upper:.1f}]"
+
+
 def _stock_text(value: Any) -> str:
     if not isinstance(value, list):
         return "-"
@@ -166,18 +230,104 @@ def _industry_sort_key(industry: dict[str, Any]) -> tuple[bool, float, str]:
     return (score is None, -(score if score is not None else 0.0), str(industry.get("category") or "").casefold())
 
 
+# Ported from dashboard.py:1230 (_market_intelligence_forecast). insufficient_history
+# / insufficient_data / missing all fall back to the same placeholder text the old
+# dashboard used, so wording stays identical for the demo's real "insufficient_history"
+# forecast payload (verified in .tmp-v053-preview/market-intelligence/
+# market_intelligence_report.json).
+def _forecast_block(forecast: dict[str, Any]) -> str:
+    status = str(forecast.get("status") or "missing")
+    status_pill = pill(_experimental_status_text(status), tone="warn")
+    if status in _INSUFFICIENT_STATUSES:
+        text = "歷史資料不足" if status != "missing" else "-"
+    else:
+        text = " / ".join(
+            (
+                f"1D {_score_text(forecast.get('forecast_1d'))}{_interval_text(forecast.get('interval_1d'))}",
+                f"5D {_score_text(forecast.get('forecast_5d'))}{_interval_text(forecast.get('interval_5d'))}",
+            )
+        )
+    return f'<div class="mkt-forecast">{status_pill}<p><strong>情緒預測：</strong>{esc(text)}</p></div>'
+
+
+# Ported from dashboard.py:1250 (_market_intelligence_turning_risk) for the status
+# pill / insufficient-history placeholder / "高點 X / 低點 Y" text. The direction and
+# window pills are new: the old renderer never surfaced turning_risk.direction/window
+# at all, but spec 3.2 asks for "高低點風險" alongside direction/window once real
+# values exist.
+def _turning_risk_block(turning_risk: dict[str, Any]) -> str:
+    status = str(turning_risk.get("status") or "missing")
+    status_pill = pill(_experimental_status_text(status), tone="warn")
+    if status in _INSUFFICIENT_STATUSES:
+        text = "歷史資料不足" if status != "missing" else "-"
+        meta_pills = ""
+    else:
+        peak = _score_text(turning_risk.get("peak_risk"))
+        trough = _score_text(turning_risk.get("trough_risk"))
+        text = f"高點 {peak} / 低點 {trough}"
+        direction = _turning_direction_label(str(turning_risk.get("direction") or "missing"))
+        window = _turning_window_label(str(turning_risk.get("window") or "missing"))
+        meta_pills = pill(f"方向：{direction}") + pill(f"時間窗：{window}")
+    return f'<div class="mkt-forecast">{status_pill}{meta_pills}<p><strong>轉折風險：</strong>{esc(text)}</p></div>'
+
+
+# Ported from dashboard.py:1002-1009 (see _SORT_OPTIONS above for the exact
+# value/label pairs) -- same data-industry-sentiment-sort hook and aria-label so the
+# control is discoverable the same way it was pre-redesign. Always rendered (even
+# when there are zero industries) to match the old _market_intelligence_block, which
+# rendered the select unconditionally ahead of the cards-or-empty-state message.
+def _industry_sentiment_sort_control() -> str:
+    options = "".join(
+        f'<option value="{esc(value)}"{" selected" if value == "score" else ""}>{esc(label)}</option>'
+        for value, label in _SORT_OPTIONS
+    )
+    return (
+        '<div class="mkt-sentiment-sort"><label>產業情緒排序'
+        f'<select data-industry-sentiment-sort="true" aria-label="產業情緒排序">{options}</select>'
+        "</label></div>"
+    )
+
+
+# data-* hooks read by page_script.py's sortSentimentCards(). Values reuse
+# _score_text() (unsigned 1dp, "-" when missing/non-finite) so the client's
+# NaN-safe Number() parse naturally sorts missing/insufficient-history industries
+# last, matching this module's own _industry_sort_key() default-order convention.
+def _sentiment_card_attrs(
+    category: str,
+    status: str,
+    score: Any,
+    change: Any,
+    turning_risk: dict[str, Any],
+    confidence: str,
+) -> str:
+    confidence_order = _CONFIDENCE_ORDER.get(confidence, 0)
+    return (
+        f' data-sentiment-status="{esc(status)}"'
+        f' data-sentiment-category="{esc(category)}"'
+        f' data-sentiment-score="{esc(_score_text(score))}"'
+        f' data-sentiment-change="{esc(_score_text(change))}"'
+        f' data-peak-risk="{esc(_score_text(turning_risk.get("peak_risk")))}"'
+        f' data-trough-risk="{esc(_score_text(turning_risk.get("trough_risk")))}"'
+        f' data-confidence-order="{esc(confidence_order)}"'
+    )
+
+
 def _sentiment_card(industry: dict[str, Any]) -> str:
     category = str(industry.get("category") or "-")
     sentiment = _dict(industry.get("sentiment"))
     flow = _dict(industry.get("fund_flow"))
     components = _dict(sentiment.get("components"))
+    forecast = _dict(sentiment.get("forecast"))
+    turning_risk = _dict(sentiment.get("turning_risk"))
 
     news_c = _finite(_dict(components.get("news")).get("contribution_5d")) or 0.0
     price_c = _finite(_dict(components.get("price")).get("contribution_5d")) or 0.0
     flow_c = _finite(_dict(components.get("fund_flow")).get("contribution_5d")) or 0.0
     contrib_max = max([abs(news_c), abs(price_c), abs(flow_c)], default=1) or 1
 
-    change_cls = _signed_class(sentiment.get("change"))
+    score = sentiment.get("score_5d")
+    change = sentiment.get("change")
+    change_cls = _signed_class(change)
     status = str(sentiment.get("status") or "missing")
     status_pill = pill(_status_label(status), tone=_STATUS_TONES.get(status, "info"))
     phase_pill = pill(_phase_label(str(sentiment.get("cycle_phase") or "missing")))
@@ -206,13 +356,15 @@ def _sentiment_card(industry: dict[str, Any]) -> str:
 
     body = (
         '<div class="mkt-sentiment-head">'
-        f'<span class="mkt-score mono">{esc(_score_text(sentiment.get("score_5d")))}</span>'
-        f'<span class="mkt-delta mono {change_cls}">{esc(_signed_score_text(sentiment.get("change")))}</span>'
+        f'<span class="mkt-score mono">{esc(_score_text(score))}</span>'
+        f'<span class="mkt-delta mono {change_cls}">{esc(_signed_score_text(change))}</span>'
         f'<span class="mkt-baseline">20D 基準 {esc(_score_text(sentiment.get("baseline_20d")))}</span>'
         "</div>"
         f'<div class="mkt-pills">{status_pill}{phase_pill}{confidence_pill}</div>'
         f"{sparkline(_sentiment_history(sentiment))}"
         f'{contribution_bars([("新聞", news_c, contrib_max), ("價格", price_c, contrib_max), ("資金流", flow_c, contrib_max)])}'
+        f"{_forecast_block(forecast)}"
+        f"{_turning_risk_block(turning_risk)}"
         '<div class="mkt-flow">'
         f'{_flow_row("外資", foreign, flow_max, with_bar=True)}'
         f'{_flow_row("投信", trust, flow_max, with_bar=True)}'
@@ -222,7 +374,8 @@ def _sentiment_card(industry: dict[str, Any]) -> str:
         f'<p class="mkt-keywords">{keyword_html}</p>'
         f'<ul class="mkt-news">{news_html}</ul>'
     )
-    return card(category, body)
+    attrs = _sentiment_card_attrs(category, status, score, change, turning_risk, confidence)
+    return f'<section class="ui-card"{attrs}><h4>{esc(category)}</h4>{body}</section>'
 
 
 def _rotation_card(category: dict[str, Any]) -> str:
@@ -271,7 +424,18 @@ def _sentiment_section(items: dict[str, Any]) -> str:
     report = _first_report(items.get("market_intelligence_reports"))
     industries = sorted(_rows(report, "industries"), key=_industry_sort_key)
     body = "".join(_sentiment_card(row) for row in industries) or '<p class="mkt-empty">尚未產生市場情緒報告。</p>'
-    return f'<section class="mkt-section" data-market-sentiment-section="true"><h2>產業情緒</h2>{body}</section>'
+    # Cards stay direct children of .mkt-section (server-default order = score desc,
+    # matching _industry_sort_key) so the bento grid layout is correct with no JS.
+    # page_script.py's sortSentimentCards() re-appends matched [data-sentiment-status]
+    # children in the user's chosen order on <select> change -- it never touches the
+    # sort control or <h2>, which aren't matched by that selector.
+    return (
+        '<section class="mkt-section" data-market-sentiment-section="true">'
+        "<h2>產業情緒</h2>"
+        f"{_industry_sentiment_sort_control()}"
+        f"{body}"
+        "</section>"
+    )
 
 
 def _rotation_section(items: dict[str, Any]) -> str:

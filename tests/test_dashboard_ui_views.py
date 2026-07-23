@@ -1,3 +1,4 @@
+import copy
 import unittest
 
 from taiwan_stock_analysis.dashboard_ui.page import render as render_page
@@ -53,6 +54,25 @@ _MI = {
                             "news": {"contribution_5d": 0.0},
                             "price": {"contribution_5d": 2.5},
                             "fund_flow": {"contribution_5d": 26.6},
+                        },
+                        # Real shape verified in .tmp-v053-preview/market-intelligence/
+                        # market_intelligence_report.json: the demo hits status
+                        # "insufficient_history" with every numeric field null.
+                        "forecast": {
+                            "status": "insufficient_history",
+                            "history_days": 1,
+                            "forecast_1d": None,
+                            "forecast_5d": None,
+                            "interval_1d": None,
+                            "interval_5d": None,
+                        },
+                        "turning_risk": {
+                            "status": "insufficient_history",
+                            "history_days": 1,
+                            "peak_risk": None,
+                            "trough_risk": None,
+                            "direction": "unclear",
+                            "window": "unclear",
                         },
                     },
                 }
@@ -110,6 +130,94 @@ class MarketViewTests(unittest.TestCase):
     def test_empty_items_render_placeholder_not_error(self):
         html = render_market_view({})
         self.assertIn("尚未", html)                         # 空態文字
+
+    # -- Feature A: sentiment forecast + turning-risk (spec 3.2, ported from
+    # dashboard.py:1230/_market_intelligence_forecast and
+    # dashboard.py:1250/_market_intelligence_turning_risk) -------------------
+
+    def test_forecast_and_turning_risk_render_insufficient_history_placeholder(self):
+        # _MI's sentiment already carries the exact real shape verified in
+        # .tmp-v053-preview/market-intelligence/market_intelligence_report.json --
+        # both sub-reports at status "insufficient_history" with null numerics.
+        # This is what the demo data actually hits, so it must render correctly.
+        html = render_market_view(_MI)
+        self.assertIn("情緒預測", html)
+        self.assertIn("轉折風險", html)
+        # 4 = 2 blocks x 2 occurrences each (once inside the bilingual "insufficient
+        # history / 歷史資料不足" status pill, once in the plain-text placeholder) --
+        # matches old dashboard.py's identical redundancy between
+        # _market_intelligence_experimental_status() and the forecast/risk text.
+        self.assertEqual(html.count("歷史資料不足"), 4)
+        self.assertEqual(html.count("insufficient history / 歷史資料不足"), 2)  # ported experimental marker
+
+    def test_forecast_and_turning_risk_missing_key_renders_dash_not_error(self):
+        # Distinct from "insufficient_history": a sentiment payload that omits the
+        # forecast/turning_risk keys entirely (status falls back to "missing" per
+        # dashboard.py:1230/1250) must still degrade to "-" without raising.
+        data = copy.deepcopy(_MI)
+        sentiment = data["market_intelligence_reports"][0]["industries"][0]["sentiment"]
+        del sentiment["forecast"]
+        del sentiment["turning_risk"]
+        html = render_market_view(data)
+        self.assertIn("情緒預測", html)
+        self.assertIn("轉折風險", html)
+
+    def test_forecast_and_turning_risk_render_real_numbers(self):
+        data = copy.deepcopy(_MI)
+        sentiment = data["market_intelligence_reports"][0]["industries"][0]["sentiment"]
+        sentiment["forecast"] = {
+            "status": "experimental",
+            "history_days": 42,
+            "forecast_1d": 31.2,
+            "forecast_5d": 35.8,
+            "interval_1d": [28.4, 34.0],
+            "interval_5d": [30.1, 41.5],
+        }
+        sentiment["turning_risk"] = {
+            "status": "experimental",
+            "history_days": 64,
+            "peak_risk": 62.5,
+            "trough_risk": 18.0,
+            "direction": "peak",
+            "window": "1_to_3_days",
+        }
+        html = render_market_view(data)
+        self.assertIn("experimental / 實驗訊號", html)
+        self.assertIn("1D 31.2 [28.4, 34.0]", html)
+        self.assertIn("5D 35.8 [30.1, 41.5]", html)
+        self.assertIn("高點 62.5", html)
+        self.assertIn("低點 18.0", html)
+        self.assertIn("高點", html)          # turning_risk.direction "peak" -> label
+        self.assertIn("1-3 天", html)        # turning_risk.window "1_to_3_days" -> label
+
+    # -- Feature B: industry sort control (spec 3.2, ported from
+    # dashboard.py:1002-1009 select markup + dashboard.py:1104
+    # _market_intelligence_industry_sort_key's confidence_order) -------------
+
+    def test_industry_sort_control_renders_ported_options(self):
+        html = render_market_view(_MI)
+        self.assertIn('data-industry-sentiment-sort="true"', html)
+        self.assertIn('aria-label="產業情緒排序"', html)
+        self.assertIn('<option value="score" selected>目前 5D 分數</option>', html)
+        self.assertIn('<option value="change">升溫／降溫變化</option>', html)
+        self.assertIn('<option value="peak_risk">高點風險</option>', html)
+        self.assertIn('<option value="trough_risk">低點風險</option>', html)
+        self.assertIn('<option value="confidence">信心</option>', html)
+
+    def test_industry_card_carries_sort_data_attributes(self):
+        html = render_market_view(_MI)
+        # data-sentiment-category, not data-category -- workbench.py's queue rows
+        # already own that shorter name for an unrelated review-action category enum
+        # (see WorkbenchViewTests.test_rows_carry_filter_data_attributes).
+        self.assertIn('data-sentiment-category="Semiconductor"', html)
+        self.assertIn('data-sentiment-score="29.1"', html)
+        self.assertIn('data-sentiment-change="-1.5"', html)
+        self.assertIn('data-confidence-order="1"', html)   # confidence "low" -> 1
+        # _MI's turning_risk is insufficient_history (peak/trough both null) --
+        # missing risk values must still emit the attribute (as "-") so the client
+        # sort's NaN-to--Infinity fallback has something to read.
+        self.assertIn('data-peak-risk="-"', html)
+        self.assertIn('data-trough-risk="-"', html)
 
 
 # Fixture shape mirrors what `discover_dashboard_items` (dashboard.py:69-145) actually

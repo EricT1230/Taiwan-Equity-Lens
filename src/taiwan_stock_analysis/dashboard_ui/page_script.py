@@ -11,6 +11,19 @@ from __future__ import annotations
 # see that module for the exact producer of each attribute. The two POST endpoints
 # and their JSON body field names are read verbatim from dashboard_server.py's
 # `do_POST`/`set_review_action_status_from_payload`/`write_handoff_pack_from_payload`.
+#
+# Industry-sentiment sort control (spec 3.2 "產業排序控制"): reads
+# `[data-industry-sentiment-sort="true"]` (the <select>) and
+# `[data-market-sentiment-section="true"]` (the card container) plus each card's
+# `data-sentiment-status`/`data-sentiment-category`/`data-sentiment-score`/
+# `data-sentiment-change`/`data-peak-risk`/`data-trough-risk`/`data-confidence-order`
+# attributes (note: `data-sentiment-category`, not the workbench queue rows' unrelated
+# same-named-but-different-domain `data-category`) -- all emitted
+# by views/market.py's `_industry_sentiment_sort_control`/`_sentiment_card_attrs`. Sort
+# modes are ported from dashboard.py:1002-1009's <select> options; unlike the pre-
+# redesign JS, this never force-sorts on page load -- the server's default order
+# (views/market.py's `_industry_sort_key`, score desc) already matches the select's
+# default "score" value, so the page is correct even if this script never runs.
 SCRIPT = """<script>
 (function () {
   "use strict";
@@ -278,6 +291,49 @@ SCRIPT = """<script>
     });
   }
 
+  var SENTIMENT_SORT_ATTR = {
+    score: "sentimentScore",
+    change: "sentimentChange",
+    peak_risk: "peakRisk",
+    trough_risk: "troughRisk",
+    confidence: "confidenceOrder"
+  };
+
+  function sentimentCardValue(card, attrKey) {
+    var raw = card.dataset[attrKey];
+    var number = raw && raw.trim() ? Number(raw) : NaN;
+    return Number.isFinite(number) ? number : -Infinity;
+  }
+
+  function sortSentimentCards(grid, sortKey) {
+    var attrKey = SENTIMENT_SORT_ATTR[sortKey] || SENTIMENT_SORT_ATTR.score;
+    var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-sentiment-status]"));
+    cards.sort(function (left, right) {
+      // "|| tiebreak", not "if (diff !== 0)": when both cards are missing/
+      // insufficient-history, sentimentCardValue() returns -Infinity for both, and
+      // -Infinity - (-Infinity) is NaN, not 0. "!==" treats NaN as "different" and
+      // would return NaN as the comparator result (unspecified sort behavior); "||"
+      // treats NaN the same as 0 (both falsy) and correctly falls through to the
+      // category tiebreak, matching dashboard.py:685's proven `bv - av || tiebreak`.
+      var diff = sentimentCardValue(right, attrKey) - sentimentCardValue(left, attrKey);
+      var leftName = left.getAttribute("data-sentiment-category") || "";
+      var rightName = right.getAttribute("data-sentiment-category") || "";
+      return diff || leftName.localeCompare(rightName, "zh-Hant-TW");
+    });
+    for (var i = 0; i < cards.length; i++) {
+      grid.appendChild(cards[i]);
+    }
+  }
+
+  function initIndustrySentimentSort() {
+    var select = document.querySelector('[data-industry-sentiment-sort="true"]');
+    var grid = document.querySelector('[data-market-sentiment-section="true"]');
+    if (!select || !grid) { return; }
+    select.addEventListener("change", function () {
+      sortSentimentCards(grid, select.value);
+    });
+  }
+
   function initActionApi() {
     if (!window.fetch) { return; }
     var buttons = document.querySelectorAll("[data-action-api]");
@@ -298,6 +354,7 @@ SCRIPT = """<script>
   initExpandToggles();
   initQueueFilters();
   initCopyButtons();
+  initIndustrySentimentSort();
   initActionApi();
 })();
 </script>"""

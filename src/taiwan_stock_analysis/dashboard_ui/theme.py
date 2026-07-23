@@ -167,6 +167,21 @@ def view_css() -> str:
     .mkt-keywords {{ display: flex; flex-wrap: wrap; gap: 7px; margin: 13px 0 0; }}
     .mkt-news {{ list-style: none; margin: 9px 0 0; padding: 0; }}
     .mkt-news li {{ font-size: 14px; color: {t['text_2']}; margin: 7px 0; }}
+    /* Sort control (data-industry-sentiment-sort) is a direct child of the
+       .mkt-section grid alongside its <h2> and card siblings -- span the full row
+       so it doesn't collapse into a single auto-fit column. */
+    .mkt-sentiment-sort {{ grid-column: 1 / -1; display: flex; align-items: center;
+      gap: 10px; flex-wrap: wrap; margin: -6px 0 2px; }}
+    .mkt-sentiment-sort label {{ display: flex; align-items: center; gap: 10px;
+      color: {t['text_3']}; font-size: 13px; font-weight: 700; letter-spacing: 0.3px; }}
+    .mkt-sentiment-sort select {{ background: {t['topbar']}; color: {t['text_2']};
+      border: 1px solid {t['border_bright']}; border-radius: 7px; padding: 7px 11px; font-size: 13.5px; }}
+    .mkt-sentiment-sort select:focus-visible {{ outline: 3px solid {t['accent']}; outline-offset: 2px; }}
+    /* Shared wrapper for both the forecast and turning-risk chips -- same class
+       reused for both, mirroring dashboard.py:1230/1250's identical old CSS class. */
+    .mkt-forecast {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid {t['border']}; }}
+    .mkt-forecast p {{ margin: 8px 0 0; font-size: 13.5px; color: {t['text_2']}; }}
+    .mkt-forecast .ui-pill {{ margin: 0 6px 6px 0; }}
 
     /* -- workbench view (wb-*): unified review queue -------------------------- */
     .wb-gate-row {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }}
@@ -206,5 +221,8 @@ def view_css() -> str:
     @media (max-width: 900px) {{
       .mkt-section {{ grid-template-columns: 1fr; }}
       .mkt-flow-row, .mkt-rotation-row {{ grid-template-columns: 52px 1fr 72px; }}
+      .mkt-sentiment-sort {{ align-items: stretch; }}
+      .mkt-sentiment-sort label {{ flex-direction: column; align-items: stretch; }}
+      .mkt-sentiment-sort select {{ width: 100%; }}
     }}
     """

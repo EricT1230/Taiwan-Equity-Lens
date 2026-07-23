@@ -376,16 +376,18 @@ class DashboardIndustryUniverseTests(unittest.TestCase):
             }
         )
 
-        # NOTE: the redesigned market view has no client-side re-sort control --
-        # `sortIndustrySentimentCards` no longer exists anywhere in the page (the
-        # old data-market-intelligence-industry attribute is gone with it), so the
-        # JS sorting harness this test used to run is deleted rather than migrated
-        # (flagged as a concern in the task-11 report: §3.2/§10 of the design spec
-        # call for a client sort control, but views/market.py only implements a
-        # fixed server-side sort by 5D score). What DOES survive, and is the real
-        # behavior this test guards, is that the sentiment section renders every
-        # industry as its own card with no artificial cap -- unlike the rotation
-        # section, which truncates to the top 8 categories.
+        # UPDATE: the task-11 gap this note originally flagged (spec 3.2/§10 call
+        # for a client sort control, but views/market.py only had a fixed
+        # server-side sort) is closed -- views/market.py now renders a
+        # data-industry-sentiment-sort <select> and page_script.py's
+        # sortSentimentCards() re-appends [data-sentiment-status] cards on change.
+        # The behavior this test guards remains what it always guarded: the
+        # sentiment section renders every industry as its own card with no
+        # artificial cap -- unlike the rotation section, which truncates to the
+        # top 8 categories. (Client-side re-sort itself isn't exercised here since
+        # unittest doesn't execute JS; see MarketViewTests in
+        # test_dashboard_ui_views.py for the server-rendered sort-control/
+        # data-attribute coverage.)
         self.assertEqual(html.count("<h4>Industry "), 14)
         self.assertIn("<h4>Industry 13</h4>", html)
         self.assertIn("<h4>Industry 00</h4>", html)
