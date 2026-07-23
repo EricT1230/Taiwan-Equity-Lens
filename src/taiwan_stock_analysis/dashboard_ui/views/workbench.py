@@ -14,7 +14,11 @@ from taiwan_stock_analysis.dashboard_ui.labels import (
     REVIEW_ACTION_STATUS_LABELS,
 )
 from taiwan_stock_analysis.handoff import build_handoff_quality_gate, requires_handoff_evidence
-from taiwan_stock_analysis.review_action_state import apply_review_action_state
+from taiwan_stock_analysis.review_action_state import (
+    ACTION_STATUSES,
+    apply_review_action_state,
+    build_review_action_state_report,
+)
 
 # This view merges four old dashboard.py sections (expert console, Top-3 cards,
 # evidence board, review-action table) into one flattened, sortable queue. Gate
@@ -35,14 +39,33 @@ _SEVERITY_TONES = {
     "unknown": "info",
 }
 _PRIORITY_TONES = {"high": "blocked", "medium": "warn", "low": "info"}
-_STATUS_TONES = {"done": "ok", "deferred": "warn", "ignored": "info"}
+# "open" is only looked up by _queue_status_line (Feature D) -- the per-row
+# status badge in _queue_row_block never renders it (guarded by `!= "open"`),
+# so adding this key cannot change any existing rendering.
+_STATUS_TONES = {"open": "blocked", "done": "ok", "deferred": "warn", "ignored": "info"}
 _RELIABILITY_TONES = {"warning": "warn", "error": "blocked", "stale": "warn", "unknown": "info", "ok": "ok"}
 _ACTION_STATUS_BUTTONS = (("done", "標記完成"), ("deferred", "稍後處理"), ("ignored", "不處理"))
+# Feature C (spec 3.3 "批次操作"): ported from dashboard.py:_review_action_bulk_tools
+# (~line 2973-2981) -- same two bulk statuses/labels, no bulk "不處理" (matching the
+# old toolbar exactly, which only ever offered done/deferred as bulk actions).
+_BULK_STATUSES = (("done", "批次標記完成"), ("deferred", "批次稍後處理"))
 _SAFE_ARG_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:/\\")
 
 
 def _str(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    # Ported from dashboard.py:_dict_value (~line 2909).
+    return value if isinstance(value, dict) else {}
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _base_dir(summary: dict[str, Any]) -> Path | None:
@@ -296,6 +319,37 @@ def _queue_expand_block(
     )
 
 
+def _row_select_checkbox(row: dict[str, str], state_path: str, *, action_api_enabled: bool) -> str:
+    # Feature C (spec 3.3 "批次操作"): select checkbox ported from
+    # dashboard.py:_review_action_rows's select-cell (~line 2771). The old
+    # markup put stock_id/action_id only on the parent <tr> and let the bulk
+    # JS look them up via closest("tr"); here the checkbox carries them
+    # directly since .queue-expand is a DOM *sibling* of .queue-row (not a
+    # child -- see _queue_row_block), so there is no single ancestor to read
+    # both from.
+    #
+    # Static mode additionally pre-bakes each bulk status's CLI command onto
+    # the checkbox (reusing _review_action_command, the exact same builder the
+    # per-row buttons use) so the bulk-copy JS never has to reconstruct a
+    # command string client-side -- it only ever joins already-rendered text.
+    stock_id = row["stock_id"]
+    action_id = row["action_id"]
+    command_attrs = ""
+    if not action_api_enabled:
+        command_attrs = "".join(
+            f' data-command-{status}="{esc(_review_action_command(state_path, stock_id, action_id, status))}"'
+            for status, _label in _BULK_STATUSES
+        )
+    return (
+        '<span class="wb-select-cell">'
+        '<input type="checkbox" class="wb-row-select" data-queue-select="true"'
+        f' data-stock="{esc(stock_id)}" data-action-id="{esc(action_id)}"'
+        f"{command_attrs}"
+        ' aria-label="選取審查動作">'
+        "</span>"
+    )
+
+
 def _queue_row_block(
     row: dict[str, str],
     index: int,
@@ -328,12 +382,14 @@ def _queue_row_block(
     toggle_label = "收合 ▲" if is_next else "展開 ▼"
     toggle_button = f'<button type="button" class="ui-btn" data-queue-toggle="{esc(row_id)}">{esc(toggle_label)}</button>'
     next_indicator = "▶" if is_next else ""
+    select_checkbox = _row_select_checkbox(row, state_path, action_api_enabled=action_api_enabled)
 
     row_html = (
         f'<div class="{row_class}" id="{esc(row_id)}"'
         f' data-stock="{esc(stock_id)}" data-priority="{esc(priority)}"'
         f' data-severity="{esc(severity)}" data-category="{esc(category)}"'
         f' data-status="{esc(status)}">'
+        f"{select_checkbox}"
         f'<span class="wb-next-indicator">{next_indicator}</span>'
         f'<span class="mono">{esc(stock_id)}</span>'
         f"<span>{priority_badge}</span>"
@@ -347,13 +403,78 @@ def _queue_row_block(
     return row_html + expand_html
 
 
-def _queue_card(rows: list[dict[str, str]], source_path: str, state_path: str, *, action_api_enabled: bool) -> str:
+def _queue_status_line(state_report: dict[str, Any]) -> str:
+    # Feature D (spec 3.3 "狀態資訊"): ported vocabulary from
+    # dashboard.py:_review_action_status_pairs (~line 2924) and the
+    # status-line badges in _review_actions_section (~line 2664-2669) -- same
+    # REVIEW_ACTION_STATUS_LABELS text and the same 過期狀態/最後更新 phrasing,
+    # regrouped into one badge per status (this view's badge() idiom) instead
+    # of the old single "/"-joined string. Data source is
+    # review_action_state.build_review_action_state_report, which already
+    # degrades to a dense all-zero by_status and a "-" last_updated when there
+    # is no state sidecar -- _dict/_int/_str below are belt-and-suspenders in
+    # case that shape ever drifts, not because the real callers can send junk.
+    by_status = _dict(state_report.get("by_status"))
+    status_badges = "".join(
+        badge(
+            f"{REVIEW_ACTION_STATUS_LABELS.get(status, status)} {_int(by_status.get(status))}",
+            tone=_STATUS_TONES.get(status, "info"),
+        )
+        for status in ACTION_STATUSES
+    )
+    stale_count = _int(state_report.get("stale_count"))
+    stale_badge = badge(f"過期狀態 {stale_count}", tone="warn" if stale_count else "info")
+    last_updated = _str(state_report.get("last_updated")) or "-"
+    updated_badge = badge(f"最後更新：{last_updated}", tone="info")
+    return f'<div class="wb-status-line">{status_badges}{stale_badge}{updated_badge}</div>'
+
+
+def _bulk_tools_bar(state_path: str, *, action_api_enabled: bool) -> str:
+    # Feature C (spec 3.3 "批次操作"): ported from
+    # dashboard.py:_review_action_bulk_tools (~line 2973-2981) -- same labels
+    # (選取目前顯示 / 批次標記完成 / 批次稍後處理 / 已選取 N 筆). Served-mode buttons
+    # reuse the page-wide data-action-api dispatch convention
+    # (page_script.py:initActionApi) with a new "bulk-review-action" kind,
+    # carrying the same state_path the per-row served buttons already emit
+    # (_row_action_button); static-mode buttons carry no data-action-api and
+    # are driven entirely by each selected row's own data-command-<status>
+    # attribute from _row_select_checkbox.
+    buttons: list[str] = []
+    for status, label in _BULK_STATUSES:
+        if action_api_enabled:
+            buttons.append(
+                '<button type="button" class="ui-btn" data-action-api="bulk-review-action"'
+                f' data-queue-bulk-status="{esc(status)}" data-state-path="{esc(state_path)}">{esc(label)}</button>'
+            )
+        else:
+            buttons.append(
+                f'<button type="button" class="ui-btn" data-queue-bulk-status="{esc(status)}">{esc(label)}</button>'
+            )
+    return (
+        '<div class="wb-bulk-tools" data-queue-bulk-tools="true">'
+        '<label class="wb-bulk-select-all">'
+        '<input type="checkbox" data-queue-select-visible="true">選取目前顯示'
+        "</label>"
+        f'{"".join(buttons)}'
+        '<span class="wb-bulk-count" data-queue-bulk-count="true">已選取 0 筆</span>'
+        "</div>"
+    )
+
+
+def _queue_card(
+    rows: list[dict[str, str]],
+    source_path: str,
+    state_path: str,
+    state_report: dict[str, Any],
+    *,
+    action_api_enabled: bool,
+) -> str:
     if not rows:
         return card("審查佇列", '<p class="wb-empty">目前無待辦。</p>')
 
     header = (
         '<div class="queue-row head">'
-        "<span></span><span>股票</span><span>優先</span><span>嚴重度</span>"
+        "<span></span><span></span><span>股票</span><span>優先</span><span>嚴重度</span>"
         "<span>類別</span><span>事項</span><span>操作</span>"
         "</div>"
     )
@@ -362,7 +483,13 @@ def _queue_card(rows: list[dict[str, str]], source_path: str, state_path: str, *
         for index, row in enumerate(rows)
     )
     note = f'<p class="wb-queue-note">共 {esc(len(rows))} 筆（依優先度 → 嚴重度排序）。</p>'
-    body = f"{_filters_bar()}" f'<div class="queue">{header}{blocks}</div>' f"{note}"
+    body = (
+        f"{_queue_status_line(state_report)}"
+        f"{_filters_bar()}"
+        f"{_bulk_tools_bar(state_path, action_api_enabled=action_api_enabled)}"
+        f'<div class="queue">{header}{blocks}</div>'
+        f"{note}"
+    )
     return card("審查佇列", body)
 
 
@@ -455,8 +582,12 @@ def render_workbench_view(items: dict[str, Any], *, action_api_enabled: bool = F
     overlaid_queue = apply_review_action_state(raw_queue, state)
     rows = _flatten_rows(overlaid_queue)
     rows.sort(key=_row_sort_key)
+    # Feature D: build_review_action_state_report takes the *raw* (non-overlaid)
+    # queue -- it overlays state internally -- and reports counts/staleness/
+    # last-updated in one call; see review_action_state.py.
+    state_report = _dict(build_review_action_state_report(raw_queue, state))
 
     gate_card = _gate_card(gate, rows, source_path, state_path, summary, action_api_enabled=action_api_enabled)
-    queue_card = _queue_card(rows, source_path, state_path, action_api_enabled=action_api_enabled)
+    queue_card = _queue_card(rows, source_path, state_path, state_report, action_api_enabled=action_api_enabled)
     pool_card = _pool_card(pool, items)
     return gate_card + queue_card + pool_card

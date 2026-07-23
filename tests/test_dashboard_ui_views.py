@@ -493,6 +493,100 @@ class WorkbenchViewTests(unittest.TestCase):
         self.assertIn("無待辦", html)
         self.assertIn("ui-pill-ok", html)
 
+    # -- Feature C: bulk queue operations (spec 3.3 "批次操作", ported from
+    # dashboard.py:_review_action_bulk_tools ~2973 / _review_action_rows'
+    # select checkbox ~2771) -----------------------------------------------
+
+    def test_queue_rows_carry_select_checkboxes_with_identifiers(self):
+        html = render_workbench_view(_RS)
+        # 11 flattened action rows total (6 for 2330 + 5 for 2303, matching
+        # review_action_summary.total_open) -- one select checkbox each.
+        self.assertEqual(html.count('data-queue-select="true"'), 11)
+        self.assertIn(
+            'data-queue-select="true" data-stock="2330"'
+            ' data-action-id="fundamental-review-thesis-breakers"',
+            html,
+        )
+
+    def test_bulk_toolbar_renders_ported_controls_and_count(self):
+        html = render_workbench_view(_RS)
+        self.assertIn('data-queue-bulk-tools="true"', html)
+        self.assertIn("選取目前顯示", html)          # ported label, dashboard.py:2976
+        self.assertIn("批次標記完成", html)          # ported label, dashboard.py:2977
+        self.assertIn("批次稍後處理", html)          # ported label, dashboard.py:2978
+        self.assertIn("已選取 0 筆", html)           # ported count wording, dashboard.py:2979
+
+    def test_bulk_controls_static_mode_copy_wiring_served_mode_api_hooks(self):
+        static_html = render_workbench_view(_RS, action_api_enabled=False)
+        # Static mode: each row's checkbox carries pre-baked multi-line-ready
+        # CLI commands (same format as _review_action_command) for both bulk
+        # statuses; bulk buttons carry no action-api hook.
+        self.assertIn('data-command-done="', static_html)
+        self.assertIn('data-command-deferred="', static_html)
+        self.assertIn(
+            "python -m taiwan_stock_analysis.cli research action set",
+            static_html,
+        )
+        self.assertNotIn('data-action-api="bulk-review-action"', static_html)
+
+        api_html = render_workbench_view(_RS, action_api_enabled=True)
+        self.assertIn('data-action-api="bulk-review-action"', api_html)
+        self.assertIn('data-queue-bulk-status="done"', api_html)
+        self.assertIn('data-queue-bulk-status="deferred"', api_html)
+        self.assertNotIn("data-command-done", api_html)
+        self.assertNotIn("data-command-deferred", api_html)
+
+    # -- Feature D: 狀態資訊 stale count + last-updated (spec 3.3, ported
+    # vocabulary from dashboard.py:_review_action_status_pairs ~2924 and the
+    # status-line badges in _review_actions_section ~2664-2669) ------------
+
+    def test_status_line_shows_four_counts_stale_and_last_updated_placeholder(self):
+        # _RS carries no review_action_state sidecar at all -> every action is
+        # "open" and last_updated must degrade to the "-" placeholder, never
+        # "None" or a crash.
+        html = render_workbench_view(_RS)
+        self.assertIn("待處理 11", html)
+        self.assertIn("已完成 0", html)
+        self.assertIn("稍後處理 0", html)
+        self.assertIn("不處理 0", html)
+        self.assertIn("過期狀態 0", html)
+        self.assertIn("最後更新：-", html)
+        self.assertNotIn("None", html)
+
+    def test_status_line_shows_real_state_counts_stale_and_timestamp(self):
+        data = copy.deepcopy(_RS)
+        data["research_summaries"][0]["review_action_state"] = {
+            "version": 1,
+            "actions": {
+                "2330:fundamental-review-thesis-breakers": {
+                    "stock_id": "2330",
+                    "action_id": "fundamental-review-thesis-breakers",
+                    "status": "done",
+                    "note": "",
+                    "reviewer": "",
+                    "evidence_url": "",
+                    "updated_at": "2026-07-20T09:00:00Z",
+                },
+                # Stale: this stock/action pair no longer appears in
+                # review_action_queue, so it must be counted as stale rather
+                # than silently overlaid.
+                "2330:retired-action": {
+                    "stock_id": "2330",
+                    "action_id": "retired-action",
+                    "status": "done",
+                    "note": "",
+                    "reviewer": "",
+                    "evidence_url": "",
+                    "updated_at": "2026-07-21T09:00:00Z",
+                },
+            },
+        }
+        html = render_workbench_view(data)
+        self.assertIn("待處理 10", html)
+        self.assertIn("已完成 1", html)
+        self.assertIn("過期狀態 1", html)
+        self.assertIn("最後更新：2026-07-21T09:00:00Z", html)
+
 
 # Fixture shape mirrors what `discover_dashboard_items` (dashboard.py:69-311) actually
 # produces for Tab 3's five output-file link categories, four status/record tables, and

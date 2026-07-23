@@ -24,6 +24,22 @@ from __future__ import annotations
 # redesign JS, this never force-sorts on page load -- the server's default order
 # (views/market.py's `_industry_sort_key`, score desc) already matches the select's
 # default "score" value, so the page is correct even if this script never runs.
+#
+# Bulk queue operations (spec 3.3 "批次操作"): reads each row's
+# `[data-queue-select="true"]` checkbox (carries `data-stock`/`data-action-id`
+# and, static mode only, `data-command-done`/`data-command-deferred` -- all
+# emitted by views/workbench.py's `_row_select_checkbox`), the toolbar's
+# `[data-queue-select-visible="true"]` checkbox and `[data-queue-bulk-count="true"]`
+# span, and `[data-queue-bulk-status]` buttons (`_bulk_tools_bar`). Selection only
+# ever considers rows without the filter JS's own `.hidden` class -- "目前顯示"
+# tracks `applyQueueFilters()`'s output, not a separate concept. Static-mode bulk
+# buttons carry no `data-action-api` and copy each selected row's pre-baked
+# `data-command-<status>` text directly; served-mode buttons reuse the
+# `data-action-api` dispatch below with a new "bulk-review-action" kind, POSTing
+# to the same `/api/review-actions/set` endpoint as the single-row path
+# (`handleReviewAction`) once per selected row, sequentially (not in parallel --
+# `set_review_action_state` is a read-modify-write on one shared JSON file, and
+# dashboard_server.py's ThreadingHTTPServer would race concurrent writes to it).
 SCRIPT = """<script>
 (function () {
   "use strict";
@@ -105,6 +121,11 @@ SCRIPT = """<script>
     for (var i = 0; i < rows.length; i++) {
       rows[i].classList.toggle("hidden", !rowMatchesFilters(rows[i], state));
     }
+    // Keep the bulk toolbar's live count / "select visible" tri-state in sync
+    // whenever the visible-row set changes (filter edits, and the end of a
+    // bulk update below) -- updateBulkSelectionUI() no-ops when the toolbar
+    // isn't on the page (empty queue), so this is safe to call unconditionally.
+    updateBulkSelectionUI();
   }
 
   function initQueueFilters() {
@@ -114,6 +135,94 @@ SCRIPT = """<script>
       controls[i].addEventListener(eventName, applyQueueFilters);
     }
     if (controls.length) { applyQueueFilters(); }
+  }
+
+  // -- Feature C: bulk queue operations (spec 3.3 "批次操作") -----------------
+
+  function queueVisibleRows() {
+    var rows = document.querySelectorAll(".queue-row[data-stock]");
+    var visible = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].classList.contains("hidden")) { visible.push(rows[i]); }
+    }
+    return visible;
+  }
+
+  function queueRowCheckbox(row) {
+    return row.querySelector('[data-queue-select="true"]');
+  }
+
+  function queueSelectedRows() {
+    var visible = queueVisibleRows();
+    var selected = [];
+    for (var i = 0; i < visible.length; i++) {
+      var checkbox = queueRowCheckbox(visible[i]);
+      if (checkbox && checkbox.checked) { selected.push(visible[i]); }
+    }
+    return selected;
+  }
+
+  function updateBulkSelectionUI() {
+    var countEl = document.querySelector('[data-queue-bulk-count="true"]');
+    if (!countEl) { return; }
+    var selected = queueSelectedRows();
+    countEl.textContent = "已選取 " + selected.length + " 筆";
+    var selectVisible = document.querySelector('[data-queue-select-visible="true"]');
+    if (selectVisible) {
+      var visible = queueVisibleRows();
+      selectVisible.checked = visible.length > 0 && selected.length === visible.length;
+      selectVisible.indeterminate = selected.length > 0 && selected.length < visible.length;
+    }
+  }
+
+  function initBulkSelection() {
+    var selectVisible = document.querySelector('[data-queue-select-visible="true"]');
+    if (selectVisible) {
+      selectVisible.addEventListener("change", function () {
+        var checked = selectVisible.checked;
+        var rows = queueVisibleRows();
+        for (var i = 0; i < rows.length; i++) {
+          var checkbox = queueRowCheckbox(rows[i]);
+          if (checkbox) { checkbox.checked = checked; }
+        }
+        updateBulkSelectionUI();
+      });
+    }
+    var checkboxes = document.querySelectorAll('[data-queue-select="true"]');
+    for (var i = 0; i < checkboxes.length; i++) {
+      checkboxes[i].addEventListener("change", updateBulkSelectionUI);
+    }
+    updateBulkSelectionUI();
+  }
+
+  function initBulkStaticCopy() {
+    // Static mode only: served-mode bulk buttons carry data-action-api and are
+    // handled by handleBulkReviewAction() via the initActionApi() dispatcher
+    // below instead.
+    var buttons = document.querySelectorAll('[data-queue-bulk-status]:not([data-action-api])');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function (event) {
+        var btn = event.currentTarget;
+        var status = btn.getAttribute("data-queue-bulk-status") || "";
+        var selected = queueSelectedRows();
+        if (!selected.length) {
+          flashLabel(btn, "請先勾選事項", 1500);
+          return;
+        }
+        var commands = [];
+        for (var j = 0; j < selected.length; j++) {
+          var checkbox = queueRowCheckbox(selected[j]);
+          var command = checkbox ? checkbox.getAttribute("data-command-" + status) : "";
+          if (command) { commands.push(command); }
+        }
+        if (!commands.length || !navigator.clipboard || !navigator.clipboard.writeText) { return; }
+        navigator.clipboard.writeText(commands.join("\\n")).then(function () {
+          flashLabel(btn, "已複製 " + commands.length + " 筆 ✓", 1500);
+        }, function () {
+          flashLabel(btn, "複製失敗", 1500);
+        });
+      });
+    }
   }
 
   function flashLabel(el, text, delayMs) {
@@ -334,6 +443,52 @@ SCRIPT = """<script>
     });
   }
 
+  // Served-mode bulk handler (spec 3.3 "批次操作"): POSTs each selected row's
+  // action to /api/review-actions/set one at a time -- sequentially, not via
+  // Promise.all, because set_review_action_state() is a read-modify-write on
+  // one shared JSON file and concurrent requests could clobber each other.
+  // Mirrors handleReviewAction()'s per-row update + gate resync, just applied
+  // once per selected row and gate-synced once at the end from the final
+  // response (which already reflects every update made so far in this batch).
+  function handleBulkReviewAction(btn) {
+    var status = btn.getAttribute("data-queue-bulk-status") || "";
+    var statePath = btn.getAttribute("data-state-path") || "";
+    var rows = queueSelectedRows();
+    if (!rows.length) {
+      flashLabel(btn, "請先勾選事項", 1500);
+      return;
+    }
+    btn.disabled = true;
+    var succeeded = 0;
+    var lastData = null;
+    var chain = Promise.resolve();
+    rows.forEach(function (row) {
+      chain = chain.then(function () {
+        var checkbox = queueRowCheckbox(row);
+        var payload = {
+          state_path: statePath,
+          stock_id: checkbox ? (checkbox.getAttribute("data-stock") || "") : "",
+          action_id: checkbox ? (checkbox.getAttribute("data-action-id") || "") : "",
+          status: status
+        };
+        return postJson("/api/review-actions/set", payload).then(function (data) {
+          succeeded += 1;
+          lastData = data;
+          updateRowStatus(row, status);
+          if (checkbox) { checkbox.checked = false; }
+        }, function (err) {
+          if (window.console && window.console.error) { window.console.error(err); }
+        });
+      });
+    });
+    chain.then(function () {
+      btn.disabled = false;
+      if (lastData) { syncGateFromResponse(lastData); }
+      applyQueueFilters();
+      flashLabel(btn, "已更新 " + succeeded + " / " + rows.length + " 筆", 1500);
+    });
+  }
+
   function initActionApi() {
     if (!window.fetch) { return; }
     var buttons = document.querySelectorAll("[data-action-api]");
@@ -345,6 +500,8 @@ SCRIPT = """<script>
           handleReviewAction(btn);
         } else if (kind === "handoff-pack") {
           handleHandoffPack(btn);
+        } else if (kind === "bulk-review-action") {
+          handleBulkReviewAction(btn);
         }
       });
     }
@@ -354,6 +511,8 @@ SCRIPT = """<script>
   initExpandToggles();
   initQueueFilters();
   initCopyButtons();
+  initBulkSelection();
+  initBulkStaticCopy();
   initIndustrySentimentSort();
   initActionApi();
 })();

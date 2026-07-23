@@ -204,6 +204,23 @@ def view_css() -> str:
        block is left floating after the row itself disappears. */
     .queue-row.hidden + .queue-expand {{ display: none; }}
 
+    /* -- Feature D: 狀態資訊 status line (待處理/已完成/稍後處理/不處理 + stale + 最後更新) - */
+    .wb-status-line {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 2px 0 14px; }}
+
+    /* -- Feature C: 批次操作 bulk queue toolbar + per-row select checkbox ------ */
+    .wb-bulk-tools {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }}
+    .wb-bulk-select-all {{ display: flex; align-items: center; gap: 7px; color: {t['text_3']};
+      font-size: 13px; font-weight: 700; cursor: pointer; }}
+    .wb-bulk-count {{ color: {t['text_muted']}; font-size: 12.5px; margin-left: auto; }}
+    /* Widens .queue-row's grid (base_css() still owns the byte-checked 7-column
+       layout) by one leading column for the new select checkbox. Restated
+       inside the @media block below so the existing small-viewport 1-column
+       collapse still wins there (same selector/specificity, later source
+       order inside that block beats this desktop rule). */
+    .queue-row {{ grid-template-columns: 28px 34px 72px 56px 120px 130px 1fr 200px; }}
+    .wb-select-cell {{ display: flex; align-items: center; justify-content: center; }}
+    .wb-row-select {{ width: 15px; height: 15px; cursor: pointer; accent-color: {t['accent']}; }}
+
     /* -- outputs view (out-*): stacked report/status tables ------------------- */
     .out-section {{ margin: 0; }}
     .out-badges {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }}
@@ -224,5 +241,10 @@ def view_css() -> str:
       .mkt-sentiment-sort {{ align-items: stretch; }}
       .mkt-sentiment-sort label {{ flex-direction: column; align-items: stretch; }}
       .mkt-sentiment-sort select {{ width: 100%; }}
+      /* Reclaims the mobile 1-column collapse base_css() already defines for
+         .queue-row -- this file's own desktop 8-column override above would
+         otherwise win at small viewports too (same selector/specificity,
+         later source order beats base_css()'s @media block). */
+      .queue-row {{ grid-template-columns: 1fr; }}
     }}
     """
