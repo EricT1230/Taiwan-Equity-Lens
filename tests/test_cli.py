@@ -872,6 +872,62 @@ class CliTests(unittest.TestCase):
         )
         self.assertIn("2330\thigh\tdone\terror\tworkflow\tworkflow-error\tchecked\tlead\tevidence/workflow.md\t", list_output.getvalue())
 
+    def test_main_research_action_set_status_only_preserves_prior_evidence(self):
+        # CRITICAL fix regression test (CLI boundary): --note/--reviewer/
+        # --evidence-url default to None, not "" -- if that ever regressed
+        # back to default="", a status-only re-set would silently wipe
+        # evidence again while the rest of the suite stayed green, since
+        # nothing else exercises `research action set` without explicitly
+        # passing all three evidence flags together.
+        root = Path(".tmp-cli-test/research-action-set-preserve-evidence")
+        root.mkdir(parents=True, exist_ok=True)
+        state_path = root / "review_action_state.json"
+        if state_path.exists():
+            state_path.unlink()
+        for backup in root.glob("review_action_state.json.bak-*"):
+            backup.unlink()
+
+        first_output = StringIO()
+        with redirect_stdout(first_output):
+            first_exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "done",
+                "--note",
+                "checked 10-K",
+                "--reviewer",
+                "alice",
+                "--evidence-url",
+                "evidence/2330.md",
+            ])
+
+        # Status-only re-set: no --note/--reviewer/--evidence-url at all.
+        second_output = StringIO()
+        with redirect_stdout(second_output):
+            second_exit_code = main([
+                "research",
+                "action",
+                "set",
+                str(state_path),
+                "2330",
+                "workflow-error",
+                "--status",
+                "deferred",
+            ])
+
+        self.assertEqual(first_exit_code, 0)
+        self.assertEqual(second_exit_code, 0)
+        action = json.loads(state_path.read_text(encoding="utf-8"))["actions"]["2330:workflow-error"]
+        self.assertEqual("deferred", action["status"])
+        self.assertEqual("checked 10-K", action["note"])
+        self.assertEqual("alice", action["reviewer"])
+        self.assertEqual("evidence/2330.md", action["evidence_url"])
+
     def test_main_research_action_set_backs_up_existing_state_file(self):
         root = Path(".tmp-cli-test/research-action-set-backup")
         root.mkdir(parents=True, exist_ok=True)

@@ -417,6 +417,51 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("second-reviewer", action["reviewer"])
         self.assertEqual("evidence/2330-source-v2.md", action["evidence_url"])
 
+    def test_set_review_action_status_from_payload_json_null_preserves_evidence(self):
+        # A client sending {"note": null} (JSON null, decoded to Python None)
+        # has the KEY PRESENT -- "note" in payload is True -- so it must be
+        # treated the same as the key being absent (preserve), not as an
+        # explicit value. Before this fix, str(payload["note"]) on a None
+        # value wrote the literal string "None" over real evidence.
+        root = Path(".tmp-cli-test/dashboard-server-json-null-evidence")
+        state_path = _write_sector_evidence_fixture(root)
+
+        set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "checked source filing",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source.md",
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        result = set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "deferred",
+                "note": None,
+                "reviewer": None,
+                "evidence_url": None,
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertEqual("checked source filing", result["note"])
+        self.assertEqual("source-audit-lead", result["reviewer"])
+        self.assertEqual("evidence/2330-source.md", result["evidence_url"])
+        action = json.loads(state_path.read_text(encoding="utf-8"))["actions"]["2330:source-audit-manual-review"]
+        self.assertEqual("deferred", action["status"])
+        self.assertEqual("checked source filing", action["note"])
+        self.assertNotEqual("None", action["note"])
+        self.assertEqual("source-audit-lead", action["reviewer"])
+        self.assertEqual("evidence/2330-source.md", action["evidence_url"])
+
     def test_set_review_action_status_from_payload_rejects_outside_state_path(self):
         root = Path(".tmp-cli-test/dashboard-server-api-safe")
         root.mkdir(parents=True, exist_ok=True)

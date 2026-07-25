@@ -33,15 +33,20 @@ def set_review_action_status_from_payload(
     action_id = _required_text(payload, "action_id")
     status = _required_text(payload, "status")
     # CRITICAL: None means the JSON payload omitted this key entirely (bulk
-    # updates and status-only single-row re-sets both do this on purpose) --
-    # set_review_action_state() treats None as "preserve the currently stored
-    # value". A payload that *includes* the key (even as "") is an explicit
+    # updates and status-only single-row re-sets both do this on purpose), OR
+    # sent it as an explicit JSON null -- either way there is no real value to
+    # write, so set_review_action_state() must treat it as "preserve the
+    # currently stored value". Checking payload.get(key) is not None (not
+    # "key" in payload) is what folds null and absent together: `"note" in
+    # payload` alone would be True for {"note": null}, and str(None) would
+    # then write the literal string "None" over real evidence. A payload that
+    # includes the key with any non-null value (even "") is an explicit
     # set/clear and is written as-is. This is what stops bulk/status-only
     # updates from silently wiping previously recorded evidence (the CRITICAL
     # bug this fixes).
-    note = str(payload["note"]) if "note" in payload else None
-    reviewer = str(payload["reviewer"]) if "reviewer" in payload else None
-    evidence_url = str(payload["evidence_url"]) if "evidence_url" in payload else None
+    note = str(payload["note"]) if payload.get("note") is not None else None
+    reviewer = str(payload["reviewer"]) if payload.get("reviewer") is not None else None
+    evidence_url = str(payload["evidence_url"]) if payload.get("evidence_url") is not None else None
 
     output_path, backup_path = set_review_action_state(
         state_path,
