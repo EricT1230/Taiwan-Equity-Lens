@@ -445,9 +445,14 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     research_action_set.add_argument("stock_id")
     research_action_set.add_argument("action_id")
     research_action_set.add_argument("--status", required=True, choices=ACTION_STATUSES)
-    research_action_set.add_argument("--note", default="")
-    research_action_set.add_argument("--reviewer", default="")
-    research_action_set.add_argument("--evidence-url", default="")
+    # default=None (not "") so an omitted flag means "preserve the currently
+    # stored value" -- set_review_action_state() treats None that way. A
+    # status-only `research action set ... --status done` re-set (no --note/
+    # --reviewer/--evidence-url) therefore keeps any evidence a prior explicit
+    # call already recorded, instead of silently clearing it.
+    research_action_set.add_argument("--note", default=None)
+    research_action_set.add_argument("--reviewer", default=None)
+    research_action_set.add_argument("--evidence-url", default=None)
 
     research_run = research_subparsers.add_parser("run", help="Run workflow from a research CSV.")
     research_run.add_argument("research_csv", type=Path)

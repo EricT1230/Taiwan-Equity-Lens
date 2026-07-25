@@ -94,9 +94,9 @@ def set_review_action_state(
     stock_id: str,
     action_id: str,
     status: str,
-    note: str = "",
-    reviewer: str = "",
-    evidence_url: str = "",
+    note: str | None = None,
+    reviewer: str | None = None,
+    evidence_url: str | None = None,
     updated_at: str | None = None,
 ) -> tuple[Path, Path | None]:
     status = _clean_string(status)
@@ -108,13 +108,29 @@ def set_review_action_state(
     if warning:
         raise ValueError(warning)
     key = review_action_key(stock_id, action_id)
+    # CRITICAL: None means the caller OMITTED this field (bulk/status-only
+    # updates, which never send note/reviewer/evidence_url) -- PRESERVE
+    # whatever is already stored for this key so those calls can never
+    # silently wipe evidence a prior explicit set recorded. A string
+    # (including "") means the caller EXPLICITLY set/cleared it -- write it
+    # as-is, same as before. See dashboard_server.py's
+    # set_review_action_status_from_payload for the "key absent from the JSON
+    # payload" -> None translation that feeds this from the API/JS side, and
+    # cli.py's `research action set` for the --note/--reviewer/--evidence-url
+    # -> None translation on the CLI side.
+    existing = state["actions"].get(key, {})
+    resolved_note = _clean_string(note) if note is not None else _clean_string(existing.get("note"))
+    resolved_reviewer = _clean_string(reviewer) if reviewer is not None else _clean_string(existing.get("reviewer"))
+    resolved_evidence_url = (
+        _clean_string(evidence_url) if evidence_url is not None else _clean_string(existing.get("evidence_url"))
+    )
     state["actions"][key] = {
         "stock_id": _clean_string(stock_id),
         "action_id": _clean_string(action_id),
         "status": status,
-        "note": _clean_string(note),
-        "reviewer": _clean_string(reviewer),
-        "evidence_url": _clean_string(evidence_url),
+        "note": resolved_note,
+        "reviewer": resolved_reviewer,
+        "evidence_url": resolved_evidence_url,
         "updated_at": updated_at or _utc_now(),
     }
     backup_path = backup_review_action_state(path)

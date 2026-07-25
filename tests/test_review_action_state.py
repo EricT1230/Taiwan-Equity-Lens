@@ -410,6 +410,97 @@ class ReviewActionStateTests(unittest.TestCase):
                 "bad",
             )
 
+    # -- CRITICAL fix: merge semantics (None = "field omitted, preserve";
+    # str including "" = "field explicitly set/cleared, write") -- reproduces
+    # the reviewer's finding that bulk/status-only updates silently wiped
+    # note/reviewer/evidence_url by defaulting them to "" and fully replacing
+    # state["actions"][key]. -------------------------------------------------
+
+    def test_set_state_with_none_fields_preserves_existing_stored_values(self):
+        path = Path(".tmp-cli-test/review-action-state-preserve-on-none.json")
+
+        set_review_action_state(
+            path,
+            "2330",
+            "workflow-error",
+            "done",
+            note="checked 10-K",
+            reviewer="alice",
+            evidence_url="evidence/2330.md",
+            updated_at="2026-05-15T09:00:00Z",
+        )
+        # Status-only re-set (mirrors bulk / status-only payloads): omitting
+        # note/reviewer/evidence_url must PRESERVE what is already stored, not
+        # blank it out.
+        set_review_action_state(
+            path,
+            "2330",
+            "workflow-error",
+            "deferred",
+            note=None,
+            reviewer=None,
+            evidence_url=None,
+        )
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        action = payload["actions"]["2330:workflow-error"]
+        self.assertEqual("deferred", action["status"])
+        self.assertEqual("checked 10-K", action["note"])
+        self.assertEqual("alice", action["reviewer"])
+        self.assertEqual("evidence/2330.md", action["evidence_url"])
+
+    def test_set_state_with_empty_string_fields_explicitly_clears_stored_values(self):
+        path = Path(".tmp-cli-test/review-action-state-clear-on-empty-string.json")
+
+        set_review_action_state(
+            path,
+            "2330",
+            "workflow-error",
+            "done",
+            note="checked 10-K",
+            reviewer="alice",
+            evidence_url="evidence/2330.md",
+            updated_at="2026-05-15T09:00:00Z",
+        )
+        # An explicit "" is a deliberate clear (distinct from omitting the
+        # field entirely) and must still take effect.
+        set_review_action_state(
+            path,
+            "2330",
+            "workflow-error",
+            "deferred",
+            note="",
+            reviewer="",
+            evidence_url="",
+        )
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        action = payload["actions"]["2330:workflow-error"]
+        self.assertEqual("deferred", action["status"])
+        self.assertEqual("", action["note"])
+        self.assertEqual("", action["reviewer"])
+        self.assertEqual("", action["evidence_url"])
+
+    def test_set_state_with_none_fields_on_brand_new_key_stores_empty_strings(self):
+        path = Path(".tmp-cli-test/review-action-state-new-key-none.json")
+
+        set_review_action_state(
+            path,
+            "2330",
+            "workflow-error",
+            "open",
+            note=None,
+            reviewer=None,
+            evidence_url=None,
+        )
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        action = payload["actions"]["2330:workflow-error"]
+        self.assertEqual("open", action["status"])
+        self.assertEqual("", action["note"])
+        self.assertEqual("", action["reviewer"])
+        self.assertEqual("", action["evidence_url"])
+
     def test_apply_state_adds_status_and_note_without_mutating_input(self):
         queue = [
             {

@@ -384,11 +384,25 @@ def _queue_row_block(
     next_indicator = "▶" if is_next else ""
     select_checkbox = _row_select_checkbox(row, state_path, action_api_enabled=action_api_enabled)
 
+    # CRITICAL fix (bulk/single-row evidence-wipe guards, page_script.py's
+    # handleBulkReviewAction/handleReviewAction): requires-evidence mirrors
+    # handoff.requires_handoff_evidence's EVIDENCE_REQUIRED_ACTION_IDS lookup
+    # (already used above in _queue_expand_block to decide whether to render
+    # the evidence inputs at all). has-evidence requires ALL three fields --
+    # matching handoff._missing_evidence_fields, which treats any single
+    # missing field as a blocker -- computed from the *state-overlaid* row
+    # (render_workbench_view runs apply_review_action_state before
+    # _flatten_rows), so it reflects what is actually persisted, not the raw
+    # queue.
+    requires_evidence = "true" if requires_handoff_evidence(row["action_id"]) else "false"
+    has_evidence = "true" if (row["note"] and row["reviewer"] and row["evidence_url"]) else "false"
+
     row_html = (
         f'<div class="{row_class}" id="{esc(row_id)}"'
         f' data-stock="{esc(stock_id)}" data-priority="{esc(priority)}"'
         f' data-severity="{esc(severity)}" data-category="{esc(category)}"'
-        f' data-status="{esc(status)}">'
+        f' data-status="{esc(status)}" data-requires-evidence="{esc(requires_evidence)}"'
+        f' data-has-evidence="{esc(has_evidence)}">'
         f"{select_checkbox}"
         f'<span class="wb-next-indicator">{next_indicator}</span>'
         f'<span class="mono">{esc(stock_id)}</span>'

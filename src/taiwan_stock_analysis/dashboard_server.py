@@ -15,6 +15,7 @@ from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
 from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
     load_review_action_state,
+    review_action_key,
     set_review_action_state,
 )
 
@@ -31,9 +32,16 @@ def set_review_action_status_from_payload(
     stock_id = _required_text(payload, "stock_id")
     action_id = _required_text(payload, "action_id")
     status = _required_text(payload, "status")
-    note = str(payload.get("note") or "")
-    reviewer = str(payload.get("reviewer") or "")
-    evidence_url = str(payload.get("evidence_url") or "")
+    # CRITICAL: None means the JSON payload omitted this key entirely (bulk
+    # updates and status-only single-row re-sets both do this on purpose) --
+    # set_review_action_state() treats None as "preserve the currently stored
+    # value". A payload that *includes* the key (even as "") is an explicit
+    # set/clear and is written as-is. This is what stops bulk/status-only
+    # updates from silently wiping previously recorded evidence (the CRITICAL
+    # bug this fixes).
+    note = str(payload["note"]) if "note" in payload else None
+    reviewer = str(payload["reviewer"]) if "reviewer" in payload else None
+    evidence_url = str(payload["evidence_url"]) if "evidence_url" in payload else None
 
     output_path, backup_path = set_review_action_state(
         state_path,
@@ -45,14 +53,19 @@ def set_review_action_status_from_payload(
         evidence_url=evidence_url,
     )
     report = _state_report_for_path(output_path)
+    # Read back what is actually persisted rather than echoing the local
+    # variables above (which may be None, or may reflect a different call's
+    # preserved value) -- keeps the response honest whether this call set,
+    # cleared, or preserved the evidence fields.
+    stored_note, stored_reviewer, stored_evidence_url = _stored_evidence_fields(output_path, stock_id, action_id)
     return {
         "action_id": action_id,
         "backup_path": str(backup_path) if backup_path else "",
         "by_status": report.get("by_status", {}),
         "last_updated": report.get("last_updated", "-"),
         "ok": True,
-        "note": note.strip(),
-        "reviewer": reviewer.strip(),
+        "note": stored_note,
+        "reviewer": stored_reviewer,
         "evidence_missing_count": report.get("evidence_missing_count", 0),
         "invalid_evidence_count": report.get("invalid_evidence_count", 0),
         "handoff_status": report.get("handoff_status", "blocked"),
@@ -60,13 +73,27 @@ def set_review_action_status_from_payload(
         "blocker_count": report.get("blocker_count", 0),
         "open_count": report.get("open_count", 0),
         "next_step": report.get("next_step", ""),
-        "evidence_url": evidence_url.strip(),
+        "evidence_url": stored_evidence_url,
         "state_path": str(output_path),
         "status": status,
         "stale_count": report.get("stale_count", 0),
         "stock_id": stock_id,
         "updated_at": report.get("last_updated", "-"),
     }
+
+
+def _stored_evidence_fields(state_path: Path, stock_id: str, action_id: str) -> tuple[str, str, str]:
+    state, warning = load_review_action_state(state_path)
+    if warning:
+        return "", "", ""
+    entry = state.get("actions", {}).get(review_action_key(stock_id, action_id))
+    if not isinstance(entry, dict):
+        return "", "", ""
+    return (
+        str(entry.get("note") or ""),
+        str(entry.get("reviewer") or ""),
+        str(entry.get("evidence_url") or ""),
+    )
 
 
 def compose_evidence_from_payload(

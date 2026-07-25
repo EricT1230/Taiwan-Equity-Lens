@@ -508,6 +508,75 @@ class WorkbenchViewTests(unittest.TestCase):
             html,
         )
 
+    # -- CRITICAL fix: bulk/single-row evidence-wipe guards need to know, per
+    # row, whether the action requires handoff evidence and whether evidence
+    # is already stored -- ported from handoff.py's requires_handoff_evidence
+    # (already imported in workbench.py) plus the state-overlaid row fields. --
+
+    def test_queue_row_carries_requires_evidence_and_has_evidence_flags(self):
+        html = render_workbench_view(_RS)
+        # _RS carries no review_action_state sidecar, so nothing has stored
+        # evidence yet. fundamental-review-thesis-breakers IS in
+        # handoff.EVIDENCE_REQUIRED_ACTION_IDS; research-state-review is NOT.
+        self.assertIn(
+            'data-stock="2330" data-priority="high"'
+            ' data-severity="manual_review" data-category="fundamental_review"'
+            ' data-status="open" data-requires-evidence="true"'
+            ' data-has-evidence="false">',
+            html,
+        )
+        self.assertIn(
+            'data-stock="2330" data-priority="high"'
+            ' data-severity="info" data-category="research_quality"'
+            ' data-status="open" data-requires-evidence="false"'
+            ' data-has-evidence="false">',
+            html,
+        )
+
+    def test_queue_row_has_evidence_true_only_when_all_three_fields_stored(self):
+        data = copy.deepcopy(_RS)
+        data["research_summaries"][0]["review_action_state"] = {
+            "version": 1,
+            "actions": {
+                "2330:fundamental-review-thesis-breakers": {
+                    "stock_id": "2330",
+                    "action_id": "fundamental-review-thesis-breakers",
+                    "status": "done",
+                    "note": "checked",
+                    "reviewer": "alice",
+                    "evidence_url": "evidence/2330.md",
+                    "updated_at": "2026-07-20T09:00:00Z",
+                },
+                # Partial evidence (missing evidence_url) must NOT count as
+                # "has evidence" -- matches handoff._missing_evidence_fields,
+                # which treats any missing field as a blocker.
+                "2303:fundamental-review-thesis-breakers": {
+                    "stock_id": "2303",
+                    "action_id": "fundamental-review-thesis-breakers",
+                    "status": "done",
+                    "note": "checked",
+                    "reviewer": "alice",
+                    "evidence_url": "",
+                    "updated_at": "2026-07-20T09:00:00Z",
+                },
+            },
+        }
+        html = render_workbench_view(data)
+        self.assertIn(
+            'data-stock="2330" data-priority="high"'
+            ' data-severity="manual_review" data-category="fundamental_review"'
+            ' data-status="done" data-requires-evidence="true"'
+            ' data-has-evidence="true">',
+            html,
+        )
+        self.assertIn(
+            'data-stock="2303" data-priority="medium"'
+            ' data-severity="manual_review" data-category="fundamental_review"'
+            ' data-status="done" data-requires-evidence="true"'
+            ' data-has-evidence="false">',
+            html,
+        )
+
     def test_bulk_toolbar_renders_ported_controls_and_count(self):
         html = render_workbench_view(_RS)
         self.assertIn('data-queue-bulk-tools="true"', html)
@@ -866,3 +935,15 @@ class PageTests(unittest.TestCase):
         # row disappeared (Bug 1). Fixed via an adjacent-sibling CSS rule.
         html = render_page(self._items())
         self.assertIn(".queue-row.hidden + .queue-expand", html)
+
+    def test_inline_script_has_bulk_and_single_row_evidence_guards(self):
+        # CRITICAL fix regression test: the shipped inline <script> must read
+        # the new per-row evidence flags and refuse to silently drop evidence-
+        # required rows -- both the bulk skip-and-report path and the single-
+        # row served refuse-and-flash path (restoring the pre-redesign guard
+        # message).
+        html = render_page(self._items())
+        self.assertIn("data-requires-evidence", html)
+        self.assertIn("data-has-evidence", html)
+        self.assertIn("筆需要交付證據，已略過", html)
+        self.assertIn("需要 note、reviewer、evidence URL 才能更新這個交付前 blocker。", html)

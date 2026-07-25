@@ -40,6 +40,15 @@ from __future__ import annotations
 # (`handleReviewAction`) once per selected row, sequentially (not in parallel --
 # `set_review_action_state` is a read-modify-write on one shared JSON file, and
 # dashboard_server.py's ThreadingHTTPServer would race concurrent writes to it).
+# Served-mode bulk payloads deliberately OMIT note/reviewer/evidence_url --
+# dashboard_server.py's set_review_action_status_from_payload now treats an
+# absent key as "preserve", not "clear" (the CRITICAL data-loss fix). Rows that
+# require evidence (`data-requires-evidence="true"`, from
+# handoff.requires_handoff_evidence) and don't already have it on record
+# (`data-has-evidence` != "true") are skipped rather than silently closed --
+# restoring the pre-redesign bulk handler's refusal to close an
+# evidence-required blocker without evidence -- and the skip count is reported
+# in the final flash message alongside the success count.
 SCRIPT = """<script>
 (function () {
   "use strict";
@@ -354,8 +363,29 @@ SCRIPT = """<script>
     badge.textContent = label;
   }
 
+  // CRITICAL fix (data loss regression, restored from the pre-redesign
+  // window.prompt-based guard): an evidence-required row moving to a non-
+  // "open" status with no note/reviewer/evidence_url anywhere (neither typed
+  // into the form now nor already on record) must be refused client-side,
+  // not silently sent as three blank strings. data-requires-evidence/
+  // data-has-evidence come from the row's own attributes (workbench.py's
+  // _queue_row_block); a deliberate CLEAR (row already has stored evidence,
+  // user blanks the inputs on purpose) is still allowed through -- only the
+  // "never had evidence, still doesn't" case is blocked.
+  function evidenceGuardMessage(row, payload) {
+    if (!row || row.getAttribute("data-requires-evidence") !== "true") { return ""; }
+    if (payload.status === "open") { return ""; }
+    if (row.getAttribute("data-has-evidence") === "true") { return ""; }
+    var blank = !(payload.note && payload.note.trim())
+      && !(payload.reviewer && payload.reviewer.trim())
+      && !(payload.evidence_url && payload.evidence_url.trim());
+    return blank ? "需要 note、reviewer、evidence URL 才能更新這個交付前 blocker。" : "";
+  }
+
   function handleReviewAction(btn) {
     var expand = btn.closest ? btn.closest(".queue-expand") : null;
+    var rowId = expand ? expand.getAttribute("data-expand-for") : null;
+    var row = rowId ? document.getElementById(rowId) : null;
     var payload = {
       state_path: btn.getAttribute("data-state-path") || "",
       stock_id: btn.getAttribute("data-stock") || "",
@@ -368,10 +398,14 @@ SCRIPT = """<script>
       payload.reviewer = evidenceInputs[1].value || "";
       payload.evidence_url = evidenceInputs[2].value || "";
     }
+    var guardMessage = evidenceGuardMessage(row, payload);
+    if (guardMessage) {
+      flashLabel(btn, guardMessage, 1500);
+      return;
+    }
     btn.disabled = true;
     postJson("/api/review-actions/set", payload).then(function (data) {
-      var rowId = expand ? expand.getAttribute("data-expand-for") : null;
-      updateRowStatus(rowId ? document.getElementById(rowId) : null, payload.status);
+      updateRowStatus(row, payload.status);
       syncGateFromResponse(data);
       applyQueueFilters();
       flashLabel(btn, "已更新 ✓", 1500);
@@ -460,9 +494,22 @@ SCRIPT = """<script>
     }
     btn.disabled = true;
     var succeeded = 0;
+    var skipped = 0;
+    var attempted = 0;
     var lastData = null;
     var chain = Promise.resolve();
     rows.forEach(function (row) {
+      // CRITICAL fix: bulk never sends note/reviewer/evidence_url (see below),
+      // so an evidence-required row with nothing on record yet must be
+      // skipped here -- otherwise the server would silently close it with no
+      // evidence at all. Rows that already have evidence on record are safe
+      // to bulk-update: the server preserves it (data-loss fix in
+      // dashboard_server.py::set_review_action_status_from_payload).
+      if (row.getAttribute("data-requires-evidence") === "true" && row.getAttribute("data-has-evidence") !== "true") {
+        skipped += 1;
+        return;
+      }
+      attempted += 1;
       chain = chain.then(function () {
         var checkbox = queueRowCheckbox(row);
         var payload = {
@@ -485,7 +532,12 @@ SCRIPT = """<script>
       btn.disabled = false;
       if (lastData) { syncGateFromResponse(lastData); }
       applyQueueFilters();
-      flashLabel(btn, "已更新 " + succeeded + " / " + rows.length + " 筆", 1500);
+      var message = attempted > 0 ? "已更新 " + succeeded + " / " + attempted + " 筆" : "";
+      if (skipped > 0) {
+        var skipMessage = skipped + " 筆需要交付證據，已略過";
+        message = message ? message + "，" + skipMessage : skipMessage;
+      }
+      flashLabel(btn, message, 1500);
     });
   }
 

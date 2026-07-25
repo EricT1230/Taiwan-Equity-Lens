@@ -326,6 +326,97 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual("source-audit-lead", action["reviewer"])
         self.assertEqual("evidence/2330-source.md", action["evidence_url"])
 
+    def test_set_review_action_status_from_payload_status_only_preserves_evidence(self):
+        # CRITICAL fix regression test: reproduces the reviewer's finding.
+        # 1) set with full evidence -> gate ready.
+        # 2) status-only update (mirrors bulk, which never sends note/reviewer/
+        #    evidence_url) -> evidence must stay intact and the gate must NOT
+        #    flip back to blocked.
+        root = Path(".tmp-cli-test/dashboard-server-preserve-evidence")
+        state_path = _write_sector_evidence_fixture(root)
+
+        first = set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "checked source filing",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source.md",
+            },
+            allowed_roots=[root.resolve()],
+        )
+        self.assertTrue(first["ready"])
+        self.assertEqual(0, first["blocker_count"])
+
+        second = set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "deferred",
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertTrue(second["ok"])
+        self.assertEqual("deferred", second["status"])
+        self.assertEqual("checked source filing", second["note"])
+        self.assertEqual("source-audit-lead", second["reviewer"])
+        self.assertEqual("evidence/2330-source.md", second["evidence_url"])
+        self.assertEqual(0, second["evidence_missing_count"])
+        self.assertTrue(second["ready"])
+        self.assertEqual(0, second["blocker_count"])
+
+        action = json.loads(state_path.read_text(encoding="utf-8"))["actions"]["2330:source-audit-manual-review"]
+        self.assertEqual("deferred", action["status"])
+        self.assertEqual("checked source filing", action["note"])
+        self.assertEqual("source-audit-lead", action["reviewer"])
+        self.assertEqual("evidence/2330-source.md", action["evidence_url"])
+
+    def test_set_review_action_status_from_payload_with_keys_overwrites_evidence(self):
+        # The other half of the merge-semantics contract: WITH the keys present
+        # (even to different values), the payload always writes them -- single-
+        # row updates always send typed fields, so they must still be able to
+        # correct/replace previously stored evidence.
+        root = Path(".tmp-cli-test/dashboard-server-overwrite-evidence")
+        state_path = _write_sector_evidence_fixture(root)
+
+        set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "checked source filing",
+                "reviewer": "source-audit-lead",
+                "evidence_url": "evidence/2330-source.md",
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        updated = set_review_action_status_from_payload(
+            {
+                "state_path": "review_action_state.json",
+                "stock_id": "2330",
+                "action_id": "source-audit-manual-review",
+                "status": "done",
+                "note": "re-reviewed after amended filing",
+                "reviewer": "second-reviewer",
+                "evidence_url": "evidence/2330-source-v2.md",
+            },
+            allowed_roots=[root.resolve()],
+        )
+
+        self.assertEqual("re-reviewed after amended filing", updated["note"])
+        self.assertEqual("second-reviewer", updated["reviewer"])
+        self.assertEqual("evidence/2330-source-v2.md", updated["evidence_url"])
+        action = json.loads(state_path.read_text(encoding="utf-8"))["actions"]["2330:source-audit-manual-review"]
+        self.assertEqual("re-reviewed after amended filing", action["note"])
+        self.assertEqual("second-reviewer", action["reviewer"])
+        self.assertEqual("evidence/2330-source-v2.md", action["evidence_url"])
+
     def test_set_review_action_status_from_payload_rejects_outside_state_path(self):
         root = Path(".tmp-cli-test/dashboard-server-api-safe")
         root.mkdir(parents=True, exist_ok=True)
