@@ -846,6 +846,42 @@ class OutputsViewTests(unittest.TestCase):
         self.assertIn("handoff-pack.html", html)
         self.assertIn("ready", html)  # handoff_pack_outputs[0].gate_status
 
+    def test_intelligence_report_links_and_gate_chips(self):
+        # Spec §10: MI + industry-trend report links and gate chips must be present.
+        items = {
+            "market_intelligence_reports": [
+                {
+                    "html_path": "market-intelligence/market_intelligence_report.html",
+                    "markdown_path": "market-intelligence/market_intelligence_report.md",
+                    "path": "market-intelligence/market_intelligence_report.json",
+                    "quality_gate": {"status": "ready"},
+                    "coverage": {"news_mapped": 2, "news_total": 3, "stocks_with_fund_flow": 2, "stocks_total": 2},
+                }
+            ],
+            "industry_trend_reports": [
+                {
+                    "html_path": "industry-trends/industry_trend_report.html",
+                    "markdown_path": "industry-trends/industry_trend_report.md",
+                    "path": "industry-trends/industry_trend_report.json",
+                    "quality_gate": {"status": "blocked"},
+                    "coverage": {"stocks_with_price_history": 2, "stocks_total": 2},
+                    "as_of_date": "2026-07-10",
+                }
+            ],
+        }
+        html = render_outputs_view(items)
+        self.assertIn("市場情報與產業趨勢報告", html)
+        self.assertIn("market_intelligence_report.html", html)
+        self.assertIn("market_intelligence_report.json", html)
+        self.assertIn("industry_trend_report.html", html)
+        self.assertIn("gate: ready", html)  # MI quality_gate.status
+        self.assertIn("gate: blocked", html)  # trend quality_gate.status
+        self.assertIn("news 2/3", html)  # MI coverage summary
+        self.assertIn("as of 2026-07-10", html)  # trend as_of_date
+
+    def test_intelligence_reports_empty_placeholder(self):
+        self.assertIn("尚未產生市場情報或產業趨勢報告", render_outputs_view({}))
+
     def test_reliability_and_source_audit_tables_show_real_fields(self):
         html = render_outputs_view(_OUT)
         self.assertIn("warning", html)  # data_reliability.overall_status

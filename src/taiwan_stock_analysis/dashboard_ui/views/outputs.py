@@ -200,10 +200,57 @@ def _handoff_pack_card(items: dict[str, Any]) -> str:
     )
 
 
+def _gate_tone(status: str) -> str:
+    return {"ready": "ok", "blocked": "blocked"}.get(status, "warn")
+
+
+def _intelligence_report_row(name: str, report: dict[str, Any], summary: str) -> str:
+    gate = _dict(report.get("quality_gate"))
+    status = _str(gate.get("status")) or "unknown"
+    return (
+        "<tr>"
+        f"<td>{esc(name)}</td>"
+        f"<td>{badge('gate: ' + status, tone=_gate_tone(status))}</td>"
+        f"<td>{esc(summary)}</td>"
+        f"<td>{_link(report.get('html_path'))}</td>"
+        f"<td>{_link(report.get('markdown_path'))}</td>"
+        f"<td>{_link(report.get('path'))}</td>"
+        "</tr>"
+    )
+
+
+def _intelligence_reports_card(items: dict[str, Any]) -> str:
+    # Spec §10 "MI 與產業趨勢報告連結及 gate chips": discover_dashboard_items
+    # collects these reports' paths + quality_gate/coverage, but no other view links
+    # to them. Surface them here in the 產出與紀錄 tab.
+    rows: list[str] = []
+    for report in _rows(items, "market_intelligence_reports"):
+        coverage = _dict(report.get("coverage"))
+        summary = (
+            f"news {_str(coverage.get('news_mapped', 0))}/{_str(coverage.get('news_total', 0))}"
+            f" · fund-flow {_str(coverage.get('stocks_with_fund_flow', 0))}/{_str(coverage.get('stocks_total', 0))}"
+        )
+        rows.append(_intelligence_report_row("Market Intelligence", report, summary))
+    for report in _rows(items, "industry_trend_reports"):
+        coverage = _dict(report.get("coverage"))
+        as_of = _str(report.get("as_of_date"))
+        price = f"price {_str(coverage.get('stocks_with_price_history', 0))}/{_str(coverage.get('stocks_total', 0))}"
+        summary = f"as of {as_of} · {price}" if as_of else price
+        rows.append(_intelligence_report_row("Industry Trend", report, summary))
+    if not rows:
+        return card(
+            "市場情報與產業趨勢報告",
+            '<p class="out-empty">尚未產生市場情報或產業趨勢報告。</p>',
+        )
+    headers = ["報告", "品質", "覆蓋", "HTML", "Markdown", "JSON"]
+    return card("市場情報與產業趨勢報告", _table(headers, "".join(rows)))
+
+
 def _files_section(items: dict[str, Any]) -> str:
     cards = (
         _reports_card(items)
         + _comparisons_card(items)
+        + _intelligence_reports_card(items)
         + _memos_card(items)
         + _packs_card(items)
         + _handoff_pack_card(items)
