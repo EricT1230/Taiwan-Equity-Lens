@@ -231,12 +231,12 @@ class DashboardServerTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            # NOTE: the dashboard UI no longer renders an inline evidence-composer
-            # button (data-evidence-composer) -- that region was merged away per
-            # design spec §3.5. The /api/evidence/compose-and-set route itself is
-            # unchanged production behavior (dashboard_server.py has zero changes
-            # for Task 11 -- see design doc §7), so this now posts to it directly
-            # instead of driving it from a page button.
+            # This exercises the /api/evidence/compose-and-set route directly
+            # (no markup dependency) as a lower-level contract check --
+            # test_served_dashboard_http_evidence_compose_button_creates_file_and_updates_gate
+            # below drives the same endpoint through the actual rendered
+            # queue-row button (data-evidence-compose, restored in
+            # views/workbench.py after the redesign migration dropped it).
             html = _http_get_text(url)
             self.assertIn('class="queue-row next"', html)
 
@@ -267,6 +267,68 @@ class DashboardServerTests(unittest.TestCase):
             updated_html = _http_get_text(url)
             self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
             self.assertIn("evidence/2330-source-audit-manual-review.md", updated_html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_served_dashboard_http_evidence_compose_button_creates_file_and_updates_gate(self):
+        # Restores the served-mode client for compose_evidence_from_payload
+        # (spec Â§10 "è­‰æ“šå»ºç«‹å™¨"): discovers the *actual* rendered compose-and-set
+        # button (mirroring test_sector_evidence_board_done_button_payload_updates_state's
+        # button-driven pattern above) instead of posting to the endpoint
+        # blind, proving the queue row's new markup + JS actually reach this
+        # unchanged server route end to end.
+        root = Path(".tmp-cli-test/dashboard-server-evidence-compose-button")
+        state_path = _write_sector_evidence_fixture(root)
+        server, url = create_dashboard_server([root.resolve()], port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(url)
+            self.assertIn('data-evidence-compose="true"', html)
+            self.assertIn('data-evidence-compose-summary="true"', html)
+            button = _find_button_by_text(html, "建立證據並標記完成")
+            self.assertEqual("done", button["data-status"])
+            self.assertEqual("2330", button["data-stock"])
+            self.assertEqual("source-audit-manual-review", button["data-action-id"])
+
+            result = _http_post_json(
+                f"{url}api/evidence/compose-and-set",
+                {
+                    "state_path": button["data-state-path"],
+                    "stock_id": button["data-stock"],
+                    "action_id": button["data-action-id"],
+                    "status": button["data-status"],
+                    "note": "checked source filing from the restored composer button",
+                    "reviewer": "source-audit-lead",
+                    "evidence_url": "evidence/2330-source-audit-manual-review.md",
+                    "evidence_summary": "Source audit reviewed from the restored dashboard evidence composer button.",
+                    "overwrite": True,
+                },
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["evidence_created"])
+            self.assertEqual("done", result["status"])
+            self.assertIn("status", result["evidence_quality"])
+            self.assertIn("excerpt", result["evidence_preview"])
+            self.assertIn("blocker_count", result)
+            self.assertIn("by_status", result)
+            self.assertEqual(0, result["blocker_count"])
+            self.assertTrue(result["ready"])
+
+            evidence_path = root / "evidence" / "2330-source-audit-manual-review.md"
+            self.assertTrue(evidence_path.exists())
+            content = evidence_path.read_text(encoding="utf-8")
+            self.assertIn("# Evidence: 2330 / source-audit-manual-review", content)
+
+            action = json.loads(state_path.read_text(encoding="utf-8"))["actions"]["2330:source-audit-manual-review"]
+            self.assertEqual("done", action["status"])
+            self.assertEqual("source-audit-lead", action["reviewer"])
+
+            updated_html = _http_get_text(url)
+            self.assertIn('<span class="ui-pill ui-pill-ok">交付門檻已通過</span>', updated_html)
         finally:
             server.shutdown()
             thread.join(timeout=5)

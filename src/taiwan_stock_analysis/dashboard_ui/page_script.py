@@ -559,6 +559,150 @@ SCRIPT = """<script>
     }
   }
 
+  // -- spec section 10 (evidence composer): served-mode compose-and-set
+  // control, restoring a client for dashboard_server.py's still-live
+  // /api/evidence/compose-and-set route (compose_evidence_from_payload) that
+  // the redesign migration dropped. Reads the SAME 3 .queue-evidence inputs
+  // (note/reviewer/evidence_url) handleReviewAction already reads above, plus
+  // the new evidence_summary textarea and overwrite checkbox
+  // views/workbench.py's _evidence_compose_block renders
+  // (data-evidence-compose-summary / data-evidence-compose-overwrite). Ported
+  // Chinese vocabulary (Reviewer Confidence labels, Evidence Preview heading)
+  // matches the pre-redesign dashboard.py's
+  // evidenceQualityLabel/renderEvidenceComposerResult. Uses its own
+  // data-evidence-compose="true" hook (not the data-action-api dispatcher
+  // above) and its own initEvidenceCompose(), per the button markup
+  // views/workbench.py emits.
+  var EVIDENCE_QUALITY_LABELS = { handoff_ready: "可交付", needs_review: "需要再審查", draft: "草稿" };
+
+  function evidenceQualityLabel(status) {
+    return EVIDENCE_QUALITY_LABELS[status] || "未知";
+  }
+
+  function evidenceComposeFields(expand) {
+    var evidenceInputs = expand ? expand.querySelectorAll(".queue-evidence input") : [];
+    var summaryField = expand ? expand.querySelector('[data-evidence-compose-summary="true"]') : null;
+    var overwriteField = expand ? expand.querySelector('[data-evidence-compose-overwrite="true"]') : null;
+    return {
+      note: evidenceInputs.length === 3 ? (evidenceInputs[0].value || "") : "",
+      reviewer: evidenceInputs.length === 3 ? (evidenceInputs[1].value || "") : "",
+      evidence_url: evidenceInputs.length === 3 ? (evidenceInputs[2].value || "") : "",
+      evidence_summary: summaryField ? (summaryField.value || "") : "",
+      overwrite: !!(overwriteField && overwriteField.checked)
+    };
+  }
+
+  // Mirrors evidenceGuardMessage()'s vocabulary above, but compose always
+  // writes a brand-new evidence file server-side (compose_evidence_from_payload's
+  // _required_text on all three fields) -- so this blocks on ANY of the three
+  // being blank, not only the "nothing on record anywhere" all-blank case the
+  // plain status-set guard above allows through.
+  function evidenceComposeGuardMessage(fields) {
+    var hasNote = !!(fields.note && fields.note.trim());
+    var hasReviewer = !!(fields.reviewer && fields.reviewer.trim());
+    var hasSummary = !!(fields.evidence_summary && fields.evidence_summary.trim());
+    if (hasNote && hasReviewer && hasSummary) { return ""; }
+    return "需要 note、reviewer、evidence summary 才能建立證據並標記完成。";
+  }
+
+  function renderEvidenceComposeResult(container, data) {
+    if (!container) { return; }
+    var quality = data.evidence_quality || {};
+    var preview = data.evidence_preview || {};
+    var checks = Array.isArray(quality.checks) ? quality.checks : [];
+    var status = quality.status || "unknown";
+    container.textContent = "";
+    container.setAttribute("data-evidence-quality-status", status);
+
+    var summary = document.createElement("p");
+    summary.className = "wb-compose-summary";
+    summary.textContent = "已建立證據：" + (data.evidence_url || "-") +
+      "；Reviewer Confidence（審查信心）：" + evidenceQualityLabel(status) + "。";
+    container.appendChild(summary);
+
+    var nextStep = document.createElement("p");
+    nextStep.className = "wb-compose-next";
+    nextStep.textContent = quality.next_step || "請先檢查證據預覽再交付。";
+    container.appendChild(nextStep);
+
+    var checkList = document.createElement("ul");
+    checkList.className = "wb-compose-checks";
+    for (var i = 0; i < checks.length; i++) {
+      var check = checks[i] || {};
+      var item = document.createElement("li");
+      item.textContent = (check.label || check.id || "check") + ": " +
+        (check.status || "unknown") + " - " + (check.message || "");
+      checkList.appendChild(item);
+    }
+    container.appendChild(checkList);
+
+    var previewBox = document.createElement("div");
+    previewBox.className = "wb-compose-preview";
+    var previewTitle = document.createElement("strong");
+    previewTitle.textContent = "Evidence Preview（證據預覽）";
+    previewBox.appendChild(previewTitle);
+    var previewPath = document.createElement("p");
+    previewPath.textContent = preview.path || data.evidence_path || data.evidence_url || "-";
+    previewBox.appendChild(previewPath);
+    var previewContent = document.createElement("pre");
+    previewContent.textContent = preview.excerpt || "沒有回傳證據預覽。";
+    previewBox.appendChild(previewContent);
+    container.appendChild(previewBox);
+  }
+
+  function handleEvidenceCompose(btn) {
+    var expand = btn.closest ? btn.closest(".queue-expand") : null;
+    var rowId = expand ? expand.getAttribute("data-expand-for") : null;
+    var row = rowId ? document.getElementById(rowId) : null;
+    var fields = evidenceComposeFields(expand);
+    var guardMessage = evidenceComposeGuardMessage(fields);
+    if (guardMessage) {
+      flashLabel(btn, guardMessage, 1500);
+      return;
+    }
+    var payload = {
+      state_path: btn.getAttribute("data-state-path") || "",
+      stock_id: btn.getAttribute("data-stock") || "",
+      action_id: btn.getAttribute("data-action-id") || "",
+      status: btn.getAttribute("data-status") || "done",
+      note: fields.note,
+      reviewer: fields.reviewer,
+      evidence_url: fields.evidence_url,
+      evidence_summary: fields.evidence_summary,
+      overwrite: fields.overwrite
+    };
+    var resultBox = expand ? expand.querySelector('[data-evidence-compose-result="true"]') : null;
+    var evidenceInputs = expand ? expand.querySelectorAll(".queue-evidence input") : [];
+    btn.disabled = true;
+    postJson("/api/evidence/compose-and-set", payload).then(function (data) {
+      updateRowStatus(row, payload.status);
+      if (row) { row.setAttribute("data-has-evidence", "true"); }
+      if (evidenceInputs.length === 3) {
+        evidenceInputs[0].value = data.note || "";
+        evidenceInputs[1].value = data.reviewer || "";
+        evidenceInputs[2].value = data.evidence_url || "";
+      }
+      if (resultBox) { renderEvidenceComposeResult(resultBox, data); }
+      syncGateFromResponse(data);
+      applyQueueFilters();
+      flashLabel(btn, "已建立證據 ✓", 1500);
+    }, function (err) {
+      if (window.console && window.console.error) { window.console.error(err); }
+      flashLabel(btn, "建立失敗", 1500);
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
+  function initEvidenceCompose() {
+    var buttons = document.querySelectorAll('[data-evidence-compose="true"]');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function (event) {
+        handleEvidenceCompose(event.currentTarget);
+      });
+    }
+  }
+
   initTabs();
   initExpandToggles();
   initQueueFilters();
@@ -567,5 +711,6 @@ SCRIPT = """<script>
   initBulkStaticCopy();
   initIndustrySentimentSort();
   initActionApi();
+  initEvidenceCompose();
 })();
 </script>"""

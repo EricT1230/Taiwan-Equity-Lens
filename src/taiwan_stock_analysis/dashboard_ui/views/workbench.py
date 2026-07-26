@@ -278,6 +278,50 @@ def _row_action_button(
     return copy_button(label, command)
 
 
+def _evidence_compose_block(row: dict[str, str], state_path: str) -> str:
+    # Spec section 10 "evidence composer" restoration: ported from the
+    # pre-redesign dashboard.py's _evidence_composer (~line 504, deleted at
+    # da4a47a^) / its paired JS submitEvidenceComposer+renderEvidenceComposerResult
+    # -- same Chinese labels (button "建立證據並標記完成", "Reviewer Confidence
+    # （審查信心）", "Evidence Preview（證據預覽）"), ported onto the workbench's
+    # flattened queue row instead of the old expert-console blocker card. Reuses the
+    # SAME 3 .queue-evidence inputs (note/reviewer/evidence_url) the plain
+    # status buttons above already render -- adding a 4th input directly
+    # inside .queue-evidence would break page_script.py's
+    # `evidenceInputs.length === 3` read for handleReviewAction, so
+    # evidence_summary (which compose_evidence_from_payload requires but the
+    # existing note/reviewer/evidence_url trio does not carry) gets its own
+    # textarea in a sibling block instead, addressed by a dedicated
+    # data-evidence-compose-summary hook.
+    #
+    # Caller only invokes this when action_api_enabled (served mode): there is
+    # no CLI subcommand that writes an evidence markdown file *and* runs
+    # assess_evidence_quality (only `research action set`, which just updates
+    # state), so static mode has no meaningful CLI-hint equivalent to degrade
+    # to -- it renders nothing here at all, matching the "must not appear"
+    # contract.
+    stock_id = row["stock_id"]
+    action_id = row["action_id"]
+    summary_default = row["message"] or "摘要人工審查證據的重點。"
+    return (
+        '<div class="wb-compose">'
+        '<p class="wb-compose-hint">在瀏覽器內建立 evidence markdown 並同步標記完成；內容僅供研究交付，不構成投資建議。</p>'
+        '<label class="wb-compose-field">evidence summary：證據摘要'
+        f'<textarea data-evidence-compose-summary="true">{esc(summary_default)}</textarea>'
+        "</label>"
+        '<label class="wb-compose-overwrite">'
+        '<input type="checkbox" data-evidence-compose-overwrite="true">若證據檔已存在則覆寫'
+        "</label>"
+        '<div class="wb-actions-row">'
+        '<button type="button" class="ui-btn primary" data-evidence-compose="true"'
+        f' data-state-path="{esc(state_path)}" data-stock="{esc(stock_id)}"'
+        f' data-action-id="{esc(action_id)}" data-status="done">建立證據並標記完成</button>'
+        "</div>"
+        '<div class="wb-compose-result" data-evidence-compose-result="true"></div>'
+        "</div>"
+    )
+
+
 def _queue_expand_block(
     row: dict[str, str],
     row_id: str,
@@ -293,6 +337,7 @@ def _queue_expand_block(
     evidence_url = row["evidence_url"]
 
     evidence_html = ""
+    compose_html = ""
     if requires_handoff_evidence(row["action_id"]):
         evidence_html = (
             '<p class="wb-evidence-hint">交付證據（高風險事項必填）：</p>'
@@ -302,6 +347,8 @@ def _queue_expand_block(
             f'<input placeholder="evidence：檔案路徑或 URL" value="{esc(evidence_url)}">'
             "</div>"
         )
+        if action_api_enabled:
+            compose_html = _evidence_compose_block(row, state_path)
     action_buttons = "".join(
         _row_action_button(row, source_path, state_path, status, label, action_api_enabled=action_api_enabled)
         for status, label in _ACTION_STATUS_BUTTONS
@@ -312,6 +359,7 @@ def _queue_expand_block(
         f'<div class="queue-expand" data-expand-for="{esc(row_id)}"{hidden_attr}>'
         f'<p><strong>問題全文：</strong>{esc(message)}</p>'
         f"{evidence_html}"
+        f"{compose_html}"
         f'<div class="wb-actions-row">{action_buttons}'
         f'<span class="wb-cli mono">{esc(cli_hint)}</span>'
         "</div>"

@@ -472,6 +472,39 @@ class WorkbenchViewTests(unittest.TestCase):
         self.assertIn("data-action-id", api_html)
         self.assertIn("data-status", api_html)
 
+    # -- spec Â§10 "è­‰æ“šå»ºç«‹å™¨" composer: served-mode evidence-stub compose-and-set
+    # control, ported from the pre-redesign dashboard.py's _evidence_composer
+    # (deleted at da4a47a^) -- restores a client for the still-live
+    # /api/evidence/compose-and-set endpoint (dashboard_server.py) that the
+    # redesign migration dropped.
+
+    def test_served_mode_evidence_required_row_renders_compose_control(self):
+        html = render_workbench_view(_RS, action_api_enabled=True)
+        self.assertIn('data-evidence-compose="true"', html)
+        self.assertIn('data-evidence-compose-summary="true"', html)
+        self.assertIn('data-evidence-compose-result="true"', html)
+        self.assertIn("建立證據並標記完成", html)
+        # 10 of the 11 flattened rows require evidence (all except 2330's
+        # research-state-review, which is not in EVIDENCE_REQUIRED_ACTION_IDS)
+        # -- one compose control each.
+        self.assertEqual(html.count('data-evidence-compose="true"'), 10)
+        self.assertIn(
+            'data-evidence-compose="true"'
+            ' data-state-path=".tmp-v053-preview/review_action_state.json"'
+            ' data-stock="2330" data-action-id="fundamental-review-thesis-breakers"'
+            ' data-status="done">',
+            html,
+        )
+
+    def test_static_mode_does_not_render_compose_control(self):
+        html = render_workbench_view(_RS, action_api_enabled=False)
+        self.assertNotIn("data-evidence-compose", html)
+        self.assertNotIn("建立證據並標記完成", html)
+        # Static mode still renders the plain note/reviewer/evidence_url hint --
+        # only the compose-and-set control (no CLI equivalent exists for
+        # "write a markdown file + assess its quality") is served-mode only.
+        self.assertIn("queue-evidence", html)
+
     def test_research_pool_is_a_single_mini_table_with_links(self):
         html = render_workbench_view(_RS)
         self.assertEqual(html.count('class="mini-table"'), 1)
@@ -983,3 +1016,13 @@ class PageTests(unittest.TestCase):
         self.assertIn("data-has-evidence", html)
         self.assertIn("筆需要交付證據，已略過", html)
         self.assertIn("需要 note、reviewer、evidence URL 才能更新這個交付前 blocker。", html)
+
+    def test_inline_script_has_evidence_compose_handler(self):
+        # Spec Â§10 restoration: the served-mode compose-and-set button
+        # (data-evidence-compose, from views/workbench.py) needs a client
+        # handler wired into init and posting to the still-live server route,
+        # or clicking it does nothing.
+        html = render_page(self._items())
+        self.assertIn("handleEvidenceCompose", html)
+        self.assertIn("initEvidenceCompose", html)
+        self.assertIn("/api/evidence/compose-and-set", html)

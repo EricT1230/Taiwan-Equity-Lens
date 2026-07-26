@@ -221,6 +221,32 @@ def view_css() -> str:
     .wb-select-cell {{ display: flex; align-items: center; justify-content: center; }}
     .wb-row-select {{ width: 15px; height: 15px; cursor: pointer; accent-color: {t['accent']}; }}
 
+    /* -- spec section 10 (evidence composer): served-mode compose-and-set
+       control appended below the plain note/reviewer/evidence_url hint
+       (views/workbench.py's _evidence_compose_block). */
+    .wb-compose {{ margin-top: 10px; padding-top: 10px; border-top: 1px dashed {t['border']}; }}
+    .wb-compose-hint {{ color: {t['text_3']}; font-size: 13px; margin: 0 0 8px; }}
+    .wb-compose-field {{ display: flex; flex-direction: column; gap: 4px; color: {t['text_3']};
+      font-size: 13px; margin-bottom: 8px; }}
+    .wb-compose-field textarea {{ background: {t['topbar']}; border: 1px solid {t['border_bright']};
+      border-radius: 7px; padding: 8px 10px; color: {t['text_2']}; font-size: 13px;
+      min-height: 64px; resize: vertical; font-family: inherit; }}
+    .wb-compose-overwrite {{ display: flex; align-items: center; gap: 7px; color: {t['text_3']};
+      font-size: 13px; margin-bottom: 8px; cursor: pointer; }}
+    .wb-compose-result:empty {{ display: none; }}
+    .wb-compose-result {{ margin-top: 10px; padding: 10px; border: 1px solid {t['border_bright']};
+      border-radius: 8px; background: {t['panel_deep']}; }}
+    .wb-compose-summary {{ margin: 0 0 6px; font-weight: 700; color: {t['text']}; font-size: 13.5px; }}
+    .wb-compose-next {{ margin: 0 0 8px; color: {t['text_3']}; font-size: 13px; }}
+    .wb-compose-checks {{ margin: 0 0 10px 18px; padding: 0; color: {t['text_3']};
+      font-size: 12.5px; display: grid; gap: 4px; }}
+    .wb-compose-preview {{ margin-top: 8px; padding: 8px 10px; border: 1px solid {t['border']};
+      border-radius: 7px; background: {t['topbar']}; }}
+    .wb-compose-preview strong {{ display: block; margin-bottom: 4px; color: {t['text_2']}; font-size: 12.5px; }}
+    .wb-compose-preview pre {{ max-height: 220px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap;
+      overflow-wrap: anywhere; font-size: 12px; color: {t['text_3']};
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace; }}
+
     /* -- outputs view (out-*): stacked report/status tables ------------------- */
     .out-section {{ margin: 0; }}
     .out-badges {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }}
