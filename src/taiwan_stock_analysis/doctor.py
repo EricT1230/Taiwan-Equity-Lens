@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -69,21 +70,92 @@ DEMO_SENTIMENT_HISTORY_REQUIRED_HEADERS = (
     "confidence",
 )
 # Dashboard content anchors below target the redesigned dashboard_ui markup
-# (see src/taiwan_stock_analysis/dashboard_ui/views/*.py) rather than the retired
-# dashboard.py renderer. Each is a plain substring search: the redesigned page has
-# no per-industry structural markers left to validate against (cards are generic
-# <section class="ui-card">, not a dedicated <article class="industry-sentiment-card">
-# element), so this intentionally trades the old element-level structural check
-# (duplicate attributes, well-formed open/close tags) for a simpler "is the real
-# content present at all" signal -- consistent with how the review-action and
-# industry-trend-report checks below already worked.
+# (see src/taiwan_stock_analysis/dashboard_ui/views/*.py). Each MUST be a marker
+# that is present ONLY when the content actually rendered and that theme.py's
+# inlined <style> block never mentions. An earlier iteration anchored on CSS class
+# names (mkt-rotation-head / mkt-sentiment-head / mkt-score / chart-spark); those
+# are declared in the embedded stylesheet, so they were present even for an EMPTY
+# render -- the checks could never fail and silently missing market content went
+# undetected. The three anchors below are verified absent when render_dashboard_html({})
+# produces empty-state placeholders (see tests/test_doctor.py):
+#   - class="queue"                : review-action queue (workbench)  -- workbench.py
+#   - data-rotation-card="true"    : per-industry rotation card       -- market.py:_rotation_card
+#   - data-sentiment-status=       : per-industry sentiment card      -- market.py:_sentiment_card
 DEMO_REVIEW_ACTION_HOOK = 'class="queue"'
-DEMO_INDUSTRY_TREND_HOOK = "mkt-rotation-head"
-DEMO_SENTIMENT_DASHBOARD_HOOKS = (
-    "mkt-sentiment-head",
-    "mkt-score",
-    "chart-spark",
+DEMO_INDUSTRY_TREND_HOOK = 'data-rotation-card="true"'
+DEMO_SENTIMENT_DASHBOARD_HOOKS = ("data-sentiment-status=",)
+
+# Void elements never have an end tag; they must not be pushed on the open-tag
+# stack when checking that start/end tags balance.
+_HTML_VOID_TAGS = frozenset(
+    {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 )
+
+
+class _DashboardMarkupParser(HTMLParser):
+    """Lightweight structural check over the generated dashboard.
+
+    Restores the two guarantees the retired ``_DashboardStructureParser`` gave
+    ``doctor demo`` before the redesign: (a) no element carries a duplicate
+    attribute name -- which guarded a real past bug (commit "reject duplicate
+    dashboard attributes") -- and (b) start/end tags balance (no unclosed or
+    mismatched non-void element). ``HTMLParser`` treats ``<script>``/``<style>``
+    bodies as CDATA, so ``<`` inside the inline JS/CSS does not confuse it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._open: list[str] = []
+        self.duplicate_attributes: set[str] = set()
+        self.well_formed = True
+
+    def _record_duplicate_attributes(self, attrs: list[tuple[str, str | None]]) -> None:
+        seen: set[str] = set()
+        for name, _value in attrs:
+            if name in seen:
+                self.duplicate_attributes.add(name)
+            seen.add(name)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._record_duplicate_attributes(attrs)
+        if tag not in _HTML_VOID_TAGS:
+            self._open.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._record_duplicate_attributes(attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _HTML_VOID_TAGS:
+            return
+        if self._open and self._open[-1] == tag:
+            self._open.pop()
+        elif tag in self._open:
+            # Mismatched nesting: unwind to the matching open tag.
+            self.well_formed = False
+            while self._open and self._open.pop() != tag:
+                pass
+        else:
+            # End tag with no matching open tag.
+            self.well_formed = False
+
+    def close(self) -> None:
+        super().close()
+        if self._open:
+            self.well_formed = False
+
+
+def _dashboard_markup_failures(dashboard_text: str, dashboard_path: Path) -> list[str]:
+    """Duplicate-attribute + well-formedness failures for the generated dashboard."""
+    parser = _DashboardMarkupParser()
+    parser.feed(dashboard_text)
+    parser.close()
+    failures = [
+        f"dashboard has duplicate attribute {attribute}: {dashboard_path}"
+        for attribute in sorted(parser.duplicate_attributes)
+    ]
+    if not parser.well_formed:
+        failures.append(f"dashboard markup is not well-formed: {dashboard_path}")
+    return failures
 
 
 def check_release_readiness(root: Path, expected_version: str | None = None) -> DoctorResult:
@@ -179,6 +251,7 @@ def check_demo_readiness(output_dir: Path) -> DemoDoctorResult:
             for hook in DEMO_SENTIMENT_DASHBOARD_HOOKS:
                 if hook not in dashboard_text:
                     failures.append(f"dashboard missing industry sentiment hook {hook}: {dashboard_path}")
+            failures.extend(_dashboard_markup_failures(dashboard_text, dashboard_path))
 
     if isinstance(workflow_summary, dict):
         successful_stock_ids = workflow_summary.get("successful_stock_ids")

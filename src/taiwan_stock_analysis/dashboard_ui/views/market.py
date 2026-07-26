@@ -401,7 +401,15 @@ def _rotation_card(category: dict[str, Any]) -> str:
         f'<p class="mkt-rotation-note"><strong>領先：</strong>{esc(leading)}</p>'
         f'<p class="mkt-rotation-note"><strong>落後：</strong>{esc(lagging)}</p>'
     )
-    return card(name, body)
+    # data-rotation-card="true": a card-level content marker doctor.py's
+    # check_demo_readiness anchors on (see DEMO_INDUSTRY_TREND_HOOK). Unlike the
+    # "mkt-rotation-head" substring it replaces, this attribute is only emitted
+    # here -- theme.py's CSS never mentions it -- so it is genuinely absent when
+    # _rotation_section() falls back to its empty-state placeholder instead of
+    # calling this function. Built inline (not via components.card()) to match
+    # _sentiment_card()'s own precedent of hand-assembling its <section> tag
+    # whenever it needs to attach extra data-* attributes.
+    return f'<section class="ui-card" data-rotation-card="true"><h4>{esc(name)}</h4>{body}</section>'
 
 
 def _first_report(reports: Any) -> dict[str, Any]:

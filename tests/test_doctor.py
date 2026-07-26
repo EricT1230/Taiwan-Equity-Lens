@@ -280,24 +280,86 @@ class DoctorTests(unittest.TestCase):
         self.assertIn(f"dashboard missing review-action section: {output_dir / 'dashboard.html'}", result.failures)
 
     def test_check_demo_readiness_reports_missing_industry_sentiment_hooks(self):
-        hooks = ("mkt-sentiment-head", "mkt-score", "chart-spark")
-        for index, missing_hook in enumerate(hooks):
-            with self.subTest(missing_hook=missing_hook):
-                output_dir = Path(f".tmp-doctor-test/demo-dashboard-missing-sentiment-hook-{index}")
-                write_demo_fixture(output_dir)
-                dashboard_path = output_dir / "dashboard.html"
-                dashboard_path.write_text(
-                    dashboard_path.read_text(encoding="utf-8").replace(missing_hook, f"data-removed-{index}="),
-                    encoding="utf-8",
-                )
+        # A dashboard whose per-industry sentiment cards silently vanished (leaving
+        # only the CSS class names that always appear in the inlined stylesheet).
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-missing-sentiment-hook")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            dashboard_path.read_text(encoding="utf-8").replace('data-sentiment-status="ready"', "data-removed="),
+            encoding="utf-8",
+        )
 
-                result = check_demo_readiness(output_dir)
+        result = check_demo_readiness(output_dir)
 
-                self.assertFalse(result.ok)
-                self.assertIn(
-                    f"dashboard missing industry sentiment hook {missing_hook}: {dashboard_path}",
-                    result.failures,
-                )
+        self.assertFalse(result.ok)
+        self.assertIn(
+            f"dashboard missing industry sentiment hook data-sentiment-status=: {dashboard_path}",
+            result.failures,
+        )
+
+    def test_check_demo_readiness_reports_missing_industry_rotation_card(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-missing-rotation")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            dashboard_path.read_text(encoding="utf-8").replace('data-rotation-card="true"', "data-removed="),
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            f"dashboard missing industry trend report section: {dashboard_path}",
+            result.failures,
+        )
+
+    def test_check_demo_readiness_content_anchors_absent_from_empty_render(self):
+        # Guards against the vacuous-anchor regression: the anchors must NOT be
+        # satisfied by an empty dashboard (which still carries every CSS class name
+        # in its inlined <style>). If this fails, an anchor was chosen that the
+        # stylesheet/comments mention -- pick a content-only marker instead.
+        from taiwan_stock_analysis.dashboard import render_dashboard_html
+        from taiwan_stock_analysis.doctor import (
+            DEMO_INDUSTRY_TREND_HOOK,
+            DEMO_REVIEW_ACTION_HOOK,
+            DEMO_SENTIMENT_DASHBOARD_HOOKS,
+        )
+
+        empty = render_dashboard_html({})
+        for anchor in (DEMO_REVIEW_ACTION_HOOK, DEMO_INDUSTRY_TREND_HOOK, *DEMO_SENTIMENT_DASHBOARD_HOOKS):
+            self.assertNotIn(anchor, empty, f"anchor {anchor!r} is present on an empty render (vacuous)")
+
+    def test_check_demo_readiness_reports_duplicate_attribute(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-duplicate-attr")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            dashboard_path.read_text(encoding="utf-8").replace(
+                '<div class="queue"></div>', '<div class="queue" class="dup"></div>'
+            ),
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"dashboard has duplicate attribute class: {dashboard_path}", result.failures)
+
+    def test_check_demo_readiness_reports_malformed_markup(self):
+        output_dir = Path(".tmp-doctor-test/demo-dashboard-malformed")
+        write_demo_fixture(output_dir)
+        dashboard_path = output_dir / "dashboard.html"
+        dashboard_path.write_text(
+            dashboard_path.read_text(encoding="utf-8").replace("</body></html>", "<span></body></html>"),
+            encoding="utf-8",
+        )
+
+        result = check_demo_readiness(output_dir)
+
+        self.assertFalse(result.ok)
+        self.assertIn(f"dashboard markup is not well-formed: {dashboard_path}", result.failures)
 
     def test_format_demo_doctor_result_includes_repair_command(self):
         output_dir = Path(".tmp-doctor-test/demo-format-fail")
@@ -435,10 +497,9 @@ def write_demo_fixture(output_dir: Path) -> None:
     (output_dir / "market-intelligence").mkdir(parents=True, exist_ok=True)
     (output_dir / "dashboard.html").write_text(
         '<html><body><div class="queue"></div>'
-        '<div class="mkt-rotation-head"></div>'
-        '<div class="mkt-sentiment-head"></div>'
-        '<span class="mkt-score">42.5</span>'
-        '<svg class="chart-spark"></svg></body></html>',
+        '<section data-rotation-card="true"><h4>Semiconductor</h4></section>'
+        '<section data-sentiment-status="ready"><h4>Semiconductor</h4></section>'
+        "</body></html>",
         encoding="utf-8",
     )
     (output_dir / "workflow_summary.json").write_text(
