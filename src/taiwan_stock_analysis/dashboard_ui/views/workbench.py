@@ -148,6 +148,20 @@ def _first_valid_summary(summaries: list[Any]) -> dict[str, Any] | None:
     return None
 
 
+def _first_error_summary(summaries: list[Any]) -> dict[str, Any] | None:
+    # Final polish C9: dashboard.py's discover_dashboard_items sets
+    # {"error": "invalid JSON", ...} on a research_summary.json that fails to
+    # parse (json.JSONDecodeError) or decodes to a non-dict payload -- that is
+    # a real file that exists and is broken, not "no research summary file at
+    # all". _first_valid_summary above already skips it (same as it always
+    # has); this finds it back so render_workbench_view can tell the two
+    # cases apart instead of showing the same generic "尚無" placeholder.
+    for summary in summaries:
+        if isinstance(summary, dict) and summary.get("error"):
+            return summary
+    return None
+
+
 def _flatten_rows(queue: list[Any]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for group in queue:
@@ -252,6 +266,13 @@ def _filters_bar() -> str:
         '<div class="filters">'
         f"{severity_select}{category_select}{priority_select}{status_select}"
         '<input type="search" data-queue-filter="search" placeholder="搜尋事項、股票代號…">'
+        # Spec §3.3 filter row ("...搜尋、重設"): clears every [data-queue-filter]
+        # control back to its default and re-shows all rows
+        # (page_script.py's initQueueFilterReset()). Attribute name + label
+        # ported from the pre-redesign dashboard.py's
+        # _review_action_filter_bar (deleted at da4a47a^): `<button
+        # type="button" data-review-filter-reset="true">重設</button>`.
+        '<button type="button" class="ui-btn" data-review-filter-reset="true">重設</button>'
         "</div>"
     )
 
@@ -349,6 +370,18 @@ def _queue_expand_block(
         )
         if action_api_enabled:
             compose_html = _evidence_compose_block(row, state_path)
+        else:
+            # Static-mode CLI hint restoration: the plain per-status copy
+            # button's command (_review_action_command) never includes
+            # --note/--reviewer/--evidence-url, so anything typed into the
+            # three inputs above was silently discarded on copy with no
+            # explanation. Ported wording from the pre-redesign dashboard.py's
+            # _review_action_command_cell (deleted at da4a47a^):
+            # `需要交付證據時，CLI 請加：--note "..." --reviewer "..." --evidence-url "..."`.
+            evidence_html += (
+                '<p class="wb-evidence-hint">需要交付證據時，CLI 請加：'
+                '--note "..." --reviewer "..." --evidence-url "..."</p>'
+            )
     action_buttons = "".join(
         _row_action_button(row, source_path, state_path, status, label, action_api_enabled=action_api_enabled)
         for status, label in _ACTION_STATUS_BUTTONS
@@ -532,7 +565,15 @@ def _queue_card(
     action_api_enabled: bool,
 ) -> str:
     if not rows:
-        return card("審查佇列", '<p class="wb-empty">目前無待辦。</p>')
+        # Final polish C8: the status line (待處理/已完成/稍後/不處理 counts +
+        # stale count + 最後更新) must stay visible even once every action is
+        # cleared -- a fully-worked queue is exactly when 最後更新 matters
+        # most, and hiding it here made a cleared queue look identical to "no
+        # queue data at all" (no state sidecar, nothing ever recorded). The
+        # bulk toolbar/filters have nothing to act on with zero rows, so they
+        # stay omitted rather than rendering controls for an empty list.
+        body = f"{_queue_status_line(state_report)}" '<p class="wb-empty">目前無待辦。</p>'
+        return card("審查佇列", body)
 
     header = (
         '<div class="queue-row head">'
@@ -544,12 +585,23 @@ def _queue_card(
         _queue_row_block(row, index, source_path, state_path, action_api_enabled=action_api_enabled)
         for index, row in enumerate(rows)
     )
+    # Final polish C1 (spec §3.3 "...搜尋、重設"): shown only when every row is
+    # filtered out (page_script.py's applyQueueFilters() clears the `hidden`
+    # attribute); starts hidden so it never flashes under a fully-populated
+    # queue before any filter runs. Attribute name + message ported from the
+    # deleted pre-redesign test (data-review-action-empty /
+    # 沒有符合目前篩選條件的審查動作。).
+    empty_state = (
+        '<p class="wb-empty" data-review-action-empty="true" hidden>'
+        "沒有符合目前篩選條件的審查動作。"
+        "</p>"
+    )
     note = f'<p class="wb-queue-note">共 {esc(len(rows))} 筆（依優先度 → 嚴重度排序）。</p>'
     body = (
         f"{_queue_status_line(state_report)}"
         f"{_filters_bar()}"
         f"{_bulk_tools_bar(state_path, action_api_enabled=action_api_enabled)}"
-        f'<div class="queue">{header}{blocks}</div>'
+        f'<div class="queue">{header}{blocks}{empty_state}</div>'
         f"{note}"
     )
     return card("審查佇列", body)
@@ -626,8 +678,24 @@ def _pool_card(pool: list[Any], dashboard_items: dict[str, Any]) -> str:
 
 def render_workbench_view(items: dict[str, Any], *, action_api_enabled: bool = False) -> str:
     summaries = items.get("research_summaries")
-    summary = _first_valid_summary(summaries if isinstance(summaries, list) else [])
+    summaries = summaries if isinstance(summaries, list) else []
+    summary = _first_valid_summary(summaries)
     if summary is None:
+        # Final polish C9: a corrupt research_summary.json must not render
+        # identically to "no research summary file exists" -- surface the
+        # parse error instead of the generic placeholder. Ported wording from
+        # the pre-redesign dashboard.py's _research_summary_section (deleted
+        # at da4a47a^), which rendered "Research summary error: {error}" for
+        # this exact case.
+        error_summary = _first_error_summary(summaries)
+        if error_summary is not None:
+            error_text = _str(error_summary.get("error")) or "invalid JSON"
+            body = (
+                '<p class="wb-empty" data-research-summary-error="true">'
+                f"{badge('research summary 解析失敗', tone='blocked')} Research summary error: {esc(error_text)}"
+                "</p>"
+            )
+            return card("研究工作台", body)
         return card("研究工作台", '<p class="wb-empty">尚無 research summary。</p>')
 
     state = summary.get("review_action_state")

@@ -5,44 +5,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from taiwan_stock_analysis.review_action_state import (
-    ACTION_STATUSES,
-    load_review_action_state,
-)
-from taiwan_stock_analysis.dashboard_ui.labels import (
-    REVIEW_ACTION_CATEGORY_LABELS,
-    REVIEW_ACTION_PRIORITIES,
-    REVIEW_ACTION_PRIORITY_LABELS,
-    REVIEW_ACTION_SEVERITIES,
-    REVIEW_ACTION_SEVERITY_LABELS,
-    REVIEW_ACTION_STATUS_LABELS,
-)
+from taiwan_stock_analysis.review_action_state import load_review_action_state
 from taiwan_stock_analysis.dashboard_ui.page import render as _render_dashboard_page
 
 
 DashboardItems = dict[str, list[dict[str, Any]]]
-# REVIEW_ACTION_SEVERITIES/PRIORITIES/SEVERITY_LABELS/CATEGORY_LABELS/PRIORITY_LABELS/
-# STATUS_LABELS are re-exported from dashboard_ui.labels (Task 8's leaf module) rather
-# than redefined here, so both this module and dashboard_ui.views share one source of
-# truth. dashboard_ui.labels has zero internal imports, so dashboard -> labels and
-# dashboard -> page -> workbench -> labels both stay acyclic.
-REVIEW_ACTION_CATEGORIES = (
-    "source_audit",
-    "workflow",
-    "reliability",
-    "valuation",
-    "research_quality",
-    "fundamental_review",
-)
-REVIEW_ACTION_STATUSES = ACTION_STATUSES
-EXPERT_AGENT_LABELS = {
-    "source_audit": "\u8cc7\u6599\u4f86\u6e90\u5c08\u5bb6",
-    "workflow": "\u5de5\u4f5c\u6d41\u5065\u5eb7\u5c08\u5bb6",
-    "reliability": "\u8cc7\u6599\u53ef\u4fe1\u5ea6\u5c08\u5bb6",
-    "valuation": "\u4f30\u503c\u5047\u8a2d\u5c08\u5bb6",
-    "research_quality": "\u7814\u7a76\u5b8c\u6574\u6027\u5c08\u5bb6",
-    "fundamental_review": "\u57fa\u672c\u9762\u5c08\u5bb6\u5be9\u67e5",
-}
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:

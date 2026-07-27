@@ -77,6 +77,12 @@ SCRIPT = """<script>
       });
     }
     var initial = (location.hash || "").replace("#", "");
+    // Final polish C5: the gate card's "處理建議下一步" link
+    // (views/workbench.py's _gate_card) points at "#wb-row-0", a queue row
+    // id inside the workbench panel -- not a top-level tab key. Without this,
+    // activateTab()'s TAB_KEYS guard below falls through to "market" on
+    // reload, leaving the target row stuck inside a display:none panel.
+    if (initial.indexOf("wb-row-") === 0) { initial = "workbench"; }
     activateTab(initial || "market");
   }
 
@@ -127,9 +133,19 @@ SCRIPT = """<script>
   function applyQueueFilters() {
     var state = readFilterState();
     var rows = document.querySelectorAll(".queue-row[data-stock]");
+    var visibleCount = 0;
     for (var i = 0; i < rows.length; i++) {
-      rows[i].classList.toggle("hidden", !rowMatchesFilters(rows[i], state));
+      var matches = rowMatchesFilters(rows[i], state);
+      rows[i].classList.toggle("hidden", !matches);
+      if (matches) { visibleCount += 1; }
     }
+    // Final polish C1 (spec §3.3 "...搜尋、重設"): show the
+    // data-review-action-empty marker only when the current filters excluded
+    // every row (never when the queue itself is empty -- that's
+    // _queue_card()'s own separate "目前無待辦" placeholder, and this element
+    // isn't rendered in that case at all, so the query below is a safe no-op).
+    var emptyState = document.querySelector('[data-review-action-empty="true"]');
+    if (emptyState) { emptyState.hidden = !(rows.length > 0 && visibleCount === 0); }
     // Keep the bulk toolbar's live count / "select visible" tri-state in sync
     // whenever the visible-row set changes (filter edits, and the end of a
     // bulk update below) -- updateBulkSelectionUI() no-ops when the toolbar
@@ -144,6 +160,23 @@ SCRIPT = """<script>
       controls[i].addEventListener(eventName, applyQueueFilters);
     }
     if (controls.length) { applyQueueFilters(); }
+  }
+
+  // Final polish C1: resets every [data-queue-filter] control to its default
+  // (each <select>'s first option is the "all" value _filter_select() always
+  // renders first; the search <input> just clears) and re-applies filters so
+  // every row is shown again. Attribute name ported from the pre-redesign
+  // dashboard.py's resetButton handler (deleted at da4a47a^).
+  function initQueueFilterReset() {
+    var resetButton = document.querySelector('[data-review-filter-reset="true"]');
+    if (!resetButton) { return; }
+    resetButton.addEventListener("click", function () {
+      var controls = document.querySelectorAll("[data-queue-filter]");
+      for (var i = 0; i < controls.length; i++) {
+        controls[i].value = controls[i].tagName === "SELECT" ? "all" : "";
+      }
+      applyQueueFilters();
+    });
   }
 
   // -- Feature C: bulk queue operations (spec 3.3 "批次操作") -----------------
@@ -322,9 +355,15 @@ SCRIPT = """<script>
 
     // by_status is absent from the handoff-pack response (it doesn't change any
     // action's status) -- skip the processed/total + progress-bar update rather
-    // than showing a fabricated 0/0.
+    // than showing a fabricated 0/0. Final polish C4: dashboard_server.py's
+    // _state_report_for_path also degrades to {"by_status": {}, ...} (still
+    // inside an "ok": true response) when the sibling research_summary.json
+    // is missing/unparseable/has a state warning -- an EMPTY object is still
+    // "present" under the old `!byStatus` check alone, so it fell through to
+    // render a fabricated "0 / 0 已處理" that contradicts this comment's own
+    // intent. Object.keys(...).length catches that case the same way.
     var byStatus = data.by_status;
-    if (!byStatus || typeof byStatus !== "object") { return; }
+    if (!byStatus || typeof byStatus !== "object" || !Object.keys(byStatus).length) { return; }
     var openCt = byStatus.open || 0;
     var doneCt = byStatus.done || 0;
     var deferredCt = byStatus.deferred || 0;
@@ -706,6 +745,7 @@ SCRIPT = """<script>
   initTabs();
   initExpandToggles();
   initQueueFilters();
+  initQueueFilterReset();
   initCopyButtons();
   initBulkSelection();
   initBulkStaticCopy();

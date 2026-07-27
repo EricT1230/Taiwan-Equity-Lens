@@ -219,6 +219,61 @@ class MarketViewTests(unittest.TestCase):
         self.assertIn('data-peak-risk="-"', html)
         self.assertIn('data-trough-risk="-"', html)
 
+    # -- Final polish C6: the sort data attributes used to reuse the 1-decimal
+    # display text (_score_text), so two industries that round the same at 1dp
+    # (e.g. 55.44 vs 55.38 -> both "55.4") tied in the client-side sort even
+    # though the server orders industries by full float precision
+    # (_industry_sort_key). The visible cell text must stay rounded.
+
+    def test_sort_data_attributes_keep_full_precision_while_cell_text_stays_rounded(self):
+        data = copy.deepcopy(_MI)
+        sentiment = data["market_intelligence_reports"][0]["industries"][0]["sentiment"]
+        sentiment["score_5d"] = 55.4399999
+        sentiment["change"] = -1.449999
+        sentiment["turning_risk"] = {
+            "status": "experimental",
+            "peak_risk": 62.449999,
+            "trough_risk": 18.049999,
+            "direction": "peak",
+            "window": "1_to_3_days",
+        }
+        html = render_market_view(data)
+        self.assertIn('data-sentiment-score="55.4399999"', html)
+        self.assertIn('data-sentiment-change="-1.449999"', html)
+        self.assertIn('data-peak-risk="62.449999"', html)
+        self.assertIn('data-trough-risk="18.049999"', html)
+        # Visible cell text is unchanged: still rounded to 1dp.
+        self.assertIn('<span class="mkt-score mono">55.4</span>', html)
+        self.assertIn("高點 62.4 / 低點 18.0", html)
+
+    # -- Final polish C7 (spec §3.2 "依據與警告" collapsible): sentiment.reasons
+    # and the forecast/turning-risk warnings are computed by the pipeline
+    # (sentiment_forecast.py / _sentiment_composite.py) but were never
+    # rendered, so e.g. the demo's "projection requires at least 20 valid
+    # snapshot days" never reached the user. Ported from da4a47a's
+    # _market_intelligence_sentiment_details/_market_intelligence_text_items.
+
+    def test_sentiment_card_renders_reasons_and_warnings_details(self):
+        data = copy.deepcopy(_MI)
+        sentiment = data["market_intelligence_reports"][0]["industries"][0]["sentiment"]
+        sentiment["reasons"] = ["institutional flow persistence +1.00", "5-day breadth 50.0%"]
+        sentiment["warnings"] = ["news: low news coverage: fewer than 3 articles in 5d"]
+        sentiment["forecast"]["warnings"] = ["projection requires at least 20 valid snapshot days"]
+        sentiment["turning_risk"]["warnings"] = ["turning-risk diagnostics require at least 60 valid snapshot days"]
+        html = render_market_view(data)
+        self.assertIn("依據與警告", html)
+        self.assertIn("institutional flow persistence +1.00", html)
+        self.assertIn("projection requires at least 20 valid snapshot days", html)
+        self.assertIn("turning-risk diagnostics require at least 60 valid snapshot days", html)
+        # The same warning text appearing in multiple sources must not repeat.
+        self.assertEqual(html.count("news: low news coverage: fewer than 3 articles in 5d"), 1)
+
+    def test_sentiment_card_details_render_dash_placeholder_when_absent(self):
+        html = render_market_view(_MI)
+        self.assertIn("依據與警告", html)
+        self.assertIn("<h4>主要依據</h4><ul><li>-</li></ul>", html)
+        self.assertIn("<h4>警告</h4><ul><li>-</li></ul>", html)
+
 
 # Fixture shape mirrors what `discover_dashboard_items` (dashboard.py:69-145) actually
 # produces: each entry in `items["research_summaries"]` is the *flat parsed*
@@ -505,11 +560,52 @@ class WorkbenchViewTests(unittest.TestCase):
         # "write a markdown file + assess its quality") is served-mode only.
         self.assertIn("queue-evidence", html)
 
+    # -- Final polish C2: static mode's per-status copy command
+    # (_review_action_command) never carries --note/--reviewer/--evidence-url,
+    # so text typed into the three evidence inputs was silently discarded on
+    # copy with no explanation. Ported wording from the pre-redesign
+    # dashboard.py's _review_action_command_cell (deleted at da4a47a^).
+
+    def test_static_mode_evidence_required_row_shows_cli_flag_hint(self):
+        html = render_workbench_view(_RS, action_api_enabled=False)
+        self.assertIn(
+            '需要交付證據時，CLI 請加：--note "..." --reviewer "..." --evidence-url "..."',
+            html,
+        )
+
+    def test_served_mode_does_not_show_cli_flag_hint(self):
+        # Served mode already updates state live via POST -- the CLI-flag
+        # hint is meaningless there (the compose control from
+        # test_served_mode_evidence_required_row_renders_compose_control is
+        # the served-mode equivalent) and must not appear.
+        html = render_workbench_view(_RS, action_api_enabled=True)
+        self.assertNotIn("--evidence-url", html)
+
     def test_research_pool_is_a_single_mini_table_with_links(self):
         html = render_workbench_view(_RS)
         self.assertEqual(html.count('class="mini-table"'), 1)
         self.assertIn(".tmp-v053-preview/reports/2330_analysis.html", html)
         self.assertIn(".tmp-v053-preview/memos/2330_memo.html", html)
+
+    # -- Final polish C1 (spec §3.3 filter row "...搜尋、重設"): filter reset
+    # button + "no rows match" empty state, reusing the deleted pre-redesign
+    # test's exact attribute names/message (data-review-filter-reset /
+    # data-review-action-empty / 沒有符合目前篩選條件的審查動作。). -----------------
+
+    def test_filters_bar_has_reset_button(self):
+        html = render_workbench_view(_RS)
+        self.assertIn(
+            '<button type="button" class="ui-btn" data-review-filter-reset="true">重設</button>',
+            html,
+        )
+
+    def test_queue_has_hidden_empty_state_placeholder(self):
+        html = render_workbench_view(_RS)
+        self.assertIn("沒有符合目前篩選條件的審查動作。", html)
+        # Server always renders every row; the client filter JS decides
+        # visibility -- the marker must start hidden so it never flashes under
+        # a fully-populated queue before any filter runs.
+        self.assertIn('data-review-action-empty="true" hidden>', html)
 
     def test_no_open_actions_shows_empty_state_and_ok_gate(self):
         empty = {
@@ -525,6 +621,46 @@ class WorkbenchViewTests(unittest.TestCase):
         html = render_workbench_view(empty)
         self.assertIn("無待辦", html)
         self.assertIn("ui-pill-ok", html)
+
+    # -- Final polish C8: a fully-cleared queue (zero rows) must still show
+    # the status line (最後更新 / stale count) -- hiding it made "everything
+    # done" indistinguishable from "no queue data at all". The bulk toolbar
+    # and filters have nothing to act on with zero rows, so they stay omitted.
+
+    def test_empty_queue_still_renders_status_line(self):
+        empty = {
+            "research_summaries": [
+                {
+                    "path": ".tmp-empty/research_summary.json",
+                    "items": [],
+                    "review_action_summary": {"total_open": 0, "by_category": {}, "by_severity": {}},
+                    "review_action_queue": [],
+                }
+            ]
+        }
+        html = render_workbench_view(empty)
+        self.assertIn("wb-status-line", html)
+        self.assertIn("最後更新：-", html)
+        self.assertIn("目前無待辦。", html)
+
+    # -- Final polish C9: a corrupt research_summary.json (dashboard.py's
+    # discover_dashboard_items sets {"error": ...} on JSONDecodeError / a
+    # non-dict payload) must not be indistinguishable from "no research
+    # summary file at all" -- surface the parse error instead of the generic
+    # 尚無 placeholder.
+
+    def test_corrupt_research_summary_shows_error_not_generic_empty_state(self):
+        html = render_workbench_view(
+            {"research_summaries": [{"path": ".tmp/research_summary.json", "error": "invalid JSON"}]}
+        )
+        self.assertIn('data-research-summary-error="true"', html)
+        self.assertIn("invalid JSON", html)
+        self.assertNotIn("尚無 research summary", html)
+
+    def test_missing_research_summary_still_shows_generic_empty_state(self):
+        html = render_workbench_view({})
+        self.assertIn("尚無 research summary。", html)
+        self.assertNotIn("data-research-summary-error", html)
 
     # -- Feature C: bulk queue operations (spec 3.3 "批次操作", ported from
     # dashboard.py:_review_action_bulk_tools ~2973 / _review_action_rows'

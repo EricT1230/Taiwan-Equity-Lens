@@ -182,6 +182,16 @@ def view_css() -> str:
     .mkt-forecast {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid {t['border']}; }}
     .mkt-forecast p {{ margin: 8px 0 0; font-size: 13.5px; color: {t['text_2']}; }}
     .mkt-forecast .ui-pill {{ margin: 0 6px 6px 0; }}
+    /* Final polish C7: collapsible 依據與警告 (sentiment.reasons + forecast/
+       turning-risk warnings), ported from the pre-redesign dashboard.py's
+       .industry-sentiment-details. */
+    .mkt-sentiment-details {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid {t['border']}; }}
+    .mkt-sentiment-details summary {{ cursor: pointer; font-weight: 700; color: {t['text_3']}; font-size: 13px; }}
+    .mkt-sentiment-details summary:focus-visible {{ outline: 3px solid {t['accent']}; outline-offset: 2px; }}
+    .mkt-sentiment-details h4 {{ margin: 10px 0 4px; font-size: 12px; color: {t['text_muted']};
+      letter-spacing: 0.3px; }}
+    .mkt-sentiment-details ul {{ margin: 0 0 4px 18px; padding: 0; font-size: 13px; color: {t['text_2']}; }}
+    .mkt-sentiment-details li {{ margin: 3px 0; }}
 
     /* -- workbench view (wb-*): unified review queue -------------------------- */
     .wb-gate-row {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }}

@@ -108,6 +108,18 @@ def _signed_score_text(value: Any) -> str:
     return f"{number:+.1f}" if number is not None else "-"
 
 
+# Final polish C6: full float precision (not the 1dp _score_text/
+# _signed_score_text used for the visible cell) so the client sort comparator
+# (page_script.py's sentimentCardValue -> Number(raw)) doesn't tie on two
+# industries that only differ past the first decimal (e.g. 55.44 vs 55.38 ->
+# both render "55.4"), while the server already orders by full precision
+# (_industry_sort_key). str() of a float is Python's shortest round-trip
+# repr, so this stays exact without any manual formatting.
+def _score_attr_text(value: Any) -> str:
+    number = _finite(value)
+    return str(number) if number is not None else "-"
+
+
 def _percent_text(value: Any) -> str:
     number = _finite(value)
     if number is None:
@@ -271,6 +283,44 @@ def _turning_risk_block(turning_risk: dict[str, Any]) -> str:
     return f'<div class="mkt-forecast">{status_pill}{meta_pills}<p><strong>轉折風險：</strong>{esc(text)}</p></div>'
 
 
+def _text_items(value: Any) -> list[str]:
+    # Ported from dashboard.py:_market_intelligence_text_items (deleted at
+    # da4a47a^).
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+# Final polish C7 (spec §3.2 "依據與警告" collapsible): sentiment.reasons and
+# the forecast/turning-risk warnings are computed by the pipeline
+# (_sentiment_composite.py's reasons, sentiment_forecast.py's warnings, e.g.
+# "projection requires at least 20 valid snapshot days") but were dropped by
+# this view entirely. Ported wording + structure from dashboard.py:
+# _market_intelligence_sentiment_details (deleted at da4a47a^) -- same
+# "依據與警告"/"主要依據"/"警告" labels, same top-3-reasons cap, same
+# dedupe-across-sources behavior for warnings.
+def _sentiment_details_block(
+    sentiment: dict[str, Any],
+    forecast: dict[str, Any],
+    turning_risk: dict[str, Any],
+) -> str:
+    reasons = _text_items(sentiment.get("reasons"))[:3]
+    warnings: list[str] = []
+    for source in (sentiment, forecast, turning_risk):
+        for warning in _text_items(source.get("warnings")):
+            if warning not in warnings:
+                warnings.append(warning)
+    reasons_html = "".join(f"<li>{esc(reason)}</li>" for reason in reasons) or "<li>-</li>"
+    warnings_html = "".join(f"<li>{esc(warning)}</li>" for warning in warnings) or "<li>-</li>"
+    return (
+        '<details class="mkt-sentiment-details">'
+        "<summary>依據與警告</summary>"
+        f"<h4>主要依據</h4><ul>{reasons_html}</ul>"
+        f"<h4>警告</h4><ul>{warnings_html}</ul>"
+        "</details>"
+    )
+
+
 # Ported from dashboard.py:1002-1009 (see _SORT_OPTIONS above for the exact
 # value/label pairs) -- same data-industry-sentiment-sort hook and aria-label so the
 # control is discoverable the same way it was pre-redesign. Always rendered (even
@@ -304,10 +354,10 @@ def _sentiment_card_attrs(
     return (
         f' data-sentiment-status="{esc(status)}"'
         f' data-sentiment-category="{esc(category)}"'
-        f' data-sentiment-score="{esc(_score_text(score))}"'
-        f' data-sentiment-change="{esc(_score_text(change))}"'
-        f' data-peak-risk="{esc(_score_text(turning_risk.get("peak_risk")))}"'
-        f' data-trough-risk="{esc(_score_text(turning_risk.get("trough_risk")))}"'
+        f' data-sentiment-score="{esc(_score_attr_text(score))}"'
+        f' data-sentiment-change="{esc(_score_attr_text(change))}"'
+        f' data-peak-risk="{esc(_score_attr_text(turning_risk.get("peak_risk")))}"'
+        f' data-trough-risk="{esc(_score_attr_text(turning_risk.get("trough_risk")))}"'
         f' data-confidence-order="{esc(confidence_order)}"'
     )
 
@@ -365,6 +415,7 @@ def _sentiment_card(industry: dict[str, Any]) -> str:
         f'{contribution_bars([("新聞", news_c, contrib_max), ("價格", price_c, contrib_max), ("資金流", flow_c, contrib_max)])}'
         f"{_forecast_block(forecast)}"
         f"{_turning_risk_block(turning_risk)}"
+        f"{_sentiment_details_block(sentiment, forecast, turning_risk)}"
         '<div class="mkt-flow">'
         f'{_flow_row("外資", foreign, flow_max, with_bar=True)}'
         f'{_flow_row("投信", trust, flow_max, with_bar=True)}'

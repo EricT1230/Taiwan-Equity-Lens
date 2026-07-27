@@ -1473,13 +1473,14 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        # NOTE: an error'd research_summaries entry is treated the same as "no
-        # research summary" by the redesigned workbench -- the specific path/error
-        # text is no longer surfaced anywhere (flagged as a concern in the task-11
-        # report). This now verifies the render degrades to the graceful empty
-        # state instead of crashing or showing stale/wrong data.
+        # Final polish C9: closes the gap this test used to just document (an
+        # error'd research_summaries entry used to be indistinguishable from
+        # "no research summary at all", flagged as a concern in the task-11
+        # report). A corrupt research_summary.json now surfaces its parse
+        # error instead of degrading to the generic "尚無" placeholder.
         self.assertIn("研究工作台", html)
-        self.assertIn("尚無 research summary", html)
+        self.assertIn("invalid JSON", html)
+        self.assertNotIn("尚無 research summary", html)
 
     def test_render_dashboard_html_contains_memo_outputs(self):
         html = render_dashboard_html(
