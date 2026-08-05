@@ -1516,9 +1516,9 @@ def _dedupe_news(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def _http_json(url: str) -> Any:
+def _http_json(url: str, *, timeout_seconds: float = 20.0) -> Any:
     request = Request(url, headers={"Accept": "application/json", "User-Agent": "Taiwan-Equity-Lens/0.51"})
-    with _open_url(request) as response:
+    with _open_url(request, timeout_seconds=timeout_seconds) as response:
         raw = response.read()
         charset = response.headers.get_content_charset() or "utf-8"
     return json.loads(raw.decode(charset, errors="strict"))
@@ -1542,12 +1542,16 @@ def _http_post_form_json(url: str, fields: Mapping[str, str]) -> Any:
         raise ValueError(f"form endpoint returned invalid JSON: {url}") from exc
 
 
-def _open_url(request: Request):
+def _open_url(request: Request, *, timeout_seconds: float = 20.0):
     context = ssl.create_default_context()
     strict_flag = getattr(ssl, "VERIFY_X509_STRICT", 0)
     if strict_flag:
         context.verify_flags &= ~strict_flag
-    return urlopen(request, timeout=20, context=context)  # noqa: S310 - caller controls audited source URL
+    return urlopen(
+        request,
+        timeout=max(0.1, float(timeout_seconds)),
+        context=context,
+    )  # noqa: S310 - caller controls audited source URL
 
 
 def _parse_datetime(value: Any) -> datetime | None:
