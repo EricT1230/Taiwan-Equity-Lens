@@ -16,3 +16,9 @@ taiwan-equity-lens = "taiwan_stock_analysis.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# dashboard_ui/script.js is the dashboard's inline client script. It is read at
+# import time by dashboard_ui/page_script.py, so an installed wheel that omits it
+# cannot render a dashboard at all.
+[tool.setuptools.package-data]
+"taiwan_stock_analysis.dashboard_ui" = ["*.js"]

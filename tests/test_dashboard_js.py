@@ -94,6 +94,31 @@ def _run_node(source: str) -> str:
         return result.stdout.strip()
 
 
+class ScriptSourceTests(unittest.TestCase):
+    """Guards on how the inline script reaches the page.
+
+    The body lives in dashboard_ui/script.js and is read at import time. These
+    run without node because they protect the two ways that plumbing can break
+    silently: the file going missing from an install, and the file arriving with
+    CRLF line endings under core.autocrlf.
+    """
+
+    def test_script_body_comes_from_a_real_js_file(self):
+        from taiwan_stock_analysis.dashboard_ui import page_script
+
+        source = Path(page_script.__file__).with_name("script.js")
+        self.assertTrue(source.is_file(), f"missing packaged script body: {source}")
+        self.assertEqual(
+            page_script.SCRIPT,
+            "<script>" + source.read_text(encoding="utf-8") + "</script>",
+        )
+
+    def test_inline_script_has_no_carriage_returns(self):
+        # A CRLF checkout would still parse, but it would silently change every
+        # byte the rendered dashboard.html ships.
+        self.assertNotIn("\r", _shipped_script(render_dashboard_html({})))
+
+
 @unittest.skipUnless(_NODE, "node not available")
 class DashboardScriptTests(unittest.TestCase):
     def test_shipped_script_passes_node_check(self):

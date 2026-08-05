@@ -8,6 +8,7 @@ __pycache__/
 .tmp-*/
 # Fubon SDK runtime logs: contain personal ID, account numbers, and session tokens.
 log/
+build/
 dist/
 live-dist/
 compare-dist/

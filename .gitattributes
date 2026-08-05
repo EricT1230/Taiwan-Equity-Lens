@@ -1,0 +1,4 @@
+# dashboard_ui/script.js is read at import time and inlined verbatim into the
+# rendered dashboard. core.autocrlf would otherwise check it out with CRLF on
+# Windows and store a different byte sequence than the one that was authored.
+*.js text eol=lf
