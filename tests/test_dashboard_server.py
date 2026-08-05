@@ -1,13 +1,17 @@
 import json
 import shutil
 import threading
+import time
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from unittest.mock import patch
 
 from taiwan_stock_analysis.dashboard import discover_dashboard_items, render_dashboard_html
 from taiwan_stock_analysis.dashboard_server import (
+    _SlidingWindowLimiter,
     compose_evidence_from_payload,
     create_dashboard_server,
     set_review_action_status_from_payload,
@@ -15,7 +19,688 @@ from taiwan_stock_analysis.dashboard_server import (
 )
 
 
+class _FakeLiveService:
+    def __init__(self, *, provider_mode="fixture", public_mode=False):
+        self.requested_symbols = []
+        self.provider_mode = provider_mode
+        self.public_mode = public_mode
+
+    def snapshot(self, symbols):
+        self.requested_symbols.append(list(symbols))
+        return {
+            "ok": True,
+            "status": "EOD",
+            "quotes": [{"symbol": symbol} for symbol in symbols],
+        }
+
+    def health(self):
+        return {"ok": True, "provider_mode": self.provider_mode}
+
+
+class _FakeFubonLiveService(_FakeLiveService):
+    def __init__(self):
+        super().__init__(provider_mode="fubon")
+        self.cost_requests = []
+
+    def health(self):
+        return {
+            "ok": True,
+            "provider_mode": "fubon",
+            "provider_capacity_guarded": True,
+            "provider_calls_per_minute_budget": 240,
+            "minimum_client_refresh_seconds": 5,
+        }
+
+    def provider_request_cost(self, symbols):
+        self.cost_requests.append(list(symbols))
+        return 6
+
+
+class _FakeBreadthService:
+    def __init__(self):
+        self.calls = 0
+
+    def snapshot(self):
+        self.calls += 1
+        return {
+            "ok": True,
+            "kind": "market_breadth_snapshot",
+            "status": "EOD",
+            "coverage": {"catalog_total": 1983, "quoted_total": 1979},
+            "market_catalog": [{"symbol": "2330"}],
+            "full_market": [{"symbol": "2330", "price": 2200}],
+            "industry_summaries": [{"industry_name": "半導體業"}],
+        }
+
+    def health(self):
+        return {
+            "ok": True,
+            "kind": "market_breadth_health",
+            "catalog_total": 1983,
+            "quoted_total": 1979,
+        }
+
+
+class _BlockingBreadthService(_FakeBreadthService):
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def snapshot(self):
+        self.started.set()
+        self.release.wait(timeout=5)
+        return super().snapshot()
+
+
+class _FailingBreadthService(_FakeBreadthService):
+    def snapshot(self):
+        raise TypeError("internal fixture failure")
+
+
+class _FakeUSMarketService:
+    def __init__(self):
+        self.calls = 0
+
+    def snapshot(self):
+        self.calls += 1
+        return {
+            "ok": True,
+            "kind": "us_market_snapshot",
+            "status": "REFERENCE",
+            "row_count": 2,
+            "rows": [
+                {"symbol": "AAPL", "market": "US", "price": 210.25},
+                {"symbol": "MSFT", "market": "US", "price": 510.0},
+            ],
+        }
+
+    def health(self):
+        return {
+            "ok": self.calls > 0,
+            "kind": "us_market_health",
+            "status": "REFERENCE" if self.calls else "NOT_LOADED",
+            "row_count": 2 if self.calls else 0,
+        }
+
+
 class DashboardServerTests(unittest.TestCase):
+    def test_market_breadth_api_returns_full_market_payload_and_health(self):
+        root = Path(".tmp-cli-test/dashboard-server-market-breadth-api")
+        root.mkdir(parents=True, exist_ok=True)
+        breadth_service = _FakeBreadthService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+            breadth_service=breadth_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urlopen(f"{url}api/market/breadth", timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                cache_control = response.headers.get("Cache-Control")
+            health = json.loads(_http_get_text(f"{url}api/market/health"))
+
+            self.assertEqual("market_breadth_snapshot", payload["kind"])
+            self.assertEqual(1983, payload["coverage"]["catalog_total"])
+            self.assertEqual([{"symbol": "2330", "price": 2200}], payload["full_market"])
+            self.assertEqual("no-store", cache_control)
+            self.assertEqual("market_breadth_health", health["kind"])
+            self.assertEqual(1, breadth_service.calls)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_market_breadth_refresh_is_coalesced_and_does_not_block_live_quotes(self):
+        root = Path(".tmp-cli-test/dashboard-server-market-breadth-isolation")
+        root.mkdir(parents=True, exist_ok=True)
+        breadth_service = _BlockingBreadthService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+            breadth_service=breadth_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        first_result = {}
+
+        def request_breadth():
+            with urlopen(f"{url}api/market/breadth", timeout=5) as response:
+                first_result["status"] = response.status
+
+        request_thread = threading.Thread(target=request_breadth, daemon=True)
+        request_thread.start()
+        try:
+            self.assertTrue(breadth_service.started.wait(timeout=2))
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(f"{url}api/market/breadth", timeout=2)
+            self.assertEqual(503, caught.exception.code)
+
+            with urlopen(
+                f"{url}api/live/snapshot?symbols=2330",
+                timeout=2,
+            ) as response:
+                live_payload = json.loads(response.read().decode("utf-8"))
+            self.assertEqual([{"symbol": "2330"}], live_payload["quotes"])
+        finally:
+            breadth_service.release.set()
+            request_thread.join(timeout=5)
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        self.assertEqual(200, first_result["status"])
+
+    def test_market_breadth_exception_returns_bounded_json_error(self):
+        root = Path(".tmp-cli-test/dashboard-server-market-breadth-error")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+            breadth_service=_FailingBreadthService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(f"{url}api/market/breadth", timeout=2)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+
+            self.assertEqual(500, caught.exception.code)
+            self.assertEqual(
+                {"error": "market breadth snapshot failed", "ok": False},
+                payload,
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_us_market_api_and_page_capability_are_available(self):
+        root = Path(".tmp-cli-test/dashboard-server-us-market")
+        root.mkdir(parents=True, exist_ok=True)
+        us_market_service = _FakeUSMarketService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+            breadth_service=_FakeBreadthService(),
+            us_market_service=us_market_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            page = _http_get_text(f"{url}dashboard.html")
+            snapshot = json.loads(_http_get_text(f"{url}api/us/market"))
+            health = json.loads(_http_get_text(f"{url}api/us/health"))
+
+            self.assertIn('data-us-market-api-enabled="true"', page)
+            self.assertEqual("us_market_snapshot", snapshot["kind"])
+            self.assertEqual(2, snapshot["row_count"])
+            self.assertEqual(["AAPL", "MSFT"], [row["symbol"] for row in snapshot["rows"]])
+            self.assertTrue(health["enabled"])
+            self.assertTrue(health["ok"])
+            self.assertEqual(1, us_market_service.calls)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_live_api_normalizes_symbols_and_disables_http_cache(self):
+        root = Path(".tmp-cli-test/dashboard-server-live-api")
+        root.mkdir(parents=True, exist_ok=True)
+        live_service = _FakeLiveService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=live_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urlopen(
+                f"{url}api/live/snapshot?symbols=2330,2330,bad%2Fsymbol,BRK.B",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                cache_control = response.headers.get("Cache-Control")
+
+            self.assertEqual(["2330", "BRK.B"], live_service.requested_symbols[-1])
+            self.assertEqual([{"symbol": "2330"}, {"symbol": "BRK.B"}], payload["quotes"])
+            self.assertEqual("no-store", cache_control)
+            self.assertEqual(
+                {"ok": True, "provider_mode": "fixture"},
+                json.loads(_http_get_text(f"{url}api/live/health")),
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_served_dashboard_enables_live_same_origin_client_on_html_alias(self):
+        root = Path(".tmp-cli-test/dashboard-server-live-page")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(f"{url}dashboard.html")
+            self.assertIn('data-live-api-enabled="true"', html)
+            self.assertIn("/api/live/snapshot?symbols=", html)
+            self.assertIn("正在連接市場資料", html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_non_loopback_bind_keeps_live_reads_but_refuses_file_writes(self):
+        root = Path(".tmp-cli-test/dashboard-server-public-read-only")
+        root.mkdir(parents=True, exist_ok=True)
+        server, _ = create_dashboard_server(
+            [root.resolve()],
+            host="0.0.0.0",
+            port=0,
+            live_service=_FakeLiveService(public_mode=True),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        local_url = f"http://127.0.0.1:{server.server_port}/"
+        try:
+            html = _http_get_text(f"{local_url}dashboard.html")
+            self.assertIn('data-live-api-enabled="true"', html)
+            self.assertIn('data-live-symbol-limit="20"', html)
+            self.assertIn('data-live-min-refresh-seconds="30"', html)
+            self.assertNotIn('data-action-api="review-action"', html)
+            self.assertNotIn("data-action-api-token=", html)
+
+            request = Request(
+                f"{local_url}api/review-actions/set",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request, timeout=5)
+            self.assertEqual(403, caught.exception.code)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertFalse(payload["ok"])
+            self.assertIn("loopback", payload["error"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_public_live_api_rejects_over_cap_and_rate_limits_each_client(self):
+        root = Path(".tmp-cli-test/dashboard-server-public-rate-limit")
+        root.mkdir(parents=True, exist_ok=True)
+        live_service = _FakeLiveService(public_mode=True)
+        server, _ = create_dashboard_server(
+            [root.resolve()],
+            host="0.0.0.0",
+            port=0,
+            live_service=live_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        local_url = f"http://127.0.0.1:{server.server_port}/"
+        requested = ",".join(str(1000 + index) for index in range(20))
+        over_cap = requested + ",9999"
+        try:
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(
+                    f"{local_url}api/live/snapshot?symbols={over_cap}",
+                    timeout=5,
+                )
+            self.assertEqual(400, caught.exception.code)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertEqual(20, payload["symbol_limit"])
+            self.assertEqual([], live_service.requested_symbols)
+
+            for _ in range(2):
+                _http_get_text(f"{local_url}api/live/snapshot?symbols={requested}")
+
+            self.assertEqual(20, len(live_service.requested_symbols[0]))
+            self.assertEqual(2, len(live_service.requested_symbols))
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(f"{local_url}api/live/snapshot?symbols=2330", timeout=5)
+            self.assertEqual(429, caught.exception.code)
+            self.assertEqual("60", caught.exception.headers.get("Retry-After"))
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertFalse(payload["ok"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_public_read_only_loopback_requires_public_mode_live_service(self):
+        root = Path(".tmp-cli-test/dashboard-server-public-loopback-policy")
+        root.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "requires a public-mode live service",
+        ):
+            create_dashboard_server(
+                [root.resolve()],
+                port=0,
+                public_read_only=True,
+                live_service=_FakeLiveService(public_mode=False),
+            )
+
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            public_read_only=True,
+            live_service=_FakeLiveService(public_mode=True),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(f"{url}dashboard.html")
+            self.assertIn('data-live-symbol-limit="20"', html)
+            self.assertNotIn("data-action-api-token=", html)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_weighted_public_budget_cannot_exceed_sixty_provider_units(self):
+        limiter = _SlidingWindowLimiter(max_requests=60, window_seconds=60)
+
+        self.assertTrue(limiter.allow("licensed-provider", now=0, cost=24))
+        self.assertTrue(limiter.allow("licensed-provider", now=0, cost=24))
+        self.assertFalse(limiter.allow("licensed-provider", now=0, cost=13))
+        self.assertTrue(limiter.allow("licensed-provider", now=61, cost=24))
+
+    def test_loopback_fugle_uses_provider_capacity_cadence_and_budget(self):
+        root = Path(".tmp-cli-test/dashboard-server-local-fugle-budget")
+        root.mkdir(parents=True, exist_ok=True)
+        live_service = _FakeLiveService(provider_mode="fugle")
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=live_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        requested = ",".join(str(1000 + index) for index in range(20))
+        try:
+            html = _http_get_text(f"{url}dashboard.html")
+            self.assertIn('data-live-symbol-limit="20"', html)
+            self.assertIn('data-live-min-refresh-seconds="30"', html)
+
+            for _ in range(2):
+                _http_get_text(f"{url}api/live/snapshot?symbols={requested}")
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(f"{url}api/live/snapshot?symbols=2330", timeout=5)
+            self.assertEqual(429, caught.exception.code)
+            self.assertEqual("60", caught.exception.headers.get("Retry-After"))
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_fubon_uses_five_second_cadence_and_fixed_bulk_cost(self):
+        root = Path(".tmp-cli-test/dashboard-server-local-fubon-budget")
+        root.mkdir(parents=True, exist_ok=True)
+        live_service = _FakeFubonLiveService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=live_service,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        requested = ",".join(str(1000 + index) for index in range(20))
+        try:
+            html = _http_get_text(f"{url}dashboard.html")
+            self.assertIn('data-live-symbol-limit="20"', html)
+            self.assertIn('data-live-min-refresh-seconds="5"', html)
+
+            for _ in range(12):
+                _http_get_text(f"{url}api/live/snapshot?symbols={requested}")
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(f"{url}api/live/snapshot?symbols=2330", timeout=5)
+            self.assertEqual(429, caught.exception.code)
+            self.assertEqual("60", caught.exception.headers.get("Retry-After"))
+            self.assertEqual(
+                ([20] * 12) + [1],
+                [len(symbols) for symbols in live_service.cost_requests],
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_live_snapshot_handler_has_a_bounded_response_deadline(self):
+        root = Path(".tmp-cli-test/dashboard-server-live-deadline")
+        root.mkdir(parents=True, exist_ok=True)
+        live_service = _FakeLiveService()
+        original_snapshot = live_service.snapshot
+
+        def slow_snapshot(symbols):
+            time.sleep(0.2)
+            return original_snapshot(symbols)
+
+        live_service.snapshot = slow_snapshot
+        with patch(
+            "taiwan_stock_analysis.dashboard_server._LIVE_SNAPSHOT_TIMEOUT_SECONDS",
+            0.05,
+        ):
+            server, url = create_dashboard_server(
+                [root.resolve()],
+                port=0,
+                live_service=live_service,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            started = time.monotonic()
+            try:
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(
+                        f"{url}api/live/snapshot?symbols=2330",
+                        timeout=1,
+                    )
+                elapsed = time.monotonic() - started
+                self.assertEqual(504, caught.exception.code)
+                self.assertEqual("15", caught.exception.headers.get("Retry-After"))
+                payload = json.loads(caught.exception.read().decode("utf-8"))
+                self.assertEqual("live snapshot deadline exceeded", payload["error"])
+                self.assertLess(elapsed, 0.18)
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+                server.server_close()
+
+    def test_loopback_write_api_requires_application_json_to_block_simple_csrf(self):
+        root = Path(".tmp-cli-test/dashboard-server-json-only")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            token = _mutation_token_from_html(_http_get_text(url))
+            request = Request(
+                f"{url}api/review-actions/set",
+                data=b"{}",
+                headers={
+                    "Content-Type": "text/plain",
+                    "X-Taiwan-Equity-Lens-Token": token,
+                },
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request, timeout=5)
+            self.assertEqual(400, caught.exception.code)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertEqual("Content-Type must be application/json", payload["error"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_write_api_rejects_hostile_host_and_wrong_port(self):
+        root = Path(".tmp-cli-test/dashboard-server-host-guard")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            token = _mutation_token_from_html(_http_get_text(url))
+            for hostile_host in (
+                f"attacker.example:{server.server_port}",
+                "127.0.0.1:1",
+            ):
+                request = Request(
+                    f"{url}api/review-actions/set",
+                    data=b"{}",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Host": hostile_host,
+                        "X-Taiwan-Equity-Lens-Token": token,
+                    },
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(request, timeout=5)
+                self.assertEqual(403, caught.exception.code)
+                payload = json.loads(caught.exception.read().decode("utf-8"))
+                self.assertEqual("untrusted Host header", payload["error"])
+
+            # Do not expose the mutation token through a DNS-rebound page load.
+            hostile_get = Request(
+                url,
+                headers={"Host": f"attacker.example:{server.server_port}"},
+            )
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(hostile_get, timeout=5)
+            self.assertEqual(403, caught.exception.code)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_write_api_rejects_cross_origin_request(self):
+        root = Path(".tmp-cli-test/dashboard-server-origin-guard")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            token = _mutation_token_from_html(_http_get_text(url))
+            request = Request(
+                f"{url}api/review-actions/set",
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "https://attacker.example",
+                    "X-Taiwan-Equity-Lens-Token": token,
+                },
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request, timeout=5)
+            self.assertEqual(403, caught.exception.code)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertEqual("cross-origin mutation request", payload["error"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_write_api_rejects_missing_mutation_token(self):
+        root = Path(".tmp-cli-test/dashboard-server-token-required")
+        root.mkdir(parents=True, exist_ok=True)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = Request(
+                f"{url}api/review-actions/set",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request, timeout=5)
+            self.assertEqual(403, caught.exception.code)
+            payload = json.loads(caught.exception.read().decode("utf-8"))
+            self.assertEqual("invalid mutation token", payload["error"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+    def test_loopback_write_api_accepts_same_origin_request_with_session_token(self):
+        root = Path(".tmp-cli-test/dashboard-server-token-valid")
+        _write_sector_evidence_fixture(root)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=_FakeLiveService(),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            html = _http_get_text(url)
+            token = _mutation_token_from_html(html)
+            self.assertGreaterEqual(len(token), 43)
+            self.assertIn('"X-Taiwan-Equity-Lens-Token": mutationToken', html)
+
+            body = json.dumps(
+                {
+                    "state_path": "review_action_state.json",
+                    "stock_id": "2330",
+                    "action_id": "source-audit-manual-review",
+                    "status": "done",
+                    "note": "checked source filing",
+                    "reviewer": "source-audit-lead",
+                    "evidence_url": "evidence/2330-source.md",
+                }
+            ).encode("utf-8")
+            request = Request(
+                f"{url}api/review-actions/set",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": url.rstrip("/"),
+                    "X-Taiwan-Equity-Lens-Token": token,
+                },
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual("done", payload["status"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
     def test_sector_evidence_board_done_button_payload_updates_state(self):
         root = Path(".tmp-cli-test/dashboard-server-sector-evidence")
         state_path = _write_sector_evidence_fixture(root)
@@ -79,6 +764,7 @@ class DashboardServerTests(unittest.TestCase):
                     "reviewer": "source-audit-lead",
                     "evidence_url": "evidence/2330-source.md",
                 },
+                token=_mutation_token_from_html(html),
             )
 
             self.assertTrue(result["ok"])
@@ -126,6 +812,7 @@ class DashboardServerTests(unittest.TestCase):
                     "reviewer": "source-audit-lead",
                     "evidence_url": "evidence/2330-source.md",
                 },
+                token=_mutation_token_from_html(html),
             )
 
             self.assertTrue(result["ok"])
@@ -253,6 +940,7 @@ class DashboardServerTests(unittest.TestCase):
                     "evidence_summary": "Source audit reviewed from the dashboard evidence composer.",
                     "overwrite": True,
                 },
+                token=_mutation_token_from_html(html),
             )
 
             self.assertTrue(result["ok"])
@@ -306,6 +994,7 @@ class DashboardServerTests(unittest.TestCase):
                     "evidence_summary": "Source audit reviewed from the restored dashboard evidence composer button.",
                     "overwrite": True,
                 },
+                token=_mutation_token_from_html(html),
             )
 
             self.assertTrue(result["ok"])
@@ -732,9 +1421,37 @@ def _http_get_text(url: str) -> str:
         return response.read().decode("utf-8")
 
 
-def _http_post_json(url: str, payload: dict[str, str]) -> dict[str, object]:
+def _mutation_token_from_html(html: str) -> str:
+    marker = 'data-action-api-token="'
+    start = html.find(marker)
+    if start < 0:
+        raise AssertionError("dashboard mutation token is missing")
+    start += len(marker)
+    end = html.find('"', start)
+    if end < 0:
+        raise AssertionError("dashboard mutation token is malformed")
+    token = html[start:end]
+    if not token:
+        raise AssertionError("dashboard mutation token is empty")
+    return token
+
+
+def _http_post_json(
+    url: str,
+    payload: dict[str, object],
+    *,
+    token: str,
+) -> dict[str, object]:
     body = json.dumps(payload).encode("utf-8")
-    request = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    request = Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Taiwan-Equity-Lens-Token": token,
+        },
+        method="POST",
+    )
     with urlopen(request, timeout=5) as response:
         result = json.loads(response.read().decode("utf-8"))
     if not isinstance(result, dict):
