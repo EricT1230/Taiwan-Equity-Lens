@@ -28,7 +28,157 @@ def goodinfo_html(rows: str) -> str:
 """
 
 
+class DotEnvCliIntegrationTests(unittest.TestCase):
+    def test_main_loads_fubon_project_env_before_dashboard_resolution(self):
+        with TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "MARKET_DATA_PROVIDER=fubon\n"
+                "FUBON_PERSONAL_ID=A123456789\n"
+                "FUBON_API_KEY=test-only-fubon-key\n"
+                "FUBON_CERT_PATH=C:\\\\secrets\\\\client.pfx\n"
+                "FUBON_CERT_PASSWORD=test-only-cert-password\n",
+                encoding="utf-8",
+            )
+            output = StringIO()
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "taiwan_stock_analysis.env_config.project_env_path",
+                    return_value=env_path,
+                ),
+                patch(
+                    "taiwan_stock_analysis.dashboard_server.serve_dashboard"
+                ) as serve_dashboard,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    ["dashboard", "--serve", "--port", "8799"]
+                )
+                loaded_key = os.environ.get("FUBON_API_KEY")
+
+            self.assertEqual(0, exit_code)
+            self.assertEqual(
+                "fubon",
+                serve_dashboard.call_args.kwargs["market_data_provider"],
+            )
+            self.assertEqual(
+                "test-only-fubon-key",
+                loaded_key,
+            )
+            self.assertNotIn("test-only-fubon-key", output.getvalue())
+            self.assertNotIn(
+                "test-only-cert-password",
+                output.getvalue(),
+            )
+
+    def test_main_loads_project_env_before_dashboard_provider_resolution(self):
+        with TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "FUGLE_API_KEY=test-only-key\n"
+                "MARKET_DATA_PROVIDER=fugle\n",
+                encoding="utf-8",
+            )
+            output = StringIO()
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "taiwan_stock_analysis.env_config.project_env_path",
+                    return_value=env_path,
+                ),
+                patch(
+                    "taiwan_stock_analysis.dashboard_server.serve_dashboard"
+                ) as serve_dashboard,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    ["dashboard", "--serve", "--port", "8799"]
+                )
+                loaded_key = os.environ.get("FUGLE_API_KEY")
+
+            self.assertEqual(0, exit_code)
+            self.assertEqual("test-only-key", loaded_key)
+            self.assertEqual(
+                "fugle",
+                serve_dashboard.call_args.kwargs["market_data_provider"],
+            )
+            self.assertNotIn("test-only-key", output.getvalue())
+
+    def test_main_rejects_malformed_project_env_without_revealing_key(self):
+        with TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "FUGLE_API_KEY=do-not-print-this\n"
+                "not valid dotenv syntax\n",
+                encoding="utf-8",
+            )
+            error = StringIO()
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "taiwan_stock_analysis.env_config.project_env_path",
+                    return_value=env_path,
+                ),
+                redirect_stderr(error),
+            ):
+                exit_code = main(["doctor", "release"])
+                partially_loaded = os.environ.get("FUGLE_API_KEY")
+
+            self.assertEqual(2, exit_code)
+            self.assertIsNone(partially_loaded)
+            self.assertIn("Invalid local .env configuration", error.getvalue())
+            self.assertNotIn("do-not-print-this", error.getvalue())
+
+    def test_explicit_provider_flag_wins_over_project_env(self):
+        with TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "MARKET_DATA_PROVIDER=auto\n",
+                encoding="utf-8",
+            )
+            output = StringIO()
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "taiwan_stock_analysis.env_config.project_env_path",
+                    return_value=env_path,
+                ),
+                patch(
+                    "taiwan_stock_analysis.dashboard_server.serve_dashboard"
+                ) as serve_dashboard,
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    [
+                        "dashboard",
+                        "--serve",
+                        "--market-data-provider",
+                        "fugle",
+                    ]
+                )
+
+            self.assertEqual(0, exit_code)
+            self.assertEqual(
+                "fugle",
+                serve_dashboard.call_args.kwargs["market_data_provider"],
+            )
+
+
 class CliTests(unittest.TestCase):
+    def setUp(self):
+        # Unit tests should never ingest a developer's real project-root key.
+        patcher = patch(
+            "taiwan_stock_analysis.cli.load_project_env",
+            return_value=(),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_main_doctor_release_returns_zero_for_current_metadata(self):
         output = StringIO()
 
@@ -448,6 +598,9 @@ class CliTests(unittest.TestCase):
                     "--serve",
                     "--port",
                     "8799",
+                    "--market-data-provider",
+                    "fugle",
+                    "--public-read-only",
                     "--open",
                 ])
 
@@ -458,7 +611,148 @@ class CliTests(unittest.TestCase):
         self.assertEqual("127.0.0.1", kwargs["host"])
         self.assertEqual(8799, kwargs["port"])
         self.assertTrue(kwargs["open_browser"])
+        self.assertEqual("fugle", kwargs["market_data_provider"])
+        self.assertTrue(kwargs["public_read_only"])
         self.assertIn("Serving dashboard at http://127.0.0.1:8799/", output.getvalue())
+
+    def test_main_doctor_market_data_fails_closed_without_fugle_key(self):
+        output = StringIO()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "FUGLE_API_KEY": "",
+                    "FUGLE_REDISPLAY_LICENSED": "",
+                    "MARKET_DATA_PROVIDER": "",
+                },
+                clear=False,
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = main([
+                "doctor",
+                "market-data",
+                "--provider",
+                "fugle",
+                "--symbol",
+                "2330",
+                "--json",
+            ])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(1, exit_code)
+        self.assertFalse(payload["ok"])
+        self.assertEqual("fugle", payload["provider_requested"])
+        self.assertEqual("unavailable", payload["provider_mode"])
+        self.assertEqual(["FUGLE_API_KEY is not configured"], payload["errors"])
+
+    def test_main_doctor_market_data_defaults_to_fubon_and_fails_closed(self):
+        output = StringIO()
+
+        with (
+            TemporaryDirectory() as temporary_directory,
+            patch.dict(
+                os.environ,
+                {
+                    "FUBON_PERSONAL_ID": "",
+                    "FUBON_API_KEY": "",
+                    "FUBON_CERT_PATH": "",
+                    "FUBON_CERT_PASSWORD": "",
+                    "MARKET_DATA_PROVIDER": "",
+                },
+                clear=False,
+            ),
+            patch(
+                "taiwan_stock_analysis.env_config.project_env_path",
+                return_value=Path(temporary_directory) / "missing.env",
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = main([
+                "doctor",
+                "market-data",
+                "--symbol",
+                "2330",
+                "--json",
+            ])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(1, exit_code)
+        self.assertFalse(payload["ok"])
+        self.assertEqual("fubon", payload["provider_requested"])
+        self.assertEqual("unavailable", payload["provider_mode"])
+        self.assertEqual(
+            ["Fubon configuration requires personal_id"],
+            payload["errors"],
+        )
+
+    def test_main_doctor_market_data_rejects_invalid_and_over_limit_symbols(self):
+        invalid_output = StringIO()
+        with redirect_stdout(invalid_output):
+            invalid_code = main([
+                "doctor",
+                "market-data",
+                "--provider",
+                "fugle",
+                "--symbol",
+                "2330",
+                "--symbol",
+                "../bad",
+                "--json",
+            ])
+        invalid = json.loads(invalid_output.getvalue())
+
+        many_output = StringIO()
+        many_args = [
+            "doctor",
+            "market-data",
+            "--provider",
+            "fugle",
+            "--json",
+        ]
+        for index in range(41):
+            many_args.extend(["--symbol", str(1000 + index)])
+        with redirect_stdout(many_output):
+            many_code = main(many_args)
+        many = json.loads(many_output.getvalue())
+
+        self.assertEqual(1, invalid_code)
+        self.assertEqual(
+            ["provider probe rejected 1 invalid symbol value"],
+            invalid["errors"],
+        )
+        self.assertEqual(1, many_code)
+        self.assertEqual(
+            ["provider probe accepts at most 40 unique symbols"],
+            many["errors"],
+        )
+
+    def test_main_dashboard_refuses_unacknowledged_direct_network_bind(self):
+        output = StringIO()
+
+        with (
+            patch(
+                "taiwan_stock_analysis.dashboard_server.serve_dashboard"
+            ) as serve_dashboard,
+            redirect_stdout(output),
+        ):
+            exit_code = main([
+                "dashboard",
+                "--serve",
+                "--host",
+                "0.0.0.0",
+                "--market-data-provider",
+                "fugle",
+                "--public-read-only",
+            ])
+
+        self.assertEqual(2, exit_code)
+        serve_dashboard.assert_not_called()
+        self.assertIn(
+            "--allow-direct-network-bind",
+            output.getvalue(),
+        )
 
     def test_main_dashboard_default_scan_includes_workflow_dist(self):
         cwd = Path.cwd()

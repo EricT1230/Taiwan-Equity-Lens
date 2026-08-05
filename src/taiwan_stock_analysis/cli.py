@@ -21,6 +21,7 @@ from taiwan_stock_analysis.doctor import (
     format_doctor_result,
     format_handoff_doctor_result,
 )
+from taiwan_stock_analysis.env_config import EnvConfigError, load_project_env
 from taiwan_stock_analysis.fetcher import GoodinfoClient, build_metadata
 from taiwan_stock_analysis.insights import build_insights
 from taiwan_stock_analysis.industry_trends import write_industry_trend_report
@@ -277,6 +278,31 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     dashboard_parser.add_argument("--host", default="127.0.0.1", help="Dashboard server host.")
     dashboard_parser.add_argument("--port", default=8765, type=int, help="Dashboard server port.")
     dashboard_parser.add_argument("--open", action="store_true", help="Open the local dashboard server in a browser.")
+    dashboard_parser.add_argument(
+        "--market-data-provider",
+        choices=["auto", "fubon", "fugle", "twse-mis-personal"],
+        default=None,
+        help=(
+            "Quote provider policy. Defaults to MARKET_DATA_PROVIDER from "
+            ".env/process environment, then auto."
+        ),
+    )
+    dashboard_parser.add_argument(
+        "--public-read-only",
+        action="store_true",
+        help=(
+            "Enforce public redisplay and read-only gates even when the "
+            "backend binds to loopback behind a reverse proxy."
+        ),
+    )
+    dashboard_parser.add_argument(
+        "--allow-direct-network-bind",
+        action="store_true",
+        help=(
+            "Acknowledge that a non-loopback bind exposes an unauthenticated "
+            "HTTP server; protect it with firewall and proxy controls."
+        ),
+    )
 
     price_template_parser = subparsers.add_parser("price-template", help="Generate a valuation CSV template.")
     price_template_parser.add_argument("stock_ids", nargs="+", help="Stock IDs to include in the template.")
@@ -324,6 +350,35 @@ def build_command_arg_parser() -> argparse.ArgumentParser:
     doctor_handoff.add_argument("--pack-output-dir", type=Path, help="Directory for handoff evidence pack outputs.")
     doctor_handoff.add_argument("--format", choices=["both", "markdown", "html"], default="both")
     doctor_handoff.add_argument("--json", action="store_true", help="Print handoff readiness as JSON.")
+    doctor_market_data = doctor_subparsers.add_parser(
+        "market-data",
+        help="Probe the configured quote provider without loading other feeds.",
+    )
+    doctor_market_data.add_argument(
+        "--provider",
+        choices=["fubon", "fugle", "twse-mis-personal", "auto"],
+        default=None,
+        help=(
+            "Provider policy to probe; defaults to MARKET_DATA_PROVIDER from "
+            ".env/process environment, then fubon."
+        ),
+    )
+    doctor_market_data.add_argument(
+        "--symbol",
+        action="append",
+        default=[],
+        help="Symbol to verify; repeat for multiple symbols (default: 2330).",
+    )
+    doctor_market_data.add_argument(
+        "--public",
+        action="store_true",
+        help="Also require the explicit public redisplay entitlement gate.",
+    )
+    doctor_market_data.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable evidence without exposing credentials.",
+    )
 
     research_parser = subparsers.add_parser("research", help="Manage a local research workflow.")
     research_subparsers = research_parser.add_subparsers(dest="research_command")
@@ -711,6 +766,12 @@ def _open_dashboard(path: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        load_project_env()
+    except EnvConfigError as exc:
+        print(f"Invalid local .env configuration: {exc}", file=sys.stderr)
+        return 2
+
     raw_args = sys.argv[1:] if argv is None else argv
     if raw_args and raw_args[0] in {"compare", "batch", "dashboard", "price-template", "memo", "workflow", "demo", "doctor", "research"}:
         args = build_command_arg_parser().parse_args(raw_args)
@@ -756,10 +817,34 @@ def main(argv: list[str] | None = None) -> int:
             Path("workflow-dist"),
         ]
         if args.serve:
-            from taiwan_stock_analysis.dashboard_server import serve_dashboard
+            from taiwan_stock_analysis.dashboard_server import (
+                _is_loopback_host,
+                serve_dashboard,
+            )
 
+            if (
+                not _is_loopback_host(args.host)
+                and not args.allow_direct_network_bind
+            ):
+                print(
+                    "Refusing a direct non-loopback bind without "
+                    "--allow-direct-network-bind; use 127.0.0.1 behind an "
+                    "authenticated TLS reverse proxy."
+                )
+                return 2
             print(f"Serving dashboard at http://{args.host}:{args.port}/")
-            serve_dashboard(scan_dirs, host=args.host, port=args.port, open_browser=args.open)
+            serve_dashboard(
+                scan_dirs,
+                host=args.host,
+                port=args.port,
+                open_browser=args.open,
+                market_data_provider=(
+                    args.market_data_provider
+                    or os.getenv("MARKET_DATA_PROVIDER", "auto")
+                    or "auto"
+                ),
+                public_read_only=args.public_read_only,
+            )
             return 0
         output_path = write_dashboard_index(scan_dirs, args.output)
         print(f"Wrote {output_path}")
@@ -833,6 +918,44 @@ def main(argv: list[str] | None = None) -> int:
         build_command_arg_parser().error("demo command is required")
 
     if args.command == "doctor":
+        if args.doctor_command == "market-data":
+            from taiwan_stock_analysis.live_market import LiveMarketService
+
+            service = LiveMarketService(
+                public_mode=args.public,
+                provider=(
+                    args.provider
+                    or os.getenv("MARKET_DATA_PROVIDER", "fubon")
+                    or "fubon"
+                ),
+            )
+            try:
+                result = service.probe(args.symbol or ["2330"])
+            finally:
+                service.close()
+            if args.json:
+                print(
+                    json.dumps(
+                        result,
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(
+                    "Market data provider "
+                    f"{result['provider_requested']}: {result['status']}"
+                )
+                print(
+                    "Requested: "
+                    + ", ".join(result["requested_symbols"])
+                    + " | Returned: "
+                    + ", ".join(result["returned_symbols"])
+                )
+                for error in result["errors"]:
+                    print(f"Error: {error}")
+            return 0 if result["ok"] else 1
         if args.doctor_command == "release":
             result = check_release_readiness(Path.cwd(), expected_version=args.version)
             print(format_doctor_result(result))
