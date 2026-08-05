@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-demo",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "taiwan_stock_analysis.cli", "dashboard", "--scan-dir", "demo-dist", "--serve", "--host", "127.0.0.1", "--port", "8765"],
+      "port": 8765
+    }
+  ]
+}
