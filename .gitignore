@@ -1,12 +1,20 @@
 __pycache__/
 *.py[cod]
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
 .tmp-*/
+# Fubon SDK runtime logs: contain personal ID, account numbers, and session tokens.
+log/
 dist/
 live-dist/
 compare-dist/
 batch-dist/
 valuation-dist/
 workflow-dist/
+demo-dist/
 dashboard-index.html
 *_analysis.html
 *_raw_data.json
