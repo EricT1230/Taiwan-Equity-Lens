@@ -105,6 +105,139 @@ Open:
 demo-dist/dashboard.html
 ```
 
+## Connected Market Dashboard
+
+Opening `dashboard.html` directly is only a static research snapshot. For live quotes, official news, attention／disposition lists, and institutional flow, run the same-origin local server:
+
+```powershell
+.\scripts\start-dashboard.ps1 -ScanDir demo-dist -Port 8877 -Open
+```
+
+The served page calls `/api/live/snapshot` automatically. It also loads `/api/market/breadth`, which joins the complete TWSE／TPEx company catalog with bulk official daily quotes, PE／PB／yield, quarterly EPS and operating results, monthly revenue, institutional flow, and attention／disposition events. The full-market response includes every listed and OTC company even when an upstream has no quote row; missing or suspended securities remain explicit instead of becoming zero-valued records. A first load must remain within 1% of the recently verified per-market catalog floor, and it cannot claim `EOD_FULL` unless both market counts meet the dated verified baseline. A later catalog that drops more than 1% cannot overwrite the last complete cache. The browser performs search, market／industry filters, sorting, and 25／50／100-row pagination over this full universe, while the per-page live adapter overlays only the currently visible symbols.
+
+The loopback TWSE MIS development adapter and a local Fubon session refresh every 5 seconds during the Taiwan cash-market session; Fugle-backed and public pages use a minimum 30-second cadence. The full-market service keeps its official TWSE/TPEx catalog, EOD, valuation, and financial baseline for 300 seconds while refreshing only the Fubon price overlay every 5 seconds, so a live refresh does not refetch every official dataset. After close the page reports `EOD` and refreshes every 60 seconds. Every component exposes its own `LIVE`, `EOD`, `PARTIAL`, `STALE`, or `UNAVAILABLE` state, so fresh news cannot disguise a failed quote feed. A breadth snapshot is called full-market only when both TWSE and TPEx catalogs reconcile with the verified baseline. Its `EOD` status additionally requires dated quotes from both markets on the same latest completed session, calculated with the official TWSE holiday schedule and a 15:00 publication grace; future, undated, old, or cross-session rows are excluded from breadth signals. The quote lookback is limited to 15 calendar days, each upstream request has a 3-second timeout, and the complete cold-start breadth build has a 25-second service deadline. Incomplete alert or institutional batches are marked unknown and their authoritative filters are disabled rather than reporting a misleading zero. Valuation, financial-summary, and monthly-revenue sources are checked per market against catalog coverage; valuation dates must also match the latest completed session and are shown beside PE／PB／yield. `/api/market/health` separates process liveness from ready／usable cache state, and every breadth snapshot publishes per-market catalog plus quote, valuation, fundamental, revenue, institutional, alert, calendar, and industry coverage counts.
+
+The loopback page also exposes `/api/us/market`. It joins Nasdaq Trader's official symbol-directory files with FINRA's latest published Consolidated NMS daily short-sale-volume file. This supplies a searchable U.S. reference universe plus the explicitly labelled `FINRA 場外短售成交比`; that ratio is not exchange-consolidated volume, a short position, or short interest. The public FINRA files are free for non-commercial use. U.S. price and return fields stay blank until a contracted price provider is configured, and this reference route is refused on non-loopback binds. The app does not scrape Nasdaq.com's internal website API or substitute mock prices.
+
+The news component returns up to 96 validated exchange news and material-announcement rows per snapshot. The browser initially renders a compact batch and exposes a load-more control instead of permanently hiding everything after the first 12 rows.
+
+The primary connected quote adapter is now Fubon Neo MarketData. It uses
+[Fubon's API-key login](https://www.fbs.com.tw/TradeAPI/docs/trading/library/python/login/loginAPIKey/)
+through the official Windows SDK, then reads only the
+market-data session token; the application exposes no order-entry surface.
+Install the pinned SDK into this project's `.venv`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-fubon-sdk.ps1
+```
+
+The installer targets this project's 64-bit Windows CPython 3.10 `.venv`.
+It downloads the official `fubon-neo` 2.2.8 package, verifies the pinned
+archive and wheel SHA-256 values, downloads every transitive runtime dependency
+from a complete version-and-hash lock, and installs only those verified wheels.
+The bootstrap first verifies and installs the pinned `pip` 26.1.2 wheel, so the
+dependency lock is not processed by the older `pip` bundled with CPython 3.10.
+It does not modify the system Python installation. Then open the project-root
+`.env` in VS Code and fill in:
+
+```dotenv
+MARKET_DATA_PROVIDER=fubon
+FUBON_PERSONAL_ID=your-personal-id
+FUBON_API_KEY=your-market-data-only-api-key
+FUBON_CERT_PATH=C:\absolute\path\to\your\certificate.pfx
+FUBON_CERT_PASSWORD=your-certificate-password
+FUBON_MARKET_DATA_ONLY_CONFIRMED=1
+FUBON_REDISPLAY_LICENSED=0
+```
+
+Use a
+[market-data-only API key and an IP allowlist](https://www.fbs.com.tw/TradeAPI/docs/trading/api-key-apply/)
+in the Fubon developer portal. Keep the certificate outside the repository and point
+`FUBON_CERT_PATH` at it. The `.env` file and `.env.*` variants are ignored by
+Git, the credentials and SDK session token are never returned to the browser,
+and errors are sanitized before they are logged. Set
+`FUBON_MARKET_DATA_ONLY_CONFIRMED=1` only after the broker portal shows that
+this dedicated key has market-data access, no trading scope, and the intended
+IP allowlist. The SDK does not expose a reliable local scope-inspection API, so
+this operator confirmation is a required fail-closed deployment gate.
+
+Verify the provider before opening the dashboard:
+
+```powershell
+.\.venv\Scripts\python.exe -m taiwan_stock_analysis.cli doctor market-data --provider fubon --symbol 2330 --json
+.\scripts\start-dashboard.ps1 -ScanDir demo-dist -Port 8877 -Open
+```
+
+The CLI reads `.env` once at startup. Existing process environment variables
+take precedence, and an explicit `--market-data-provider` or doctor
+`--provider` argument takes precedence over `MARKET_DATA_PROVIDER`. Only the
+documented app settings in `.env.example` are accepted; unrelated variables
+are ignored. Restart the dashboard after editing `.env`.
+
+The `fubon` policy is fail-closed: a missing certificate, missing
+market-data-only confirmation, rejected login, missing entitlement, unsupported
+SDK version, or HTTP 401/403 makes quotes `UNAVAILABLE`. Authentication
+failures never fall back to cached rows or TWSE MIS. They also open a
+process-shared 60-second authentication circuit breaker with bounded
+exponential backoff, preventing a broken credential from causing a rapid login
+loop. Temporary network failures may expose an explicitly `STALE` cache, never
+`LIVE`. The doctor command performs a real Fubon login plus market-data request
+and returns sanitized connection evidence.
+
+The adapter fetches Fubon's
+[provider-native TSE and OTC bulk snapshots](https://www.fbs.com.tw/TradeAPI/docs/market-data/http-api/snapshot/quotes/)
+rather
+than issuing roughly two thousand per-symbol requests. The full-market
+screener preserves TWSE/TPEx official EOD catalog, fundamentals, and financial
+data as its completeness baseline, then overlays Fubon prices only when each
+row and both market snapshots pass freshness checks. Live and EOD coverage are
+reported separately; a partial feed cannot claim full-market live status.
+TAIEX and TPEx benchmark symbols are discovered from the index ticker endpoint.
+If an account uses different identifiers, set `FUBON_TAIEX_SYMBOL` and
+`FUBON_TPEX_SYMBOL`.
+
+Fubon traffic is guarded by a conservative 240-calls-per-minute process
+budget, four-request concurrency limit, short negative cache, and a bounded
+request deadline, below the provider's documented
+[300 requests/minute limit](https://www.fbs.com.tw/TradeAPI/docs/market-data/rate-limit/)
+for intraday and snapshot APIs. Run only one dashboard or provider doctor at a
+given login; the in-process limiter cannot coordinate separate machines or
+processes against an account-wide provider quota.
+
+A personal brokerage market-data entitlement is not public redisplay
+permission. For a public or multi-user deployment, first obtain written Fubon
+and exchange redisplay permission, then configure:
+
+```dotenv
+MARKET_DATA_PROVIDER=fubon
+FUBON_REDISPLAY_LICENSED=1
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m taiwan_stock_analysis.cli doctor market-data --provider fubon --symbol 2330 --public --json
+.\.venv\Scripts\python.exe -m taiwan_stock_analysis.cli dashboard --scan-dir demo-dist --serve --host 127.0.0.1 --port 8877 --public-read-only
+```
+
+Legacy Fugle MarketData v1 settings remain available as an explicit alternate
+provider in `.env.example`; they are not selected when
+`MARKET_DATA_PROVIDER=fubon`.
+
+A non-loopback bind is deliberately read-only: it can serve the dashboard and live snapshot, but all review-state, evidence, and handoff file-writing endpoints return `403`. A public snapshot accepts at most 20 symbols and rejects larger requests instead of silently truncating them. Public pages poll no faster than every 30 seconds and each connecting client is limited to two snapshot requests per minute. The shared provider-entry budget follows the active adapter's conservative capability report: a Fubon bulk request reserves six units, while a Fugle request reserves one unit per requested symbol plus four units for benchmark discovery and quotes. `429` responses include `Retry-After`, which the browser honors. Live snapshot assembly runs through a bounded worker pool. Full-market breadth refreshes use a separate single-flight worker, so an expired multi-source refresh cannot starve visible live quotes; a failed refresh is negative-cached briefly before retry. Both routes return bounded `504` deadline responses or generic JSON `500` errors instead of leaving an unbounded request thread or resetting the connection.
+
+Do not expose the built-in `ThreadingHTTPServer` directly to the internet. Bind it to `127.0.0.1` behind an authenticated reverse proxy that terminates TLS, restricts access to approved users, forwards only the required dashboard and read-only live routes, and applies its own user/IP quotas. `--public-read-only` is mandatory behind the proxy so public redisplay checks and write blocking do not depend on the bind address. The CLI refuses a non-loopback bind unless the operator adds the explicit high-risk `--allow-direct-network-bind` acknowledgement; a cross-host proxy setup also requires firewall／ACL rules that prevent clients from reaching this port directly. Keep write endpoints loopback-only; do not use a proxy to bypass their `403` boundary. File operations remain available only in local desktop mode and require `Content-Type: application/json`. TWSE／TPEx OpenAPI remain the source for exchange news, material announcements, attention/disposition lists, and daily institutional flow.
+
+The generated dashboard is now a desktop-first market research application with seven workspaces:
+
+- `今日總覽`: market regime, temperature, breadth, institutional flow, event radar, and a guided three-step workflow.
+- `產業地圖`: industry heatmap, sentiment composition, rotation, news, and fund-flow evidence.
+- `智慧選股`: explainable filters for bullish research, bearish risk, disposition, industry, and US connectors.
+- `市場情報`: source-linked news, financial review summaries, and a local market notebook.
+- `市場策略`: transparent regime playbooks with prerequisites and invalidation rules.
+- `研究工作台`: the existing evidence, review-action, and handoff quality workflow.
+- `資料與紀錄`: report paths, source audit, market-data coverage, and traceability.
+
+Static demo values are clearly labeled as a snapshot. The connected industry view is currently a 36-category official industry heatmap, not a 240+ theme or upstream／downstream supply-chain graph. The US screener uses the Nasdaq Trader directory and FINRA non-commercial short-volume reference data; it does not claim to provide U.S. prices until a licensed price feed is connected. Empty disposition results stay unknown or disabled when the official source is incomplete; the UI does not invent live market data.
+
 Demo outputs:
 
 - `demo-dist/reports/`
