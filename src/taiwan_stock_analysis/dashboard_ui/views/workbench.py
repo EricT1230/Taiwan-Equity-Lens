@@ -254,7 +254,10 @@ def _filter_select(name: str, placeholder: str, options: Any, labels: dict[str, 
         label = labels.get(option, option)
         opts.append(f'<option value="{esc(option)}">{esc(label)}</option>')
     joined = "".join(opts)
-    return f'<select data-queue-filter="{esc(name)}">{joined}</select>'
+    return (
+        f'<select data-queue-filter="{esc(name)}" aria-label="{esc(placeholder)}篩選">'
+        f"{joined}</select>"
+    )
 
 
 def _filters_bar() -> str:
@@ -265,7 +268,8 @@ def _filters_bar() -> str:
     return (
         '<div class="filters">'
         f"{severity_select}{category_select}{priority_select}{status_select}"
-        '<input type="search" data-queue-filter="search" placeholder="搜尋事項、股票代號…">'
+        '<input type="search" data-queue-filter="search" aria-label="搜尋審查事項或股票代號"'
+        ' placeholder="搜尋事項、股票代號…">'
         # Spec §3.3 filter row ("...搜尋、重設"): clears every [data-queue-filter]
         # control back to its default and re-shows all rows
         # (page_script.py's initQueueFilterReset()). Attribute name + label
@@ -363,9 +367,9 @@ def _queue_expand_block(
         evidence_html = (
             '<p class="wb-evidence-hint">交付證據（高風險事項必填）：</p>'
             '<div class="queue-evidence">'
-            f'<input placeholder="note：處理說明" value="{esc(note)}">'
-            f'<input placeholder="reviewer：覆核人" value="{esc(reviewer)}">'
-            f'<input placeholder="evidence：檔案路徑或 URL" value="{esc(evidence_url)}">'
+            f'<input aria-label="處理說明" placeholder="note：處理說明" value="{esc(note)}">'
+            f'<input aria-label="覆核人" placeholder="reviewer：覆核人" value="{esc(reviewer)}">'
+            f'<input aria-label="證據檔案路徑或 URL" placeholder="evidence：檔案路徑或 URL" value="{esc(evidence_url)}">'
             "</div>"
         )
         if action_api_enabled:
@@ -389,12 +393,15 @@ def _queue_expand_block(
     cli_hint = "API 模式：按下即時更新狀態" if action_api_enabled else "靜態模式：按下後複製 CLI 指令"
     hidden_attr = "" if is_next else " hidden"
     return (
-        f'<div class="queue-expand" data-expand-for="{esc(row_id)}"{hidden_attr}>'
+        f'<div class="queue-expand" id="{esc(row_id)}-details"'
+        f' data-expand-for="{esc(row_id)}" role="row"{hidden_attr}>'
+        '<div role="cell">'
         f'<p><strong>問題全文：</strong>{esc(message)}</p>'
         f"{evidence_html}"
         f"{compose_html}"
         f'<div class="wb-actions-row">{action_buttons}'
         f'<span class="wb-cli mono">{esc(cli_hint)}</span>'
+        "</div>"
         "</div>"
         "</div>"
     )
@@ -422,11 +429,11 @@ def _row_select_checkbox(row: dict[str, str], state_path: str, *, action_api_ena
             for status, _label in _BULK_STATUSES
         )
     return (
-        '<span class="wb-select-cell">'
+        '<span class="wb-select-cell" role="cell">'
         '<input type="checkbox" class="wb-row-select" data-queue-select="true"'
         f' data-stock="{esc(stock_id)}" data-action-id="{esc(action_id)}"'
         f"{command_attrs}"
-        ' aria-label="選取審查動作">'
+        f' aria-label="選取 {esc(stock_id)} 的 {esc(action_id)} 審查動作">'
         "</span>"
     )
 
@@ -461,7 +468,12 @@ def _queue_row_block(
         status_badge = badge(REVIEW_ACTION_STATUS_LABELS.get(status, status), tone=_STATUS_TONES.get(status, "info"))
     next_tag = '<span class="wb-next-tag">建議下一步</span>' if is_next else ""
     toggle_label = "收合 ▲" if is_next else "展開 ▼"
-    toggle_button = f'<button type="button" class="ui-btn" data-queue-toggle="{esc(row_id)}">{esc(toggle_label)}</button>'
+    toggle_button = (
+        f'<button type="button" class="ui-btn" data-queue-toggle="{esc(row_id)}"'
+        f' data-toggle-label="{esc(stock_id)}"'
+        f' aria-controls="{esc(row_id)}-details" aria-expanded="{"true" if is_next else "false"}"'
+        f' aria-label="{esc(stock_id)}：{esc(toggle_label)}">{esc(toggle_label)}</button>'
+    )
     next_indicator = "▶" if is_next else ""
     select_checkbox = _row_select_checkbox(row, state_path, action_api_enabled=action_api_enabled)
 
@@ -479,19 +491,19 @@ def _queue_row_block(
     has_evidence = "true" if (row["note"] and row["reviewer"] and row["evidence_url"]) else "false"
 
     row_html = (
-        f'<div class="{row_class}" id="{esc(row_id)}"'
+        f'<div class="{row_class}" id="{esc(row_id)}" role="row"'
         f' data-stock="{esc(stock_id)}" data-priority="{esc(priority)}"'
         f' data-severity="{esc(severity)}" data-category="{esc(category)}"'
         f' data-status="{esc(status)}" data-requires-evidence="{esc(requires_evidence)}"'
         f' data-has-evidence="{esc(has_evidence)}">'
         f"{select_checkbox}"
-        f'<span class="wb-next-indicator">{next_indicator}</span>'
-        f'<span class="mono">{esc(stock_id)}</span>'
-        f"<span>{priority_badge}</span>"
-        f"<span>{severity_badge}</span>"
-        f"<span>{esc(category_label)}</span>"
-        f"<span>{esc(message)}</span>"
-        f'<span class="wb-actions">{status_badge}{next_tag}{toggle_button}</span>'
+        f'<span class="wb-next-indicator" role="cell">{next_indicator}</span>'
+        f'<span class="mono" role="cell">{esc(stock_id)}</span>'
+        f'<span role="cell">{priority_badge}</span>'
+        f'<span role="cell">{severity_badge}</span>'
+        f'<span role="cell">{esc(category_label)}</span>'
+        f'<span role="cell">{esc(message)}</span>'
+        f'<span class="wb-actions" role="cell">{status_badge}{next_tag}{toggle_button}</span>'
         "</div>"
     )
     expand_html = _queue_expand_block(row, row_id, is_next, source_path, state_path, action_api_enabled=action_api_enabled)
@@ -551,7 +563,8 @@ def _bulk_tools_bar(state_path: str, *, action_api_enabled: bool) -> str:
         '<input type="checkbox" data-queue-select-visible="true">選取目前顯示'
         "</label>"
         f'{"".join(buttons)}'
-        '<span class="wb-bulk-count" data-queue-bulk-count="true">已選取 0 筆</span>'
+        '<span class="wb-bulk-count" data-queue-bulk-count="true"'
+        ' role="status" aria-live="polite">已選取 0 筆</span>'
         "</div>"
     )
 
@@ -576,9 +589,11 @@ def _queue_card(
         return card("審查佇列", body)
 
     header = (
-        '<div class="queue-row head">'
-        "<span></span><span></span><span>股票</span><span>優先</span><span>嚴重度</span>"
-        "<span>類別</span><span>事項</span><span>操作</span>"
+        '<div class="queue-row head" role="row">'
+        '<span role="columnheader">選取</span><span role="columnheader">下一步</span>'
+        '<span role="columnheader">股票</span><span role="columnheader">優先</span>'
+        '<span role="columnheader">嚴重度</span><span role="columnheader">類別</span>'
+        '<span role="columnheader">事項</span><span role="columnheader">操作</span>'
         "</div>"
     )
     blocks = "".join(
@@ -601,7 +616,7 @@ def _queue_card(
         f"{_queue_status_line(state_report)}"
         f"{_filters_bar()}"
         f"{_bulk_tools_bar(state_path, action_api_enabled=action_api_enabled)}"
-        f'<div class="queue">{header}{blocks}{empty_state}</div>'
+        f'<div class="queue" role="table" aria-label="研究審查佇列">{header}{blocks}{empty_state}</div>'
         f"{note}"
     )
     return card("審查佇列", body)
@@ -677,6 +692,10 @@ def _pool_card(pool: list[Any], dashboard_items: dict[str, Any]) -> str:
 
 
 def render_workbench_view(items: dict[str, Any], *, action_api_enabled: bool = False) -> str:
+    header = (
+        '<header class="product-page-head"><div><span class="desk-kicker">RESEARCH OPERATIONS</span>'
+        '<h1>研究工作台</h1><p>依交接阻塞、證據與研究品質安排下一步。</p></div></header>'
+    )
     summaries = items.get("research_summaries")
     summaries = summaries if isinstance(summaries, list) else []
     summary = _first_valid_summary(summaries)
@@ -695,8 +714,8 @@ def render_workbench_view(items: dict[str, Any], *, action_api_enabled: bool = F
                 f"{badge('research summary 解析失敗', tone='blocked')} Research summary error: {esc(error_text)}"
                 "</p>"
             )
-            return card("研究工作台", body)
-        return card("研究工作台", '<p class="wb-empty">尚無 research summary。</p>')
+            return header + card("研究工作台", body)
+        return header + card("研究工作台", '<p class="wb-empty">尚無 research summary。</p>')
 
     state = summary.get("review_action_state")
     state = state if isinstance(state, dict) else None
@@ -720,4 +739,4 @@ def render_workbench_view(items: dict[str, Any], *, action_api_enabled: bool = F
     gate_card = _gate_card(gate, rows, source_path, state_path, summary, action_api_enabled=action_api_enabled)
     queue_card = _queue_card(rows, source_path, state_path, state_report, action_api_enabled=action_api_enabled)
     pool_card = _pool_card(pool, items)
-    return gate_card + queue_card + pool_card
+    return header + gate_card + queue_card + pool_card

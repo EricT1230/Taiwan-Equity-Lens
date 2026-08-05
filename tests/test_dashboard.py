@@ -89,7 +89,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("台股基本面儀表板", html)
+        self.assertIn("盤勢鏡｜台股即時研究桌面", html)
         self.assertIn("常用指令", html)
         self.assertIn("2330_analysis.html", html)
         self.assertIn("comparison.html", html)

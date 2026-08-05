@@ -479,8 +479,48 @@ def _rows(container: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [row for row in values if isinstance(row, dict)]
 
 
-def _sentiment_section(items: dict[str, Any]) -> str:
+def _is_synthetic_market_report(report: dict[str, Any]) -> bool:
+    for key in ("news", "fund_flows"):
+        for row in _rows(report, key):
+            source = str(row.get("source") or "").casefold()
+            url = str(row.get("url") or "").casefold()
+            if "synthetic" in source or "example.com" in url:
+                return True
+    metadata = _dict(report.get("run_metadata"))
+    inputs = _dict(metadata.get("inputs"))
+    return any(
+        str(value or "").replace("\\", "/").casefold().startswith("examples/")
+        for value in inputs.values()
+    )
+
+
+def _is_synthetic_trend_report(report: dict[str, Any]) -> bool:
+    paths = (
+        report.get("research_path"),
+        report.get("price_history_path"),
+    )
+    if not any(str(value or "").strip() for value in paths):
+        return True
+    return any(
+        str(value or "").replace("\\", "/").casefold().startswith("examples/")
+        for value in paths
+    )
+
+
+def _sentiment_section(
+    items: dict[str, Any],
+    *,
+    suppress_synthetic: bool = False,
+) -> str:
     report = _first_report(items.get("market_intelligence_reports"))
+    if suppress_synthetic and _is_synthetic_market_report(report):
+        return (
+            '<section class="mkt-section" data-market-sentiment-section="true">'
+            "<h2>產業情緒模型</h2>"
+            '<p class="mkt-empty">已封鎖合成示範資料。完成正式歷史行情與授權新聞同步後，'
+            "才會顯示 5D／20D 情緒、貢獻拆解與轉折風險。</p>"
+            "</section>"
+        )
     industries = sorted(_rows(report, "industries"), key=_industry_sort_key)
     body = "".join(_sentiment_card(row) for row in industries) or '<p class="mkt-empty">尚未產生市場情緒報告。</p>'
     # Cards stay direct children of .mkt-section (server-default order = score desc,
@@ -497,12 +537,87 @@ def _sentiment_section(items: dict[str, Any]) -> str:
     )
 
 
-def _rotation_section(items: dict[str, Any]) -> str:
+def _rotation_section(
+    items: dict[str, Any],
+    *,
+    suppress_synthetic: bool = False,
+) -> str:
     report = _first_report(items.get("industry_trend_reports"))
+    if suppress_synthetic and _is_synthetic_trend_report(report):
+        return (
+            '<section class="mkt-section" data-market-rotation-section="true">'
+            "<h2>產業輪動</h2>"
+            '<p class="mkt-empty">已封鎖範例價格序列。上方地圖仍使用本次連線取得的研究池行情；'
+            "完整 1D／5D／20D 輪動需由正式歷史行情重新計算。</p>"
+            "</section>"
+        )
     categories = _rows(report, "categories")[:_MAX_ROTATION_CARDS]
     body = "".join(_rotation_card(row) for row in categories) or '<p class="mkt-empty">尚未產生產業輪動報告。</p>'
     return f'<section class="mkt-section" data-market-rotation-section="true"><h2>產業輪動</h2>{body}</section>'
 
 
-def render_market_view(items: dict[str, Any]) -> str:
-    return _sentiment_section(items) + _rotation_section(items)
+def _industry_map(items: dict[str, Any]) -> str:
+    sentiment_report = _first_report(items.get("market_intelligence_reports"))
+    trend_report = _first_report(items.get("industry_trend_reports"))
+    sentiment_by_category = {
+        str(row.get("category") or "-"): row
+        for row in _rows(sentiment_report, "industries")
+    }
+    trend_by_category = {
+        str(row.get("category") or "-"): row
+        for row in _rows(trend_report, "categories")
+    }
+    categories = sorted(set(sentiment_by_category) | set(trend_by_category))
+    tiles: list[tuple[float, str]] = []
+    for category in categories:
+        industry = sentiment_by_category.get(category, {})
+        trend = trend_by_category.get(category, {})
+        sentiment = _dict(industry.get("sentiment"))
+        score = _finite(sentiment.get("score_5d"))
+        return_5d = _finite(trend.get("average_return_5d"))
+        stock_count = len(industry.get("stock_ids")) if isinstance(industry.get("stock_ids"), list) else 0
+        heat = max(-10.0, min(10.0, return_5d if return_5d is not None else 0.0))
+        heat_tone = "positive" if heat > 0 else "negative" if heat < 0 else "neutral"
+        sort_score = score if score is not None else float("-inf")
+        tile = (
+            f'<button type="button" class="industry-tile industry-tile-{heat_tone}"'
+            f' style="--heat:{abs(heat) / 10:.3f}" data-industry-tile="{esc(category)}">'
+            f'<span class="industry-tile-name">{esc(category)}</span>'
+            f'<strong class="mono" data-live-industry-score="true">{esc(_score_text(score))}</strong>'
+            f'<span class="mono {_signed_class(return_5d)}" data-live-industry-change="true">'
+            f'{esc(_percent_text(return_5d))} / 5D</span>'
+            f'<small data-live-industry-count="true">{esc(stock_count)} 檔 · 點擊查看細節</small>'
+            "</button>"
+        )
+        tiles.append((sort_score, tile))
+    tiles.sort(key=lambda item: item[0], reverse=True)
+    body = "".join(tile for _, tile in tiles) or (
+        '<p class="mkt-empty">尚未取得可驗證的產業分類與報酬資料。</p>'
+    )
+    return (
+        '<section class="industry-map" data-industry-map="true">'
+        '<header class="product-page-head"><div><span class="desk-kicker">SECTOR MAP / 挖題材</span>'
+        '<h1>產業地圖</h1><p>用產業溫度、5D 報酬與法人流向辨識輪動，不把單一紅綠色當成結論。</p></div>'
+        '<div><div class="industry-map-legend"><span><i class="negative"></i>走弱</span>'
+        '<span><i class="neutral"></i>中性</span><span><i class="positive"></i>走強</span></div>'
+        '<p class="industry-map-summary" role="status" aria-live="polite">'
+        '<strong data-industry-map-status="true">研究池產業</strong>'
+        f' · <span data-industry-map-count="true">{len(categories)}</span> 個分類</p></div></header>'
+        f'<div class="industry-map-grid" data-industry-map-grid="true">{body}</div>'
+        '<p class="industry-map-note" data-live-industry-note="true">'
+        '方塊顏色＝5D 產業報酬；大字＝產業情緒分數。'
+        "自動分類仍需搭配官方產業代碼與版本化價值鏈人工校對。</p>"
+        "</section>"
+    )
+
+
+def render_market_view(
+    items: dict[str, Any],
+    *,
+    live_api_enabled: bool = False,
+) -> str:
+    return (
+        _industry_map(items)
+        + _sentiment_section(items, suppress_synthetic=live_api_enabled)
+        + _rotation_section(items, suppress_synthetic=live_api_enabled)
+    )

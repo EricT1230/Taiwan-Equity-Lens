@@ -433,7 +433,7 @@ class CliTests(unittest.TestCase):
         ])
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("台股基本面儀表板", output_path.read_text(encoding="utf-8"))
+        self.assertIn("盤勢鏡｜台股即時研究桌面", output_path.read_text(encoding="utf-8"))
         self.assertIn("2330_analysis.html", output_path.read_text(encoding="utf-8"))
 
     def test_main_dashboard_serve_starts_local_server(self):
@@ -1547,7 +1547,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue((output_dir / "comparison" / "comparison.html").exists())
         dashboard_html = (output_dir / "dashboard.html").read_text(encoding="utf-8")
         self.assertIn("審查佇列", dashboard_html)
-        self.assertIn('<div class="queue">', dashboard_html)  # non-empty: real review-action rows rendered
+        self.assertIn('<div class="queue" role="table"', dashboard_html)  # non-empty: real review-action rows rendered
 
     def test_main_research_industry_trends_writes_outputs(self):
         root = Path(".tmp-cli-test/research-industry-trends")

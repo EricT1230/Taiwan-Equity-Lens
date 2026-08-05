@@ -256,8 +256,17 @@ def _discover_market_data_reports(directory: Path, items: DashboardItems) -> Non
     items["market_data_reports"].append(payload)
 
 
-def render_dashboard_html(items: DashboardItems, *, action_api_enabled: bool = False) -> str:
-    return _render_dashboard_page(items, action_api_enabled=action_api_enabled)
+def render_dashboard_html(
+    items: DashboardItems,
+    *,
+    action_api_enabled: bool = False,
+    live_api_enabled: bool | None = None,
+) -> str:
+    return _render_dashboard_page(
+        items,
+        action_api_enabled=action_api_enabled,
+        live_api_enabled=live_api_enabled,
+    )
 
 
 def write_dashboard_index(search_dirs: list[Path], output_path: Path, *, action_api_enabled: bool = False) -> Path:

@@ -1109,9 +1109,9 @@ class PageTests(unittest.TestCase):
     def test_full_document_structure(self):
         html = render_page(self._items())
         self.assertTrue(html.startswith("<!DOCTYPE html>"))
-        self.assertIn("<title>台股基本面儀表板</title>", html)
-        self.assertEqual(html.count('class="ui-tab"'), 3)
-        self.assertIn('class="ui-panel active"', html)      # market default
+        self.assertIn("<title>盤勢鏡｜台股即時研究桌面</title>", html)
+        self.assertEqual(html.count('class="ui-tab"'), 7)
+        self.assertIn('class="ui-panel active"', html)      # overview default
 
     def test_single_disclaimer(self):
         self.assertEqual(render_page(self._items()).count("不構成投資建議"), 1)

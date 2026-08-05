@@ -576,4 +576,8 @@ def render_outputs_view(items: dict[str, Any], *, action_api_enabled: bool = Fal
     # stateful review-action/handoff-pack call -- that served-API surface lives in
     # views.workbench.
     del action_api_enabled
-    return _files_section(items) + _status_section(items) + _market_data_section(items) + _commands_section()
+    header = (
+        '<header class="product-page-head"><div><span class="desk-kicker">TRACEABILITY</span>'
+        '<h1>資料與紀錄</h1><p>檢查來源、產出路徑、覆蓋率與可重現指令。</p></div></header>'
+    )
+    return header + _files_section(items) + _status_section(items) + _market_data_section(items) + _commands_section()

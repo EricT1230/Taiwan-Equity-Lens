@@ -5,10 +5,15 @@ from typing import Any
 
 from taiwan_stock_analysis.dashboard_ui.components import esc, pill
 from taiwan_stock_analysis.dashboard_ui.page_script import SCRIPT
+from taiwan_stock_analysis.dashboard_ui.product_data import market_snapshot
 from taiwan_stock_analysis.dashboard_ui.theme import base_css, view_css
 from taiwan_stock_analysis.dashboard_ui.views import (
+    render_intelligence_view,
     render_market_view,
+    render_overview_view,
     render_outputs_view,
+    render_screener_view,
+    render_strategy_view,
     render_workbench_view,
 )
 from taiwan_stock_analysis.handoff import build_handoff_quality_gate
@@ -23,9 +28,17 @@ from taiwan_stock_analysis.handoff import build_handoff_quality_gate
 # here to avoid a page -> views-internal coupling for a five-line lookup.
 # _run_id mirrors views/outputs.py's own private `_run_id(summary)` the same way.
 
-TITLE = "台股基本面儀表板"
-_BRAND = "台股研究鏡"
-_TAB_LABELS = (("market", "市場總覽"), ("workbench", "研究工作台"), ("outputs", "產出與紀錄"))
+TITLE = "盤勢鏡｜台股即時研究桌面"
+_BRAND = "盤勢鏡"
+_TAB_LABELS = (
+    ("overview", "今日總覽", "⌁"),
+    ("market", "產業地圖", "▦"),
+    ("screener", "智慧選股", "⌕"),
+    ("intelligence", "市場情報", "◫"),
+    ("strategy", "市場策略", "◎"),
+    ("workbench", "研究工作台", "✓"),
+    ("outputs", "資料與紀錄", "↗"),
+)
 
 # Ported from dashboard.py:_market_intelligence_report_html's freshness_text tuple
 # (dashboard.py ~line 2663): `(("news","news"),("fund_flow","flow"),("industry_trend","price"))`.
@@ -90,24 +103,37 @@ def _first_mi_report(items: dict[str, Any]) -> dict[str, Any]:
 
 
 def _freshness_pill(items: dict[str, Any]) -> str:
-    freshness = _dict(_first_mi_report(items).get("freshness"))
+    snapshot = market_snapshot(items)
+    status_label = str(snapshot["delivery_status"])
+    effective_fresh = snapshot["fresh_count"] == snapshot["fresh_total"]
     dots = []
+    freshness = _dict(_first_mi_report(items).get("freshness"))
+    labels = {"news": "新聞", "fund_flow": "法人", "industry_trend": "產業價格"}
     for key in _FRESHNESS_KEYS:
-        status = str(_dict(freshness.get(key)).get("status") or "")
-        tone = "ok" if status == "fresh" else "warn"
-        dots.append(f'<span class="topbar-dot topbar-dot-{tone}"></span>')
-    return f'<span class="ui-pill ui-pill-info">鮮度 {"".join(dots)}</span>'
+        source_fresh = str(_dict(freshness.get(key)).get("status") or "") == "fresh"
+        tone = "ok" if effective_fresh and source_fresh else "warn"
+        readable = "可用" if tone == "ok" else "需更新"
+        dots.append(
+            f'<span class="topbar-dot topbar-dot-{tone}" aria-hidden="true"></span>'
+            f'<span class="sr-only">{esc(labels[key])}：{esc(readable)}；</span>'
+        )
+    pill_tone = "ok" if status_label == "EOD" and effective_fresh else "warn"
+    return (
+        f'<span class="ui-pill ui-pill-{pill_tone}" data-live-market-badge="true"'
+        f' title="靜態研究快照；不是即時行情">{esc(status_label)} {"".join(dots)}</span>'
+    )
 
 
 def _run_id(items: dict[str, Any]) -> str:
     summaries = items.get("workflow_summaries")
     if not isinstance(summaries, list):
-        return ""
+        summaries = []
     for summary in summaries:
         run_id = str(_dict(_dict(summary).get("run_metadata")).get("run_id") or "").strip()
         if run_id:
             return run_id
-    return ""
+    research = _first_valid_summary(items)
+    return str(_dict(_dict(research).get("run_metadata")).get("run_id") or "").strip()
 
 
 def _source_mode(items: dict[str, Any]) -> str:
@@ -116,7 +142,7 @@ def _source_mode(items: dict[str, Any]) -> str:
     # source_audit.items[].<component>.source_mode (see dashboard.py:5011 /
     # outputs.py:_source_audit_component_html). This scans for the first one
     # found (stable dict-insertion order) purely for the topbar's cosmetic
-    # "run <id> · <mode>" caption; guarded to "" (omitted) when absent.
+    # "研究資料 <id> · <mode>" caption; guarded to "" (omitted) when absent.
     summaries = items.get("workflow_summaries")
     if not isinstance(summaries, list):
         return ""
@@ -136,16 +162,41 @@ def _source_mode(items: dict[str, Any]) -> str:
     return ""
 
 
+def _storage_namespace(items: dict[str, Any]) -> str:
+    run_id = _run_id(items)
+    if run_id:
+        return run_id
+    report = _first_mi_report(items)
+    generated_at = str(report.get("generated_at") or "").strip()
+    if generated_at:
+        return generated_at
+    summary = _first_valid_summary(items)
+    summary = _dict(summary)
+    base_dir = str(summary.get("base_dir") or "").strip()
+    summary_path = str(summary.get("path") or "").strip()
+    research_path = str(summary.get("research_path") or "").strip()
+    summary_generated = str(_dict(summary.get("run_metadata")).get("generated_at") or "").strip()
+    identity = "|".join(
+        value for value in (base_dir, summary_path, research_path, summary_generated) if value
+    )
+    return identity or "unscoped"
+
+
 def _brand(items: dict[str, Any]) -> str:
     meta_parts = []
     run_id = _run_id(items)
     if run_id:
-        meta_parts.append(f"run {esc(run_id)}")
+        meta_parts.append(f"研究資料 {esc(run_id)}")
     source_mode = _source_mode(items)
     if source_mode:
         meta_parts.append(esc(source_mode))
     meta_html = f'<span class="mono">{" · ".join(meta_parts)}</span>' if meta_parts else ""
-    return f'<div class="brand"><strong>{esc(_BRAND)}</strong>{meta_html}</div>'
+    return (
+        '<div class="brand">'
+        '<span class="brand-mark" aria-hidden="true">M</span>'
+        f'<div><strong>{esc(_BRAND)}</strong><small>MARKET LENS</small>{meta_html}</div>'
+        "</div>"
+    )
 
 
 def _topbar(items: dict[str, Any]) -> tuple[str, int]:
@@ -153,7 +204,12 @@ def _topbar(items: dict[str, Any]) -> tuple[str, int]:
     freshness_html = _freshness_pill(items)
     html = (
         '<header class="topbar">'
-        f"{_brand(items)}"
+        '<div class="topbar-heading"><span class="desk-kicker">TAIWAN EQUITY DESK</span>'
+        '<strong data-page-title="true">今日總覽</strong></div>'
+        '<div class="topbar-search"><span aria-hidden="true">⌕</span>'
+        '<label class="sr-only" for="global-stock-search">搜尋股票</label>'
+        '<input id="global-stock-search" type="search" data-global-search="true"'
+        ' placeholder="搜尋股票、產業、題材  /"></div>'
         f'<div class="topbar-status">{gate_html}{backlog_html}{freshness_html}</div>'
         "</header>"
     )
@@ -163,28 +219,89 @@ def _topbar(items: dict[str, Any]) -> tuple[str, int]:
 def _tabs(open_count: int) -> str:
     count_html = f' <span class="mono ui-tab-count">{esc(open_count)}</span>' if open_count else ""
     buttons = []
-    for key, label in _TAB_LABELS:
+    for key, label, icon in _TAB_LABELS:
         suffix = count_html if key == "workbench" else ""
-        buttons.append(f'<button type="button" class="ui-tab" data-tab="{key}">{esc(label)}{suffix}</button>')
-    return f'<nav class="ui-tabs">{"".join(buttons)}</nav>'
+        buttons.append(
+            f'<button type="button" class="ui-tab" data-tab="{key}" data-tab-label="{esc(label)}">'
+            f'<span class="ui-tab-icon" aria-hidden="true">{esc(icon)}</span>'
+            f'<span>{esc(label)}{suffix}</span></button>'
+        )
+    return f'<nav class="ui-tabs" aria-label="主要功能">{"".join(buttons)}</nav>'
 
 
-def _panels(items: dict[str, Any], *, action_api_enabled: bool) -> str:
-    market_html = render_market_view(items)
+def _sidebar(items: dict[str, Any], open_count: int) -> str:
+    return (
+        '<aside class="side-rail">'
+        f"{_brand(items)}"
+        f"{_tabs(open_count)}"
+        '<div class="side-rail-foot"><span class="side-live-dot" data-live-dot="true"></span>'
+        '<div><strong data-live-provider-label="true">Research-grade</strong>'
+        '<small data-live-provider-mode="true">來源 · 鮮度 · 品質閘門</small></div></div>'
+        "</aside>"
+    )
+
+
+def _live_connection_bar(*, live_api_enabled: bool) -> str:
+    if not live_api_enabled:
+        return (
+            '<section class="live-connection live-connection-offline" aria-label="連線狀態">'
+            '<div><span class="live-connection-dot"></span><strong>目前是靜態檔案</strong>'
+            '<small>即時行情與消息需要透過 dashboard --serve 啟動。</small></div>'
+            "</section>"
+        )
+    return (
+        '<section class="live-connection live-connection-loading" data-live-connection="true"'
+        ' aria-label="即時資料連線狀態" aria-live="polite">'
+        '<div><span class="live-connection-dot"></span>'
+        '<strong data-live-connection-title="true">正在連接市場資料…</strong>'
+        '<small data-live-connection-detail="true">等待行情、公告與法人資料</small></div>'
+        '<div class="live-connection-actions">'
+        '<span class="mono" data-live-countdown="true">--</span>'
+        '<button type="button" class="desk-link" data-live-refresh="true">立即更新</button>'
+        "</div></section>"
+    )
+
+
+def _panels(
+    items: dict[str, Any],
+    *,
+    action_api_enabled: bool,
+    live_api_enabled: bool,
+) -> str:
+    overview_html = render_overview_view(items)
+    market_html = render_market_view(items, live_api_enabled=live_api_enabled)
+    screener_html = render_screener_view(items, live_api_enabled=live_api_enabled)
+    intelligence_html = render_intelligence_view(items)
+    strategy_html = render_strategy_view(items)
     workbench_html = render_workbench_view(items, action_api_enabled=action_api_enabled)
     outputs_html = render_outputs_view(items, action_api_enabled=action_api_enabled)
     return (
-        f'<section class="ui-panel active" id="market">{market_html}</section>'
+        f'<section class="ui-panel active" id="overview">{overview_html}</section>'
+        f'<section class="ui-panel" id="market">{market_html}</section>'
+        f'<section class="ui-panel" id="screener">{screener_html}</section>'
+        f'<section class="ui-panel" id="intelligence">{intelligence_html}</section>'
+        f'<section class="ui-panel" id="strategy">{strategy_html}</section>'
         f'<section class="ui-panel" id="workbench">{workbench_html}</section>'
         f'<section class="ui-panel" id="outputs">{outputs_html}</section>'
     )
 
 
-def render(items: dict[str, Any], *, action_api_enabled: bool = False) -> str:
+def render(
+    items: dict[str, Any],
+    *,
+    action_api_enabled: bool = False,
+    live_api_enabled: bool | None = None,
+) -> str:
     safe_items = items if isinstance(items, dict) else {}
+    live_enabled = action_api_enabled if live_api_enabled is None else bool(live_api_enabled)
     topbar_html, open_count = _topbar(safe_items)
-    tabs_html = _tabs(open_count)
-    panels_html = _panels(safe_items, action_api_enabled=action_api_enabled)
+    sidebar_html = _sidebar(safe_items, open_count)
+    panels_html = _panels(
+        safe_items,
+        action_api_enabled=action_api_enabled,
+        live_api_enabled=live_enabled,
+    )
+    storage_namespace = _storage_namespace(safe_items)
     return (
         "<!DOCTYPE html>"
         '<html lang="zh-Hant">'
@@ -194,11 +311,19 @@ def render(items: dict[str, Any], *, action_api_enabled: bool = False) -> str:
         f"<title>{TITLE}</title>"
         f"<style>{base_css()}{view_css()}</style>"
         "</head>"
-        "<body>"
+        f'<body data-storage-namespace="{esc(storage_namespace)}"'
+        f' data-live-api-enabled="{"true" if live_enabled else "false"}">'
+        '<div class="app-shell">'
+        f"{sidebar_html}"
+        '<main class="app-main">'
         f"{topbar_html}"
-        f"{tabs_html}"
+        f"{_live_connection_bar(live_api_enabled=live_enabled)}"
         f"{panels_html}"
         f'<footer class="disclaimer">{esc(_DISCLAIMER)}</footer>'
+        "</main>"
+        "</div>"
+        '<div class="sr-only" role="status" aria-live="polite"'
+        ' data-ui-live-status="true"></div>'
         f"{SCRIPT}"
         "</body>"
         "</html>"
