@@ -113,9 +113,27 @@ Opening `dashboard.html` directly is only a static research snapshot. For live q
 .\scripts\start-dashboard.ps1 -ScanDir demo-dist -Port 8877 -Open
 ```
 
+The server root (`/`, `/dashboard`, or `/dashboard.html`) is the production
+workspace. It admits only attributable production artifacts and connected
+official APIs; rejected demo, fixture, offline, synthetic, stale, future-dated,
+or example-domain artifacts are shown only as an unavailable-data count, never
+as current content. The same server exposes `/demo` and `/demo.html` as an
+explicitly labelled, read-only layout demo. Demo content is never used as a
+production fallback.
+
 The served page calls `/api/live/snapshot` automatically. It also loads `/api/market/breadth`, which joins the complete TWSE／TPEx company catalog with bulk official daily quotes, PE／PB／yield, quarterly EPS and operating results, monthly revenue, institutional flow, and attention／disposition events. The full-market response includes every listed and OTC company even when an upstream has no quote row; missing or suspended securities remain explicit instead of becoming zero-valued records. A first load must remain within 1% of the recently verified per-market catalog floor, and it cannot claim `EOD_FULL` unless both market counts meet the dated verified baseline. A later catalog that drops more than 1% cannot overwrite the last complete cache. The browser performs search, market／industry filters, sorting, and 25／50／100-row pagination over this full universe, while the per-page live adapter overlays only the currently visible symbols.
 
-The loopback TWSE MIS development adapter and a local Fubon session refresh every 5 seconds during the Taiwan cash-market session; Fugle-backed and public pages use a minimum 30-second cadence. The full-market service keeps its official TWSE/TPEx catalog, EOD, valuation, and financial baseline for 300 seconds while refreshing only the Fubon price overlay every 5 seconds, so a live refresh does not refetch every official dataset. After close the page reports `EOD` and refreshes every 60 seconds. Every component exposes its own `LIVE`, `EOD`, `PARTIAL`, `STALE`, or `UNAVAILABLE` state, so fresh news cannot disguise a failed quote feed. A breadth snapshot is called full-market only when both TWSE and TPEx catalogs reconcile with the verified baseline. Its `EOD` status additionally requires dated quotes from both markets on the same latest completed session, calculated with the official TWSE holiday schedule and a 15:00 publication grace; future, undated, old, or cross-session rows are excluded from breadth signals. The quote lookback is limited to 15 calendar days, each upstream request has a 3-second timeout, and the complete cold-start breadth build has a 25-second service deadline. Incomplete alert or institutional batches are marked unknown and their authoritative filters are disabled rather than reporting a misleading zero. Valuation, financial-summary, and monthly-revenue sources are checked per market against catalog coverage; valuation dates must also match the latest completed session and are shown beside PE／PB／yield. `/api/market/health` separates process liveness from ready／usable cache state, and every breadth snapshot publishes per-market catalog plus quote, valuation, fundamental, revenue, institutional, alert, calendar, and industry coverage counts.
+During market hours the local Fubon adapter keeps REST as the authoritative
+baseline and opens the SDK's Normal-mode WebSocket. It subscribes to
+`aggregates` only for requested stocks and to the two benchmark `indices`;
+accepted provider events can upgrade matching rows to `LIVE` without inventing
+reference prices. A disconnected, unauthenticated, quiet, malformed,
+future-dated, out-of-order, or expired stream is downgraded to `STALE`.
+`DELAYED` is used only when provider metadata explicitly identifies a delayed
+feed. After close the page reports authoritative `EOD`, never streaming merely
+because a socket is connected.
+
+The loopback TWSE MIS development adapter and the connected Fubon page use a minimum five-second refresh cadence; Fugle-backed and public pages use a minimum 30-second cadence. The full-market service keeps its official TWSE/TPEx catalog, EOD, valuation, and financial baseline for 300 seconds while refreshing only the Fubon price overlay every 5 seconds, so a live refresh does not refetch every official dataset. Successful official snapshots are written atomically under the ignored `.local-data/official-snapshots` directory. If an upstream later fails, only that last validated snapshot may be returned, explicitly downgraded to `STALE` with its original observation time and cache provenance. Every component exposes its own `LIVE`, `DELAYED`, `EOD`, `PARTIAL`, `STALE`, or `UNAVAILABLE` state, so fresh news cannot disguise a failed quote feed. A breadth snapshot is called full-market only when both TWSE and TPEx catalogs reconcile with the verified baseline. Its `EOD` status additionally requires dated quotes from both markets on the same latest completed session, calculated with the official TWSE holiday schedule and a 15:00 publication grace; future, undated, old, or cross-session rows are excluded from breadth signals. The quote lookback is limited to 15 calendar days, each upstream request has a 3-second timeout, and the complete cold-start breadth build has a 25-second service deadline. Incomplete alert or institutional batches are marked unknown and their authoritative filters are disabled rather than reporting a misleading zero. Valuation, financial-summary, and monthly-revenue sources are checked per market against catalog coverage; valuation dates must also match the latest completed session and are shown beside PE／PB／yield. `/api/market/health` separates process liveness from ready／usable cache state, and every breadth snapshot publishes per-market catalog plus quote, valuation, fundamental, revenue, institutional, alert, calendar, and industry coverage counts.
 
 The loopback page also exposes `/api/us/market`. It joins Nasdaq Trader's official symbol-directory files with FINRA's latest published Consolidated NMS daily short-sale-volume file. This supplies a searchable U.S. reference universe plus the explicitly labelled `FINRA 場外短售成交比`; that ratio is not exchange-consolidated volume, a short position, or short interest. The public FINRA files are free for non-commercial use. U.S. price and return fields stay blank until a contracted price provider is configured, and this reference route is refused on non-loopback binds. The app does not scrape Nasdaq.com's internal website API or substitute mock prices.
 
@@ -195,6 +213,48 @@ reported separately; a partial feed cannot claim full-market live status.
 TAIEX and TPEx benchmark symbols are discovered from the index ticker endpoint.
 If an account uses different identifiers, set `FUBON_TAIEX_SYMBOL` and
 `FUBON_TPEX_SYMBOL`.
+
+The intraday overlay follows Fubon's official
+[WebSocket connection lifecycle](https://www.fbs.com.tw/TradeAPI/docs/market-data/websocket-api/getting-started/),
+[aggregate channel](https://www.fbs.com.tw/TradeAPI/docs/market-data/websocket-api/market-data-channels/aggregates/),
+and [index channel](https://www.fbs.com.tw/TradeAPI/docs/market-data/websocket-api/market-data-channels/indices/)
+contracts. The browser receives only normalized market rows and health state;
+credentials and the SDK session remain in the server process.
+
+The Python SDK delivers the successful `authenticated` envelope through its
+registered `message` callback; subscriptions are sent only after that envelope
+has passed validation. For `aggregates`, the adapter consumes the provider's
+`symbol`, `type`, `exchange`, `date`, `lastPrice`／`closePrice`,
+`openPrice`／`highPrice`／`lowPrice`, best `bids`／`asks`,
+`total.tradeVolume`, `total.tradeValue`, `isClose`, `lastUpdated`, `serial`,
+and explicit delay metadata. It deliberately keeps the validated REST row's
+company name, previous close, and provider provenance, then recomputes change
+from that REST previous close. For `indices`, it consumes only `symbol`,
+`type`, `exchange`, `index`, `time`, and explicit delay metadata. REST symbols
+`IX0001` and `IX0043` map to the documented WebSocket identities `IR0001` and
+`IR0043`; unknown identifiers are not guessed.
+
+The local stream accepts at most 180 stock and 16 index subscriptions. A raw
+message is capped at 256 KiB; decoded JSON is capped at depth 8, 2,048 nodes,
+256 array entries, 128 object fields, 128-character keys and subscription IDs,
+and a whitelist of bounded retained quote fields. A connected or authenticated
+socket is transport evidence only. `LIVE` requires a fresh, accepted in-session
+data event; after-hours REST observations remain `EOD`, and a malformed,
+future, out-of-order, silent, or disconnected feed remains `STALE` until a new
+valid data event arrives.
+
+The financial cards link directly to the official datasets they actually use:
+[TWSE quarterly financial summaries](https://openapi.twse.com.tw/v1/opendata/t187ap14_L),
+[TPEx quarterly financial summaries](https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O),
+[TWSE valuation](https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL),
+[TPEx valuation](https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis),
+[TWSE monthly revenue](https://openapi.twse.com.tw/v1/opendata/t187ap05_L), and
+[TPEx monthly revenue](https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O).
+The normalized fields are quarterly EPS, operating revenue, operating profit,
+net income, PE, PB, dividend yield, monthly revenue, month-over-month change,
+and year-over-year change. Coverage and source dates are reported per market;
+missing companies, cross-session valuation rows, unpublished periods, and
+upstream outages remain explicit rather than being converted to zero.
 
 Fubon traffic is guarded by a conservative 240-calls-per-minute process
 budget, four-request concurrency limit, short negative cache, and a bounded

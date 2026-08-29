@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from taiwan_stock_analysis.review_action_state import load_review_action_state
+from taiwan_stock_analysis.dashboard_data_policy import admit_dashboard_items
 from taiwan_stock_analysis.dashboard_ui.page import render as _render_dashboard_page
+from taiwan_stock_analysis.review_action_state import load_review_action_state
 
 
 DashboardItems = dict[str, list[dict[str, Any]]]
+DataMode = Literal["production", "demo"]
 
 
 def discover_dashboard_items(search_dirs: list[Path]) -> DashboardItems:
@@ -261,11 +264,35 @@ def render_dashboard_html(
     *,
     action_api_enabled: bool = False,
     live_api_enabled: bool | None = None,
+    data_mode: DataMode = "demo",
+    now: datetime | None = None,
 ) -> str:
+    if data_mode not in {"production", "demo"}:
+        raise ValueError("data_mode must be 'production' or 'demo'")
+
+    if data_mode == "production":
+        render_items, admission_summary = admit_dashboard_items(items, now=now)
+    else:
+        render_items = items
+        by_collection = {
+            key: {"admitted": len(artifacts), "rejected": 0}
+            for key, artifacts in items.items()
+        }
+        admission_summary = {
+            "mode": "demo",
+            "admitted_count": sum(len(artifacts) for artifacts in items.values()),
+            "rejected_count": 0,
+            "by_collection": by_collection,
+            "by_reason": {},
+            "rejections": [],
+        }
+
     return _render_dashboard_page(
-        items,
+        render_items,
         action_api_enabled=action_api_enabled,
         live_api_enabled=live_api_enabled,
+        data_mode=data_mode,
+        admission_summary=admission_summary,
     )
 
 

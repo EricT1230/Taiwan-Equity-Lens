@@ -206,6 +206,50 @@ class _FakeFubonSessionManager:
         self.closes += 1
 
 
+class _FakeFubonStream:
+    def __init__(self, overlay):
+        self.overlay = overlay
+        self.subscribe_calls = []
+        self.unsubscribe_calls = []
+        self.connects = 0
+        self.closes = 0
+
+    def subscribe(self, *, stock_symbols=(), index_symbols=()):
+        self.subscribe_calls.append((set(stock_symbols), set(index_symbols)))
+
+    def unsubscribe(self, *, stock_symbols=(), index_symbols=()):
+        self.unsubscribe_calls.append((set(stock_symbols), set(index_symbols)))
+
+    def connect(self):
+        self.connects += 1
+
+    def overlay_snapshot(self):
+        return self.overlay
+
+    def health(self):
+        status = self.overlay.get("status", "UNAVAILABLE")
+        health = {
+            "ok": status in {"LIVE", "EOD"},
+            "ready": status in {"LIVE", "EOD"},
+            "usable": status in {"LIVE", "DELAYED", "EOD"},
+            "status": status,
+            "transport_status": self.overlay.get(
+                "transport_status", "STREAMING"
+            ),
+        }
+        for key in (
+            "connect_worker_active",
+            "reconnect_failures",
+            "retry_after_seconds",
+        ):
+            if key in self.overlay:
+                health[key] = self.overlay[key]
+        return health
+
+    def close(self):
+        self.closes += 1
+
+
 class _FubonFixtureFetcher(_FixtureFetcher):
     def __call__(
         self,
@@ -219,7 +263,7 @@ class _FubonFixtureFetcher(_FixtureFetcher):
         if url.startswith(
             f"{FUBON_STOCK_BASE_URL}/snapshot/quotes/"
         ):
-            market = "TSE" if "/TSE?" in url else "OTC"
+            market = "TSE" if "/snapshot/quotes/TSE" in url else "OTC"
             is_twse = market == "TSE"
             return {
                 "date": "2026-07-29",
@@ -570,6 +614,20 @@ class LiveMarketServiceTests(unittest.TestCase):
         mis_calls = [url for url, _ in fetcher.calls if url.startswith(TWSE_MIS_URL)]
         self.assertEqual(1, len(mis_calls))
 
+    def test_manual_force_refresh_bypasses_snapshot_component_cache(self):
+        fetcher = _FixtureFetcher()
+        service = LiveMarketService(
+            fetch_json=fetcher,
+            clock=lambda: datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI),
+        )
+        with patch.object(service, "_load_fund_flow", return_value=_flow_rows()):
+            service.snapshot(["2330"])
+            service.snapshot(["2330"])
+            service.snapshot(["2330"], force=True)
+
+        mis_calls = [url for url, _ in fetcher.calls if url.startswith(TWSE_MIS_URL)]
+        self.assertEqual(2, len(mis_calls))
+
     def test_fugle_symbol_cache_reuses_shared_symbols_across_watchlists(self):
         fetcher = _FixtureFetcher()
         service = LiveMarketService(
@@ -643,8 +701,8 @@ class LiveMarketServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                f"{FUBON_STOCK_BASE_URL}/snapshot/quotes/TSE?type=ALLBUT099",
-                f"{FUBON_STOCK_BASE_URL}/snapshot/quotes/OTC?type=ALLBUT099",
+                f"{FUBON_STOCK_BASE_URL}/snapshot/quotes/TSE",
+                f"{FUBON_STOCK_BASE_URL}/snapshot/quotes/OTC",
             },
             {
                 url
@@ -660,6 +718,212 @@ class LiveMarketServiceTests(unittest.TestCase):
         self.assertEqual(6, health["estimated_provider_calls_per_snapshot"])
         self.assertEqual(5, health["minimum_client_refresh_seconds"])
         self.assertNotIn("must-not-appear", str(health))
+
+    def test_fubon_websocket_aggregate_overlays_rest_baseline_and_is_reported(self):
+        now = datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI)
+        event_time = int(now.timestamp() * 1_000_000)
+        stream = _FakeFubonStream(
+            {
+                "status": "LIVE",
+                "transport_status": "STREAMING",
+                "connect_worker_active": False,
+                "reconnect_failures": 2,
+                "retry_after_seconds": 10.0,
+                "aggregates": {
+                    "2330": {
+                        "date": "2026-07-29",
+                        "type": "EQUITY",
+                        "exchange": "TWSE",
+                        "symbol": "2330",
+                        "name": "串流名稱不得取代 REST 名稱",
+                        "lastPrice": 2222,
+                        "previousClose": 1000,
+                        "change": 1222,
+                        "changePercent": 122.2,
+                        "lastUpdated": event_time,
+                        "source_event_time": now.isoformat(),
+                        "status": "LIVE",
+                        "total": {"tradeVolume": 12345},
+                    }
+                },
+                "indices": {},
+            }
+        )
+        service = LiveMarketService(
+            fetch_json=_FubonFixtureFetcher(),
+            provider="fubon",
+            fubon_session_manager=_FakeFubonSessionManager(),
+            fubon_stream_feed=stream,
+            clock=lambda: now,
+        )
+
+        snapshot = service.snapshot(["2330"])
+        quote = next(
+            row for row in snapshot["quotes"] if row["symbol"] == "2330"
+        )
+
+        self.assertEqual(2222, quote["price"])
+        self.assertEqual("台積電", quote["name"])
+        self.assertEqual(2200, quote["previous_close"])
+        self.assertEqual(22, quote["change"])
+        self.assertEqual(1.0, quote["change_percent"])
+        self.assertEqual("2330", quote["provider_symbol"])
+        self.assertEqual("TWSE", quote["exchange"])
+        self.assertEqual(12345, quote["volume"])
+        self.assertEqual("LIVE", quote["status"])
+        self.assertIn("WebSocket", quote["source"])
+        self.assertEqual(
+            "LIVE",
+            snapshot["source_status"]["quotes"]["stream"]["status"],
+        )
+        self.assertEqual(
+            2,
+            snapshot["source_status"]["quotes"]["stream"]["reconnect_failures"],
+        )
+        self.assertEqual(
+            10.0,
+            snapshot["source_status"]["quotes"]["stream"]["retry_after_seconds"],
+        )
+        self.assertFalse(
+            snapshot["source_status"]["quotes"]["stream"]["connect_worker_active"]
+        )
+        self.assertEqual({"2330"}, stream.subscribe_calls[0][0])
+        self.assertEqual(
+            {"IR0001", "IR0043"},
+            stream.subscribe_calls[0][1],
+        )
+        self.assertGreaterEqual(stream.connects, 1)
+
+        service.close()
+        self.assertEqual(1, stream.closes)
+
+    def test_fubon_websocket_never_upgrades_stale_or_cross_session_rest_baseline(self):
+        now = datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI)
+        stream = _FakeFubonStream(
+            {
+                "status": "LIVE",
+                "transport_status": "STREAMING",
+                "aggregates": {
+                    "2330": {
+                        "date": "2026-07-29",
+                        "type": "EQUITY",
+                        "exchange": "TWSE",
+                        "symbol": "2330",
+                        "lastPrice": 2222,
+                        "source_event_time": now.isoformat(),
+                        "status": "LIVE",
+                    }
+                },
+                "indices": {},
+            }
+        )
+        service = LiveMarketService(
+            fetch_json=_FubonFixtureFetcher(),
+            provider="fubon",
+            fubon_session_manager=_FakeFubonSessionManager(),
+            fubon_stream_feed=stream,
+            clock=lambda: now,
+        )
+        baseline = {
+            "symbol": "2330",
+            "provider_symbol": "2330",
+            "kind": "equity",
+            "status": "LIVE",
+            "session_date": "2026-07-29",
+            "price": 2210,
+            "previous_close": 2200,
+            "change": 10,
+            "change_percent": 10 / 2200 * 100,
+            "source": "Fubon Neo MarketData",
+        }
+
+        for status, session_date in (
+            ("STALE", "2026-07-29"),
+            ("LIVE", "2026-07-28"),
+        ):
+            with self.subTest(status=status, session_date=session_date):
+                candidate = dict(
+                    baseline,
+                    status=status,
+                    session_date=session_date,
+                )
+                rows, _ = service._apply_fubon_stream_overlay(
+                    [candidate],
+                    requested_symbols=["2330"],
+                    errors=[],
+                )
+                self.assertEqual(candidate, rows[0])
+                self.assertEqual(2210, rows[0]["price"])
+                self.assertNotIn("WebSocket", rows[0]["source"])
+
+    def test_fubon_stream_exception_never_exposes_sdk_derived_secrets(self):
+        derived_secret = "sdk_token=DERIVED-SESSION account=987654321"
+
+        class ExplodingStream(_FakeFubonStream):
+            def subscribe(self, *, stock_symbols=(), index_symbols=()):
+                raise RuntimeError(derived_secret)
+
+        now = datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI)
+        stream = ExplodingStream({"status": "UNAVAILABLE"})
+        service = LiveMarketService(
+            fetch_json=_FubonFixtureFetcher(),
+            provider="fubon",
+            fubon_session_manager=_FakeFubonSessionManager(),
+            fubon_stream_feed=stream,
+            clock=lambda: now,
+        )
+
+        snapshot = service.snapshot(["2330"])
+        health = service.health()
+
+        self.assertNotIn(derived_secret, str(snapshot))
+        self.assertNotIn("DERIVED-SESSION", str(snapshot))
+        self.assertNotIn("987654321", str(snapshot))
+        self.assertNotIn(derived_secret, str(health))
+        self.assertIn("Fubon market-data response was invalid", str(snapshot))
+
+    def test_fubon_delayed_websocket_indices_disable_market_strategy(self):
+        now = datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI)
+        stream = _FakeFubonStream(
+            {
+                "status": "DELAYED",
+                "transport_status": "STREAMING",
+                "aggregates": {},
+                "indices": {
+                    "IR0001": {
+                        "symbol": "IR0001",
+                        "index": 40110,
+                        "source_event_time": now.isoformat(),
+                        "status": "DELAYED",
+                    },
+                    "IR0043": {
+                        "symbol": "IR0043",
+                        "index": 351.5,
+                        "source_event_time": now.isoformat(),
+                        "status": "DELAYED",
+                    },
+                },
+            }
+        )
+        service = LiveMarketService(
+            fetch_json=_FubonFixtureFetcher(),
+            provider="fubon",
+            fubon_session_manager=_FakeFubonSessionManager(),
+            fubon_stream_feed=stream,
+            clock=lambda: now,
+        )
+
+        snapshot = service.snapshot(["2330"])
+
+        self.assertEqual("DELAYED", snapshot["status"])
+        self.assertEqual("DELAYED", snapshot["market"]["status"])
+        self.assertEqual("neutral", snapshot["market"]["strategy"])
+        self.assertIsNone(snapshot["market"]["temperature"])
+        self.assertFalse(snapshot["quotes_ok"])
+        self.assertEqual(
+            "DELAYED",
+            snapshot["source_status"]["quotes"]["status"],
+        )
 
     def test_fubon_breadth_support_returns_both_market_snapshots(self):
         service = LiveMarketService(
@@ -710,7 +974,7 @@ class LiveMarketServiceTests(unittest.TestCase):
                 allow_redirects,
                 compatibility_tls,
             )
-            if "/snapshot/quotes/TSE?" in url:
+            if "/snapshot/quotes/TSE" in url:
                 row = payload["data"][0]
                 row["closePrice"] = None
                 row["lastPrice"] = 9999
@@ -1013,6 +1277,29 @@ class LiveMarketServiceTests(unittest.TestCase):
         self.assertEqual([], concurrent["payload"])
         self.assertNotIn("quotes:2330", service._cache)
 
+    def test_fubon_auth_invalidation_closes_and_detaches_old_stream(self):
+        stream = _FakeFubonStream({"status": "LIVE"})
+        manager = _FakeFubonSessionManager()
+        service = LiveMarketService(
+            fetch_json=_FubonFixtureFetcher(),
+            provider="fubon",
+            fubon_session_manager=manager,
+            fubon_stream_feed=stream,
+            clock=lambda: datetime(2026, 7, 29, 10, 6, tzinfo=TAIPEI),
+        )
+        service._fubon_stream_desired_stocks = {"2330"}
+        service._fubon_stream_desired_indices = {"IR0001"}
+        service._fubon_stream_create_attempted = True
+
+        service._invalidate_fubon_authentication(401)
+
+        self.assertEqual(1, stream.closes)
+        self.assertIsNone(service._fubon_stream_feed)
+        self.assertFalse(service._fubon_stream_create_attempted)
+        self.assertEqual(set(), service._fubon_stream_desired_stocks)
+        self.assertEqual(set(), service._fubon_stream_desired_indices)
+        self.assertEqual(1, manager.invalidations)
+
     def test_successful_fubon_breadth_refresh_recovers_provider_health(self):
         service = LiveMarketService(
             fetch_json=_FubonFixtureFetcher(),
@@ -1099,6 +1386,11 @@ class LiveMarketServiceTests(unittest.TestCase):
                         "Title": "未來新聞",
                         "Url": "https://www.twse.com.tw/news/future",
                     },
+                    {
+                        "Date": "1150730",
+                        "Title": "缺少原文連結",
+                        "Url": "",
+                    },
                 ]
             if url in {TWSE_MATERIAL_URL, TPEX_MATERIAL_URL}:
                 return []
@@ -1116,7 +1408,7 @@ class LiveMarketServiceTests(unittest.TestCase):
         self.assertEqual("PARTIAL", twse_news["status"])
         self.assertEqual(1, twse_news["row_count"])
         self.assertTrue(
-            any("twse-news: rejected 2 of 3 rows" in error for error in loaded.errors)
+            any("twse-news: rejected 3 of 4 rows" in error for error in loaded.errors)
         )
         self.assertTrue(
             any("discarded future event 2026-07-31" in error for error in loaded.errors)

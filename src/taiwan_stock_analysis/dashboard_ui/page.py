@@ -46,6 +46,7 @@ _TAB_LABELS = (
 # but the established dashboard.py convention only ever surfaces these three in a
 # summary readout -- kept identical here for the topbar's three dots.
 _FRESHNESS_KEYS = ("news", "fund_flow", "industry_trend")
+_DATA_MODES = {"production", "demo"}
 
 _DISCLAIMER = (
     "本儀表板僅協助整理研究流程與交接狀態，所有內容為研究過程紀錄，"
@@ -55,6 +56,13 @@ _DISCLAIMER = (
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _normalise_data_mode(value: str) -> str:
+    mode = str(value or "").strip().casefold()
+    if mode not in _DATA_MODES:
+        raise ValueError("data_mode must be 'production' or 'demo'")
+    return mode
 
 
 def _first_valid_summary(items: dict[str, Any]) -> dict[str, Any] | None:
@@ -241,7 +249,11 @@ def _sidebar(items: dict[str, Any], open_count: int) -> str:
     )
 
 
-def _live_connection_bar(*, live_api_enabled: bool) -> str:
+def _live_connection_bar(
+    *,
+    live_api_enabled: bool,
+    force_refresh_enabled: bool,
+) -> str:
     if not live_api_enabled:
         return (
             '<section class="live-connection live-connection-offline" aria-label="連線狀態">'
@@ -249,6 +261,11 @@ def _live_connection_bar(*, live_api_enabled: bool) -> str:
             '<small>即時行情與消息需要透過 dashboard --serve 啟動。</small></div>'
             "</section>"
         )
+    refresh_control = (
+        '<button type="button" class="desk-link" data-live-refresh="true">立即更新</button>'
+        if force_refresh_enabled
+        else '<span class="desk-link" data-live-refresh-read-only="true">唯讀自動更新</span>'
+    )
     return (
         '<section class="live-connection live-connection-loading" data-live-connection="true"'
         ' aria-label="即時資料連線狀態" aria-live="polite">'
@@ -257,8 +274,46 @@ def _live_connection_bar(*, live_api_enabled: bool) -> str:
         '<small data-live-connection-detail="true">等待行情、公告與法人資料</small></div>'
         '<div class="live-connection-actions">'
         '<span class="mono" data-live-countdown="true">--</span>'
-        '<button type="button" class="desk-link" data-live-refresh="true">立即更新</button>'
+        f"{refresh_control}"
         "</div></section>"
+    )
+
+
+def _admission_rejected_count(admission_summary: dict[str, Any] | None) -> int:
+    if not isinstance(admission_summary, dict):
+        return 0
+    value = admission_summary.get("rejected_count", 0)
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _data_mode_banner(data_mode: str, *, rejected_count: int) -> str:
+    if data_mode == "demo":
+        return (
+            '<section class="data-mode-banner data-mode-demo"'
+            ' data-data-mode-badge="demo" data-admission-rejected-count="0"'
+            ' role="alert" aria-label="示範資料警告">'
+            '<strong>Demo 模式｜DEMO／示範資料，不可作投資依據</strong>'
+            '<small>此頁可包含 fixture、offline 或 synthetic 範例，且不會成為正式資料的備援。</small>'
+            "</section>"
+        )
+    rejected_note = (
+        f"已封鎖 {rejected_count} 份未通過正式資料檢查的內容。"
+        if rejected_count
+        else "目前沒有內容被正式資料檢查封鎖。"
+    )
+    return (
+        '<section class="data-mode-banner data-mode-production"'
+        ' data-data-mode-badge="production"'
+        f' data-admission-rejected-count="{rejected_count}" aria-label="資料模式">'
+        '<strong>正式資料模式</strong>'
+        '<small>只顯示通過正式來源、狀態與時間檢查的資料。'
+        f"{rejected_note}</small>"
+        "</section>"
     )
 
 
@@ -291,8 +346,12 @@ def render(
     *,
     action_api_enabled: bool = False,
     live_api_enabled: bool | None = None,
+    data_mode: str = "production",
+    admission_summary: dict[str, Any] | None = None,
 ) -> str:
     safe_items = items if isinstance(items, dict) else {}
+    safe_data_mode = _normalise_data_mode(data_mode)
+    rejected_count = _admission_rejected_count(admission_summary)
     live_enabled = action_api_enabled if live_api_enabled is None else bool(live_api_enabled)
     topbar_html, open_count = _topbar(safe_items)
     sidebar_html = _sidebar(safe_items, open_count)
@@ -312,12 +371,16 @@ def render(
         f"<style>{base_css()}{view_css()}</style>"
         "</head>"
         f'<body data-storage-namespace="{esc(storage_namespace)}"'
+        f' data-dashboard-mode="{safe_data_mode}"'
+        f' data-data-mode="{safe_data_mode}"'
+        f' data-admission-rejected-count="{rejected_count if safe_data_mode == "production" else 0}"'
         f' data-live-api-enabled="{"true" if live_enabled else "false"}">'
         '<div class="app-shell">'
         f"{sidebar_html}"
         '<main class="app-main">'
         f"{topbar_html}"
-        f"{_live_connection_bar(live_api_enabled=live_enabled)}"
+        f"{_data_mode_banner(safe_data_mode, rejected_count=rejected_count)}"
+        f"{_live_connection_bar(live_api_enabled=live_enabled, force_refresh_enabled=action_api_enabled)}"
         f"{panels_html}"
         f'<footer class="disclaimer">{esc(_DISCLAIMER)}</footer>'
         "</main>"

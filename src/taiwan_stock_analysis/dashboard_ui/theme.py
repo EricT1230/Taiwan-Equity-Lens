@@ -597,6 +597,21 @@ def view_css() -> str:
     .strategy-rule-grid strong {{ color: {t['text_2']}; font-size: 10px; }}
     .strategy-rule-grid p {{ margin: 5px 0 0; color: {t['text_muted']}; font-size: 9px; line-height: 1.6; }}
 
+    /* -- explicit production / demo data mode ------------------------------ */
+    .data-mode-banner {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin: 14px 26px 0; padding: 10px 14px; border: 1px solid {t['border_bright']};
+      border-radius: 10px; background: rgba(13,21,38,0.9); }}
+    .data-mode-banner strong {{ font-size: 12px; letter-spacing: .25px; }}
+    .data-mode-banner small {{ color: {t['text_muted']}; font-size: 9px; }}
+    .data-mode-production {{ border-color: rgba(46,224,247,0.28); }}
+    .data-mode-production strong {{ color: {t['accent']}; }}
+    .data-mode-demo {{ border-width: 2px; border-color: rgba(255,201,77,0.88);
+      background: repeating-linear-gradient(-45deg, rgba(255,201,77,0.13),
+        rgba(255,201,77,0.13) 10px, rgba(255,107,125,0.08) 10px,
+        rgba(255,107,125,0.08) 20px); }}
+    .data-mode-demo strong {{ color: {t['warn']}; font-size: 13px; }}
+    .data-mode-demo small {{ color: {t['text_2']}; }}
+
     /* -- connected live market mode ---------------------------------------- */
     .live-connection {{ display: flex; align-items: center; justify-content: space-between; gap: 14px;
       margin: 14px 26px 0; padding: 10px 14px; border: 1px solid {t['border_bright']};
@@ -637,7 +652,7 @@ def view_css() -> str:
       .topbar {{ position: static; padding: 12px 16px; }}
       .topbar-heading {{ display: none; }}
       .topbar-search {{ order: 2; max-width: none; flex-basis: 100%; }}
-      .live-connection {{ margin: 10px 14px 0; }}
+      .data-mode-banner, .live-connection {{ margin: 10px 14px 0; }}
       .ui-panel {{ padding: 22px 14px 30px; }}
       .product-page-head {{ align-items: flex-start; flex-direction: column; }}
       .desk-hero {{ grid-template-columns: 1fr; }}

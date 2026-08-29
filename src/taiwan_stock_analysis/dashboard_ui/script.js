@@ -10,6 +10,9 @@
   var screenerBreadthCoverage = {};
   var screenerBreadthMode = "UNAVAILABLE";
   var screenerBreadthStatus = "UNAVAILABLE";
+  var screenerBreadthExpectedSessionDate = "";
+  var screenerBreadthSessionFresh = false;
+  var screenerBreadthCrossMarketComparable = false;
   var screenerBreadthSessionDates = {};
   var screenerBreadthSourceStatus = {};
   var screenerTaiwanBreadthRows = [];
@@ -27,11 +30,38 @@
   var marketBreadthLoadedSessionKey = "";
   var marketBreadthIndustryRows = [];
   var liveBreadthRefreshPending = false;
+  var liveBreadthRefreshForce = false;
   var liveVisibleRefreshTimer = null;
   var liveLastRequestAt = 0;
   var liveIntelligenceNewsRows = [];
   var liveIntelligenceNewsVisible = 12;
   var liveIntelligenceNewsSignature = "";
+  var liveFundamentalRows = [];
+  var liveFundamentalVisible = 24;
+  var liveFundamentalStatus = "UNAVAILABLE";
+  var liveFundamentalGeneratedAt = "";
+  var liveFundamentalSourceLabel = "";
+  var liveFundamentalSources = [];
+  var liveFundamentalOverlayLabel = "";
+  var MARKET_STATUS_POLICY = {
+    LIVE:{tone:"ok", readOnly:false, decisionReady:true, financial:true,
+      quoteLabel:"即時", connectionTitle:"市場連線中", strategyLabel:"即時連線"},
+    EOD:{tone:"info", readOnly:false, decisionReady:true, financial:true,
+      quoteLabel:"收盤", connectionTitle:"今日收盤資料已連線", strategyLabel:"今日收盤"},
+    DELAYED:{tone:"warn", readOnly:true, decisionReady:false, financial:false,
+      quoteLabel:"延遲／唯讀", connectionTitle:"延遲行情／唯讀備援", strategyLabel:"延遲／唯讀備援"},
+    STALE:{tone:"warn", readOnly:true, decisionReady:false, financial:false,
+      quoteLabel:"過期備援／唯讀", connectionTitle:"來源已過期／唯讀備援", strategyLabel:"過期／唯讀備援"},
+    UNAVAILABLE:{tone:"warn", readOnly:false, decisionReady:false, financial:false,
+      quoteLabel:"來源狀態未確認", connectionTitle:"市場來源暫時不可用", strategyLabel:"不可用"},
+    PARTIAL:{tone:"warn", readOnly:false, decisionReady:false, financial:true,
+      quoteLabel:"部分資料", connectionTitle:"部分市場資料", strategyLabel:"部分缺漏"}
+  };
+
+  function marketStatusPolicy(value) {
+    var status = String(value || "UNAVAILABLE").toUpperCase();
+    return MARKET_STATUS_POLICY[status] || MARKET_STATUS_POLICY.UNAVAILABLE;
+  }
 
   function activateTab(name) {
     if (TAB_KEYS.indexOf(name) === -1) { name = DEFAULT_TAB; }
@@ -149,6 +179,9 @@
       coverage: screenerBreadthCoverage,
       mode: screenerBreadthMode,
       status: screenerBreadthStatus,
+      expectedSessionDate: screenerBreadthExpectedSessionDate,
+      sessionFresh: screenerBreadthSessionFresh,
+      crossMarketComparable: screenerBreadthCrossMarketComparable,
       sessionDates: screenerBreadthSessionDates,
       sourceStatus: screenerBreadthSourceStatus
     };
@@ -159,6 +192,9 @@
     screenerBreadthCoverage = meta.coverage || {};
     screenerBreadthMode = String(meta.mode || "UNAVAILABLE").toUpperCase();
     screenerBreadthStatus = String(meta.status || "UNAVAILABLE").toUpperCase();
+    screenerBreadthExpectedSessionDate = String(meta.expectedSessionDate || "");
+    screenerBreadthSessionFresh = meta.sessionFresh === true;
+    screenerBreadthCrossMarketComparable = meta.crossMarketComparable === true;
     screenerBreadthSessionDates = meta.sessionDates || {};
     screenerBreadthSourceStatus = meta.sourceStatus || {};
   }
@@ -439,6 +475,9 @@
       ? snapshot.coverage : {};
     screenerBreadthMode = String(snapshot.mode || "UNAVAILABLE").toUpperCase();
     screenerBreadthStatus = String(snapshot.status || "UNAVAILABLE").toUpperCase();
+    screenerBreadthExpectedSessionDate = String(snapshot.expected_session_date || "");
+    screenerBreadthSessionFresh = snapshot.session_fresh === true;
+    screenerBreadthCrossMarketComparable = snapshot.cross_market_comparable === true;
     var activeSessionDates = screenerBreadthStatus === "LIVE"
       ? snapshot.live_session_dates : snapshot.session_dates;
     screenerBreadthSessionDates = activeSessionDates &&
@@ -480,7 +519,7 @@
       var row = screenerNormalizeRow(
         rawBySymbol[symbol] || {}, catalogBySymbol[symbol] || {}, alertBySymbol[symbol]
       );
-      if (row && ["LIVE", "EOD"].indexOf(screenerBreadthStatus) === -1) {
+      if (row && !screenerRowTrendReady(row)) {
         row.tags = row.tags.filter(function (tag) {
           return tag !== "bull" && tag !== "bear";
         });
@@ -756,6 +795,74 @@
     );
   }
 
+  function screenerTrendReady() {
+    if (screenerUniverseMode === "US") {
+      return ["LIVE", "EOD"].indexOf(screenerBreadthStatus) !== -1;
+    }
+    if (screenerBreadthStatus === "STALE") { return false; }
+    var expected = screenerBreadthExpectedSessionDate;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expected) ||
+        !screenerBreadthSessionFresh ||
+        !screenerBreadthCrossMarketComparable ||
+        String(screenerBreadthSessionDates.TWSE || "") !== expected ||
+        String(screenerBreadthSessionDates.TPEX || "") !== expected) {
+      return false;
+    }
+    var catalogTotal = Number(screenerBreadthCoverage.catalog_total);
+    var officialQuotedTotal = Number(
+      screenerBreadthCoverage.official_quoted_total
+    );
+    if (!isFinite(catalogTotal) || catalogTotal <= 0 ||
+        !isFinite(officialQuotedTotal) ||
+        officialQuotedTotal / catalogTotal < 0.95) {
+      return false;
+    }
+    var officialMarketRatios =
+      screenerBreadthCoverage.official_market_ratios || {};
+    var hasTwseRatio = Object.prototype.hasOwnProperty.call(
+      officialMarketRatios, "TWSE"
+    );
+    var hasTpexRatio = Object.prototype.hasOwnProperty.call(
+      officialMarketRatios, "TPEX"
+    );
+    var twseRatio = Number(officialMarketRatios.TWSE);
+    var tpexRatio = Number(officialMarketRatios.TPEX);
+    if (!hasTwseRatio || !hasTpexRatio ||
+        !isFinite(twseRatio) || twseRatio < 0.95 ||
+        !isFinite(tpexRatio) || tpexRatio < 0.95) {
+      return false;
+    }
+    var quoteSource = screenerBreadthSourceStatus.quotes;
+    var upstreams = quoteSource && Array.isArray(quoteSource.upstreams)
+      ? quoteSource.upstreams : [];
+    var verified = {TWSE:false, TPEX:false};
+    for (var i = 0; i < upstreams.length; i++) {
+      var upstream = upstreams[i] || {};
+      var id = String(upstream.id || "").toLowerCase();
+      var market = String(upstream.market || "").toUpperCase();
+      if (!market) {
+        market = id === "twse-daily" ? "TWSE" : id === "tpex-daily" ? "TPEX" : "";
+      }
+      if (market !== "TWSE" && market !== "TPEX") { continue; }
+      if (verified[market] ||
+          String(upstream.status || "").toUpperCase() !== "EOD" ||
+          String(upstream.session_date || "") !== expected) {
+        return false;
+      }
+      verified[market] = true;
+    }
+    return String((quoteSource || {}).status || "").toUpperCase() === "EOD" &&
+      verified.TWSE && verified.TPEX;
+  }
+
+  function screenerRowTrendReady(row) {
+    if (!row || !screenerTrendReady()) { return false; }
+    var status = String(row.status || "").toUpperCase();
+    return (status === "EOD" || status === "LIVE") &&
+      String(row.sourceEventTime || "").slice(0, 10) ===
+        screenerBreadthExpectedSessionDate;
+  }
+
   function updateScreenerSourceControls() {
     var dispositionButton = document.querySelector(
       '[data-screener-filter="disposition"]'
@@ -786,7 +893,7 @@
       }
     }
     if (dispositionCount && !alertsReady) { dispositionCount.textContent = "—"; }
-    var trendReady = ["LIVE", "EOD"].indexOf(screenerBreadthStatus) !== -1;
+    var trendReady = screenerTrendReady();
     var trendKeys = ["bull", "bear"];
     for (var trendIndex = 0; trendIndex < trendKeys.length; trendIndex++) {
       var trendButton = document.querySelector(
@@ -1146,7 +1253,7 @@
         continue;
       }
       if ((keys[keyIndex] === "bull" || keys[keyIndex] === "bear") &&
-          ["LIVE", "EOD"].indexOf(screenerBreadthStatus) === -1) {
+          !screenerTrendReady()) {
         var trendUnavailableNode = document.querySelector(
           '[data-screener-filter-count="' + keys[keyIndex] + '"]'
         );
@@ -1877,24 +1984,37 @@
     }
   }
 
-  function postJson(url, payload) {
+  function postJson(url, payload, requestOptions) {
     var mutationToken = document.body
       ? (document.body.getAttribute("data-action-api-token") || "")
       : "";
     if (!mutationToken) {
       return Promise.reject(new Error("mutation API token is unavailable"));
     }
-    return fetch(url, {
+    var options = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Taiwan-Equity-Lens-Token": mutationToken
       },
       body: JSON.stringify(payload)
-    }).then(function (response) {
+    };
+    if (requestOptions && requestOptions.signal) {
+      options.signal = requestOptions.signal;
+    }
+    return window.fetch(url, options).then(function (response) {
       return response.json().then(function (data) {
         if (!response.ok || data.ok === false) {
-          throw new Error((data && data.error) || ("request failed: " + response.status));
+          var error = new Error(
+            (data && data.error) || ("request failed: " + response.status)
+          );
+          if (response.status === 429 && response.headers) {
+            var retryAfter = Number(response.headers.get("Retry-After"));
+            if (Number.isFinite(retryAfter) && retryAfter > 0) {
+              error.retryAfterSeconds = retryAfter;
+            }
+          }
+          throw error;
         }
         return data;
       });
@@ -2616,11 +2736,15 @@
     var timeout = controller ? window.setTimeout(function () { controller.abort(); }, 30000) : null;
     var options = { cache: "no-store", headers: { "Accept": "application/json" } };
     if (controller) { options.signal = controller.signal; }
-    window.fetch("/api/market/breadth", options)
-      .then(function (response) {
-        if (!response.ok) { throw new Error("market breadth API HTTP " + response.status); }
-        return response.json();
-      })
+    var breadthRequest = force
+      ? postJson("/api/market/breadth/refresh", {}, options)
+      : window.fetch("/api/market/breadth", options).then(function (response) {
+          if (!response.ok) {
+            throw new Error("market breadth API HTTP " + response.status);
+          }
+          return response.json();
+        });
+    breadthRequest
       .then(function (payload) {
         var contractError = marketBreadthContractError(payload);
         if (contractError) { throw new Error(contractError); }
@@ -2628,6 +2752,9 @@
         marketBreadthIndustryRows = industryRows;
         if (!screenerLoadBreadth(payload)) {
           throw new Error("market breadth payload could not be normalized");
+        }
+        if (typeof liveRenderOfficialFundamentals === "function") {
+          liveRenderOfficialFundamentals(payload);
         }
         if (industryRows.length) {
           liveRenderIndustrySummaries(
@@ -2651,9 +2778,14 @@
         }
         scheduleMarketBreadthRefresh();
         liveBreadthRefreshPending = true;
+        liveBreadthRefreshForce = Boolean(force) || (
+          typeof liveBreadthRefreshForce !== "undefined" && liveBreadthRefreshForce
+        );
         if (!liveRequestInFlight && !document.hidden) {
+          var forceSnapshot = liveBreadthRefreshForce;
           liveBreadthRefreshPending = false;
-          liveFetchSnapshot();
+          liveBreadthRefreshForce = false;
+          liveFetchSnapshot(forceSnapshot);
         }
       })
       .catch(function (error) {
@@ -2669,6 +2801,14 @@
         if (industryStatus) {
           industryStatus.textContent = "研究池產業 · 全市場資料未載入";
           industryStatus.setAttribute("title", String(error.message || error));
+        }
+        if (typeof liveFailClosedProduction === "function") {
+          liveFailClosedProduction(error.message || String(error));
+        }
+        if (force && !liveRequestInFlight && !document.hidden) {
+          liveBreadthRefreshPending = false;
+          liveBreadthRefreshForce = false;
+          liveFetchSnapshot(true);
         }
         scheduleMarketBreadthRetry();
       })
@@ -2707,14 +2847,32 @@
 
   function liveQuoteMap(snapshot) {
     var rows = Array.isArray(snapshot.quotes) ? snapshot.quotes : [];
+    var snapshotStatus = String(snapshot.status || "").toUpperCase();
+    var allowReadOnlyFallback = marketStatusPolicy(snapshotStatus).readOnly;
     var mapped = {};
     for (var i = 0; i < rows.length; i++) {
       var status = String((rows[i] || {}).status || "").toUpperCase();
-      if (rows[i] && rows[i].symbol && (status === "LIVE" || status === "EOD")) {
+      var rowPolicy = marketStatusPolicy(status);
+      if (rows[i] && rows[i].symbol && (
+          rowPolicy.decisionReady ||
+          (allowReadOnlyFallback && rowPolicy.readOnly)
+      )) {
         mapped[String(rows[i].symbol).toUpperCase()] = rows[i];
       }
     }
     return mapped;
+  }
+
+  function liveSnapshotDecisionReady(snapshot) {
+    var status = String((snapshot || {}).status || "").toUpperCase();
+    if (!marketStatusPolicy(status).decisionReady) { return false; }
+    if (Array.isArray(snapshot.missing_symbols) && snapshot.missing_symbols.length) {
+      return false;
+    }
+    return sourceStatusAuthoritative(
+      ((snapshot.source_status || {}).quotes || {}),
+      ["EOD", "LIVE"]
+    );
   }
 
   function liveIndex(snapshot, symbol) {
@@ -2729,8 +2887,17 @@
     var bar = document.querySelector('[data-live-connection="true"]');
     if (!bar) { return; }
     var status = String(snapshot.status || "UNAVAILABLE").toUpperCase();
+    var policy = marketStatusPolicy(status);
     var provider = snapshot.provider || {};
     var quoteState = (snapshot.source_status || {}).quotes || {};
+    var streamState = quoteState.stream &&
+      typeof quoteState.stream === "object" && !Array.isArray(quoteState.stream)
+      ? quoteState.stream : null;
+    var streamDetail = streamState
+      ? "WebSocket " +
+        String(streamState.transport_status || "UNKNOWN").toUpperCase() + "/" +
+        String(streamState.status || "UNAVAILABLE").toUpperCase()
+      : "";
     var missingSymbols = Array.isArray(snapshot.missing_symbols)
       ? snapshot.missing_symbols : [];
     var errorCount = Array.isArray(snapshot.errors) ? snapshot.errors.length : 0;
@@ -2747,14 +2914,13 @@
     var detail = bar.querySelector('[data-live-connection-detail="true"]');
     if (title) {
       title.textContent = quotePartial ? "部分自選行情未取得" :
-        status === "LIVE" ? "市場連線中" :
-        status === "EOD" ? "今日收盤資料已連線" :
-        status === "STALE" ? "來源已過期" : "市場來源暫時不可用";
+        policy.connectionTitle;
     }
     if (detail) {
       var generated = String(snapshot.generated_at || "").replace("T", " ").slice(0, 19);
       detail.textContent = (provider.label || "來源未標示") + " · " + generated +
         " · " + (provider.notice || "") +
+        (streamDetail ? " · " + streamDetail : "") +
         (missingSymbols.length ? " · 缺少 " + missingSymbols.join(", ") : "") +
         (errorCount ? " · " + errorCount + " 個來源錯誤" : "");
     }
@@ -2765,8 +2931,7 @@
     var badge = document.querySelector('[data-live-market-badge="true"]');
     if (badge) {
       badge.textContent = status;
-      badge.className = "ui-pill " + (status === "LIVE" ? "ui-pill-ok" :
-        status === "EOD" ? "ui-pill-info" : "ui-pill-warn");
+      badge.className = "ui-pill ui-pill-" + policy.tone;
       badge.title = (provider.label || "") + "；" + (provider.notice || "");
     }
   }
@@ -2884,9 +3049,21 @@
     return mapped;
   }
 
+  function screenerOverlayQuoteTrendReady(quote) {
+    if (!quote || typeof quote !== "object" || Array.isArray(quote)) { return false; }
+    var status = String(quote.status || "").toUpperCase();
+    var eventTime = String(screenerFirstValue(
+      quote, ["source_event_time", "event_time", "as_of", "session_date"], ""
+    ));
+    return (status === "LIVE" || status === "EOD") &&
+      eventTime.slice(0, 10) === screenerBreadthExpectedSessionDate;
+  }
+
   function screenerApplyLiveQuote(row, quote, stockAlerts) {
     screenerRestoreBreadthBaseline(row);
     stockAlerts = Array.isArray(stockAlerts) ? stockAlerts : [];
+    var directionReady = screenerOverlayQuoteTrendReady(quote);
+    if (quote && !directionReady) { quote = null; }
     if (!quote && !stockAlerts.length) { return row; }
     if (quote && typeof quote === "object") {
       row.price = screenerFinite(quote.price);
@@ -2915,7 +3092,7 @@
       row.tags = row.tags.filter(function (tag) {
         return tag !== "bull" && tag !== "bear";
       });
-      if (row.changePercent !== null && row.changePercent !== 0) {
+      if (directionReady && row.changePercent !== null && row.changePercent !== 0) {
         row.tags.push(row.changePercent > 0 ? "bull" : "bear");
       }
     }
@@ -2931,7 +3108,7 @@
       }
     }
     var reasons = [];
-    if (quote && row.changePercent !== null) {
+    if (quote && directionReady && row.changePercent !== null) {
       reasons.push(
         row.changePercent > 0
           ? "當日上漲 " + livePercent(row.changePercent)
@@ -2949,7 +3126,9 @@
     if (!reasons.length && row.industry && row.industry !== "未分類") {
       reasons.push("產業：" + row.industry);
     }
-    if (reasons.length) { row.reasonAll = reasons.join("｜"); }
+    if (reasons.length) {
+      row.reasonAll = reasons.join("｜");
+    }
     return row;
   }
 
@@ -2974,6 +3153,7 @@
       quoteSourceStatus,
       ["EOD", "LIVE"]
     );
+    var decisionsEnabled = liveSnapshotDecisionReady(snapshot);
     var quotes = liveQuoteMap(snapshot);
     var alerts = liveAlertMap(snapshot);
     var breadthRendered = liveSyncBreadthRows(quotes, alerts);
@@ -2984,12 +3164,19 @@
       }
       var symbol = String(rows[i].getAttribute("data-stock-key") || "").toUpperCase();
       var baseTags = rows[i].getAttribute("data-base-screener-tags") || "";
+      if (!decisionsEnabled) {
+        baseTags = baseTags.split(/\s+/).filter(function (tag) {
+          return tag && tag !== "bull" && tag !== "bear";
+        }).join(" ");
+      }
       rows[i].setAttribute("data-screener-tags", baseTags);
       var reasonKeys = ["bull", "bear", "disposition"];
       for (var reasonIndex = 0; reasonIndex < reasonKeys.length; reasonIndex++) {
         var reasonKey = reasonKeys[reasonIndex];
         var baseReason = rows[i].getAttribute("data-base-reason-" + reasonKey);
-        if (baseReason == null) {
+        if (!decisionsEnabled && (reasonKey === "bull" || reasonKey === "bear")) {
+          rows[i].removeAttribute("data-reason-" + reasonKey);
+        } else if (baseReason == null) {
           rows[i].removeAttribute("data-reason-" + reasonKey);
         } else {
           rows[i].setAttribute("data-reason-" + reasonKey, baseReason);
@@ -2997,13 +3184,26 @@
       }
       rows[i].setAttribute(
         "data-reason-all",
-        rows[i].getAttribute("data-base-reason-all") || ""
+        decisionsEnabled
+          ? (rows[i].getAttribute("data-base-reason-all") || "")
+          : (rows[i].getAttribute("data-base-reason-disposition") || "")
       );
       var oldAlertTag = rows[i].querySelector('[data-live-alert-tag="true"]');
       if (oldAlertTag) { oldAlertTag.remove(); }
       var oldTrendTag = rows[i].querySelector('[data-live-trend-tag="true"]');
       if (oldTrendTag) { oldTrendTag.remove(); }
+      var baseDirectionBadges = rows[i].querySelectorAll(
+        '[data-screener-tag="bull"], [data-screener-tag="bear"]'
+      );
+      for (var directionBadgeIndex = 0;
+           directionBadgeIndex < baseDirectionBadges.length;
+           directionBadgeIndex++) {
+        baseDirectionBadges[directionBadgeIndex].hidden = !decisionsEnabled;
+      }
       var quote = quotes[symbol];
+      var quoteStatus = String((quote || {}).status || "").toUpperCase();
+      var quoteDirectionReady = decisionsEnabled &&
+        (quoteStatus === "LIVE" || quoteStatus === "EOD");
       var priceNode = rows[i].querySelector('[data-live-stock-price="true"]');
       var changeNode = rows[i].querySelector('[data-live-stock-change="true"]');
       if (!quote && !quotesAuthoritative) {
@@ -3033,7 +3233,7 @@
         }
         var currentChange = quote.change_percent == null
           ? NaN : Number(quote.change_percent);
-        if (isFinite(currentChange) && currentChange !== 0) {
+        if (quoteDirectionReady && isFinite(currentChange) && currentChange !== 0) {
           var trendKey = currentChange > 0 ? "bull" : "bear";
           var currentTags = " " + (rows[i].getAttribute("data-screener-tags") || "") + " ";
           if (rows[i].getAttribute("data-live-breadth-row") === "true") {
@@ -3083,7 +3283,7 @@
             trendTag.textContent = trendKey === "bull" ? "當日上漲" : "當日下跌";
             liveTagBox.appendChild(trendTag);
           }
-        } else if (isFinite(currentChange) &&
+        } else if (quoteDirectionReady && isFinite(currentChange) &&
                    rows[i].getAttribute("data-live-breadth-row") === "true") {
           var flatTags = (rows[i].getAttribute("data-screener-tags") || "")
             .split(/\s+/).filter(function (tagPart) {
@@ -3172,6 +3372,358 @@
       screenerMode.appendChild(screenerPill);
     }
     if (!breadthRendered) { applyScreenerFilters(); }
+  }
+
+  function liveFinancialStatusLabel(status) {
+    var normalized = String(status || "UNAVAILABLE").toUpperCase();
+    var policy = marketStatusPolicy(normalized);
+    if (policy.readOnly) {
+      return normalized + "｜最後正式值（唯讀）";
+    }
+    if (policy.financial) {
+      return normalized + "｜官方 full_market（唯讀）";
+    }
+    return "UNAVAILABLE｜正式財報不可用";
+  }
+
+  function liveFinancialComponentStatus(payload, key) {
+    var sourceStatus = payload && payload.source_status;
+    var component = sourceStatus && typeof sourceStatus === "object" &&
+      !Array.isArray(sourceStatus) ? sourceStatus[key] : null;
+    return String(component && component.status || "UNAVAILABLE").toUpperCase();
+  }
+
+  function liveFinancialComponentSources(payload, key) {
+    var sourceStatus = payload && payload.source_status;
+    var component = sourceStatus && typeof sourceStatus === "object" &&
+      !Array.isArray(sourceStatus) ? sourceStatus[key] : null;
+    var upstreams = component && Array.isArray(component.upstreams)
+      ? component.upstreams : [];
+    var rows = [];
+    for (var i = 0; i < upstreams.length; i++) {
+      var upstream = upstreams[i];
+      if (!upstream || typeof upstream !== "object" || Array.isArray(upstream)) {
+        continue;
+      }
+      var label = String(upstream.label || upstream.id || "").trim();
+      var url = String(upstream.url || "").trim();
+      if (!label || !/^https:\/\/(openapi\.twse\.com\.tw|www\.tpex\.org\.tw)\//i.test(url)) {
+        continue;
+      }
+      rows.push({
+        id:String(upstream.id || label),
+        label:label,
+        url:url,
+        status:String(upstream.status || "UNAVAILABLE").toUpperCase(),
+        component:key,
+        market:/^https:\/\/openapi\.twse\.com\.tw\//i.test(url) ? "TWSE" : "TPEX"
+      });
+    }
+    return rows;
+  }
+
+  function liveFinancialSources(payload) {
+    var keys = ["fundamentals", "valuation", "revenue"];
+    var rows = [];
+    var seen = {};
+    for (var i = 0; i < keys.length; i++) {
+      var componentRows = liveFinancialComponentSources(payload, keys[i]);
+      for (var j = 0; j < componentRows.length; j++) {
+        var identity = componentRows[j].id + "|" + componentRows[j].url;
+        if (!seen[identity]) {
+          seen[identity] = true;
+          rows.push(componentRows[j]);
+        }
+      }
+    }
+    return rows;
+  }
+
+  function liveFinancialComponentSourceLabel(payload, key) {
+    var rows = liveFinancialComponentSources(payload, key);
+    return rows.map(function (row) { return row.label; }).join(" / ");
+  }
+
+  function liveFinancialSourceSummary(payload) {
+    var components = [
+      ["基本面", "fundamentals"],
+      ["估值", "valuation"],
+      ["月營收", "revenue"]
+    ];
+    return components.map(function (component) {
+      var sources = liveFinancialComponentSourceLabel(payload, component[1]);
+      return component[0] + " " + liveFinancialComponentStatus(payload, component[1]) +
+        (sources ? "（" + sources + "）" : "（來源未提供）");
+    }).join(" · ");
+  }
+
+  function liveFinancialRows(payload) {
+    var sourceRows = Array.isArray(payload && payload.full_market)
+      ? payload.full_market : [];
+    var rows = [];
+    for (var i = 0; i < sourceRows.length; i++) {
+      var source = sourceRows[i];
+      if (!source || typeof source !== "object" || Array.isArray(source)) { continue; }
+      var symbol = String(source.symbol || "").trim().toUpperCase();
+      if (!symbol) { continue; }
+      var row = {
+        symbol: symbol,
+        name: String(source.name || source.company_name || symbol),
+        market: String(source.market || "").trim().toUpperCase(),
+        eps: screenerFinite(source.eps),
+        financialPeriod: String(source.financial_period || ""),
+        peRatio: screenerFinite(source.pe_ratio),
+        pbRatio: screenerFinite(source.pb_ratio),
+        dividendYield: screenerFinite(source.dividend_yield),
+        valuationDate: String(source.valuation_date || ""),
+        revenueYoy: screenerFinite(source.revenue_yoy_percent),
+        revenueMonth: String(source.revenue_month || "")
+      };
+      if (row.eps === null && row.peRatio === null && row.pbRatio === null &&
+          row.dividendYield === null && row.revenueYoy === null) {
+        continue;
+      }
+      row.sourceComponents = [];
+      if (row.eps !== null || row.financialPeriod) {
+        row.sourceComponents.push("fundamentals");
+      }
+      if (row.peRatio !== null || row.pbRatio !== null || row.dividendYield !== null ||
+          row.valuationDate) {
+        row.sourceComponents.push("valuation");
+      }
+      if (row.revenueYoy !== null || row.revenueMonth) {
+        row.sourceComponents.push("revenue");
+      }
+      rows.push(row);
+    }
+    rows.sort(function (left, right) {
+      return left.symbol.localeCompare(right.symbol, "zh-Hant", {numeric:true});
+    });
+    return rows;
+  }
+
+  function liveFinancialSourcesForRow(row) {
+    if (!row || ["TWSE", "TPEX"].indexOf(row.market) === -1) { return []; }
+    var components = Array.isArray(row.sourceComponents) ? row.sourceComponents : [];
+    return liveFundamentalSources.filter(function (source) {
+      return source.market === row.market && components.indexOf(source.component) !== -1;
+    });
+  }
+
+  function liveFinancialMetric(parent, label, value) {
+    var metric = document.createElement("div");
+    metric.className = "intel-factor";
+    var name = document.createElement("span");
+    name.textContent = label + " ";
+    var number = document.createElement("strong");
+    number.className = "mono";
+    number.textContent = value;
+    metric.appendChild(name);
+    metric.appendChild(number);
+    parent.appendChild(metric);
+  }
+
+  function liveOfficialFundamentalCard(row) {
+    var card = document.createElement("article");
+    card.className = "intel-fund-card";
+    card.setAttribute("data-official-fundamental-card", "true");
+    card.setAttribute("data-stock-key", row.symbol);
+    card.setAttribute("data-production-state", liveFundamentalStatus);
+
+    var header = document.createElement("header");
+    var identity = document.createElement("div");
+    var symbol = document.createElement("span");
+    symbol.className = "mono";
+    symbol.textContent = row.symbol;
+    var name = document.createElement("h3");
+    name.textContent = row.name;
+    identity.appendChild(symbol);
+    identity.appendChild(name);
+    header.appendChild(identity);
+    var badge = document.createElement("span");
+    badge.className = "ui-pill " + (
+      liveFundamentalStatus === "STALE" || liveFundamentalStatus === "DELAYED" ||
+      liveFundamentalStatus === "PARTIAL" ? "ui-pill-warn" : "ui-pill-info"
+    );
+    badge.textContent = liveFinancialStatusLabel(liveFundamentalStatus);
+    header.appendChild(badge);
+    card.appendChild(header);
+
+    var periods = document.createElement("p");
+    periods.className = "intel-thesis";
+    periods.textContent = "財報期別 " + (row.financialPeriod || "--") +
+      " · 估值日 " + (row.valuationDate || "--") +
+      " · 月營收期別 " + (row.revenueMonth || "--");
+    card.appendChild(periods);
+
+    var factors = document.createElement("div");
+    factors.className = "intel-factors";
+    liveFinancialMetric(factors, "EPS", liveNumber(row.eps, 2));
+    liveFinancialMetric(factors, "PE", liveNumber(row.peRatio, 2));
+    liveFinancialMetric(factors, "PB", liveNumber(row.pbRatio, 2));
+    liveFinancialMetric(factors, "殖利率", livePercent(row.dividendYield));
+    liveFinancialMetric(factors, "月營收 YoY", livePercent(row.revenueYoy));
+    card.appendChild(factors);
+
+    var details = document.createElement("details");
+    var summary = document.createElement("summary");
+    summary.textContent = "來源、資料期別與限制";
+    var source = document.createElement("p");
+    var rowSources = liveFinancialSourcesForRow(row);
+    var rowSourceLabel = rowSources.map(function (item) { return item.label; }).join(" / ");
+    source.textContent = "官方 full_market · " + (rowSourceLabel || "來源未提供") +
+      " · 擷取 " + (liveFundamentalGeneratedAt || "時間未提供") +
+      " · 原始來源 ";
+    for (var sourceIndex = 0; sourceIndex < rowSources.length; sourceIndex++) {
+      var sourceLink = document.createElement("a");
+      sourceLink.textContent = (sourceIndex ? " / " : "") +
+        rowSources[sourceIndex].label;
+      sourceLink.setAttribute("href", rowSources[sourceIndex].url);
+      sourceLink.setAttribute("target", "_blank");
+      sourceLink.setAttribute("rel", "noopener noreferrer");
+      source.appendChild(sourceLink);
+    }
+    var sourceLimit = document.createElement("span");
+    sourceLimit.textContent = " · 僅呈現原始欄位，不產生評分、推薦或預測";
+    source.appendChild(sourceLimit);
+    details.appendChild(summary);
+    details.appendChild(source);
+    card.appendChild(details);
+    return card;
+  }
+
+  function liveRenderOfficialFundamentalCards() {
+    if (dashboardDataMode() !== "production") { return false; }
+    var grid = document.querySelector('[data-live-fundamentals-grid="true"]');
+    if (!grid) { return false; }
+    grid.textContent = "";
+    grid.setAttribute("data-production-state", liveFundamentalStatus);
+    grid.setAttribute("data-demo-fundamentals", "false");
+    var limit = Math.min(liveFundamentalRows.length, liveFundamentalVisible);
+    for (var i = 0; i < limit; i++) {
+      grid.appendChild(liveOfficialFundamentalCard(liveFundamentalRows[i]));
+    }
+    var status = document.querySelector('[data-live-fundamentals-status="true"]');
+    if (status) {
+      status.textContent = liveFinancialStatusLabel(liveFundamentalStatus) +
+        " · " + liveFundamentalSourceLabel +
+        " · 擷取 " + (liveFundamentalGeneratedAt || "時間未提供") +
+        (liveFundamentalOverlayLabel ? " · " + liveFundamentalOverlayLabel : "");
+      status.setAttribute("data-production-state", liveFundamentalStatus);
+    }
+    var count = document.querySelector('[data-live-fundamentals-count="true"]');
+    if (count) { count.textContent = limit + " / " + liveFundamentalRows.length; }
+    var more = document.querySelector('[data-live-fundamentals-more="true"]');
+    if (more) {
+      more.hidden = limit >= liveFundamentalRows.length;
+      more.textContent = "顯示更多正式財報（" + limit + " / " +
+        liveFundamentalRows.length + "）";
+    }
+    return true;
+  }
+
+  function liveClearOfficialFundamentals(message) {
+    if (dashboardDataMode() !== "production") { return false; }
+    var detail = String(message || "正式財報來源暫時不可用");
+    liveFundamentalRows = [];
+    liveFundamentalVisible = 24;
+    liveFundamentalStatus = "UNAVAILABLE";
+    liveFundamentalGeneratedAt = "";
+    liveFundamentalSourceLabel = "";
+    liveFundamentalSources = [];
+    liveFundamentalOverlayLabel = "";
+    var grid = document.querySelector('[data-live-fundamentals-grid="true"]');
+    if (grid) {
+      grid.textContent = "UNAVAILABLE｜正式財報目前不可用｜" + detail;
+      grid.setAttribute("data-production-state", "UNAVAILABLE");
+      grid.setAttribute("data-demo-fundamentals", "false");
+    }
+    var status = document.querySelector('[data-live-fundamentals-status="true"]');
+    if (status) {
+      status.textContent = "UNAVAILABLE｜" + detail;
+      status.setAttribute("data-production-state", "UNAVAILABLE");
+    }
+    var count = document.querySelector('[data-live-fundamentals-count="true"]');
+    if (count) { count.textContent = "0 / 0"; }
+    var more = document.querySelector('[data-live-fundamentals-more="true"]');
+    if (more) { more.hidden = true; }
+    return true;
+  }
+
+  function liveRenderOfficialFundamentals(payload) {
+    if (dashboardDataMode() !== "production") { return false; }
+    if (!payload || typeof payload !== "object" ||
+        !Array.isArray(payload.full_market)) {
+      liveClearOfficialFundamentals("full_market contract invalid");
+      return false;
+    }
+    var status = String(payload.status || "UNAVAILABLE").toUpperCase();
+    if (status === "UNAVAILABLE") {
+      liveClearOfficialFundamentals("market breadth status is UNAVAILABLE");
+      return false;
+    }
+    var rows = liveFinancialRows(payload);
+    if (!rows.length) {
+      liveClearOfficialFundamentals("full_market 尚無可用財報欄位");
+      return false;
+    }
+    liveFundamentalRows = rows;
+    liveFundamentalVisible = Math.min(rows.length, 24);
+    liveFundamentalStatus = status;
+    liveFundamentalGeneratedAt = String(payload.generated_at || "")
+      .replace("T", " ").slice(0, 19);
+    liveFundamentalSourceLabel = liveFinancialSourceSummary(payload);
+    liveFundamentalSources = liveFinancialSources(payload);
+    liveFundamentalOverlayLabel = "";
+    return liveRenderOfficialFundamentalCards();
+  }
+
+  function liveMarkOfficialFundamentalsReadOnly(snapshot) {
+    if (dashboardDataMode() !== "production" || !liveFundamentalRows.length) {
+      return false;
+    }
+    var status = String(snapshot && snapshot.status || "").toUpperCase();
+    if (status !== "STALE" && status !== "DELAYED") { return false; }
+    var observed = String(snapshot.generated_at || "").replace("T", " ").slice(0, 19);
+    liveFundamentalStatus = status;
+    liveFundamentalOverlayLabel = status + " 行情狀態於 " +
+      (observed || "時間未提供") + "；保留上次正式財報值（唯讀）";
+    return liveRenderOfficialFundamentalCards();
+  }
+
+  function initOfficialFundamentals() {
+    if (dashboardDataMode() !== "production") { return false; }
+    var more = document.querySelector('[data-live-fundamentals-more="true"]');
+    if (more && more.getAttribute("data-live-bound") !== "true") {
+      more.setAttribute("data-live-bound", "true");
+      more.addEventListener("click", function () {
+        liveFundamentalVisible = Math.min(
+          liveFundamentalRows.length,
+          liveFundamentalVisible + 24
+        );
+        liveRenderOfficialFundamentalCards();
+      });
+    }
+    var liveEnabled = document.body.getAttribute("data-live-api-enabled") === "true";
+    var grid = document.querySelector('[data-live-fundamentals-grid="true"]');
+    if (grid) {
+      grid.textContent = liveEnabled
+        ? "LOADING｜等待正式 full_market 財報資料"
+        : "UNAVAILABLE｜正式財報需由 dashboard --serve 載入";
+      grid.setAttribute("data-production-state", liveEnabled ? "LOADING" : "UNAVAILABLE");
+      grid.setAttribute("data-demo-fundamentals", "false");
+    }
+    var status = document.querySelector('[data-live-fundamentals-status="true"]');
+    if (status) {
+      status.textContent = liveEnabled
+        ? "LOADING｜正在載入正式財報欄位"
+        : "UNAVAILABLE｜正式財報服務未啟用";
+      status.setAttribute("data-production-state", liveEnabled ? "LOADING" : "UNAVAILABLE");
+    }
+    var count = document.querySelector('[data-live-fundamentals-count="true"]');
+    if (count) { count.textContent = "0 / 0"; }
+    if (more) { more.hidden = true; }
+    return true;
   }
 
   function liveNewsArticle(row, compact) {
@@ -3628,8 +4180,7 @@
       return;
     }
     var quotes = liveQuoteMap(snapshot);
-    var quoteLabel = snapshot.status === "LIVE" ? "即時" :
-      snapshot.status === "EOD" ? "收盤" : "來源狀態未確認";
+    var quoteLabel = marketStatusPolicy(snapshot.status).quoteLabel;
     var flowRows = Array.isArray(snapshot.fund_flow) ? snapshot.fund_flow : [];
     var flowBySymbol = {};
     for (var flowIndex = 0; flowIndex < flowRows.length; flowIndex++) {
@@ -3758,29 +4309,41 @@
 
   function liveUpdateStrategy(snapshot) {
     var market = snapshot.market || {};
-    liveText('[data-live-strategy-regime="true"]', market.regime || "行情資料不足");
-    liveText('[data-live-strategy-posture="true"]', market.posture || "等待市場資料。");
+    var snapshotStatus = String(snapshot.status || "UNAVAILABLE").toUpperCase();
+    var snapshotPolicy = marketStatusPolicy(snapshotStatus);
+    var readOnlyFallback = snapshotPolicy.readOnly;
+    var snapshotTime = String(market.as_of || snapshot.generated_at || "")
+      .replace("T", " ").slice(0, 19);
+    liveText(
+      '[data-live-strategy-regime="true"]',
+      readOnlyFallback
+        ? snapshotStatus + "｜僅顯示最後正式行情，策略已停用"
+        : (market.regime || "行情資料不足")
+    );
+    liveText(
+      '[data-live-strategy-posture="true"]',
+      readOnlyFallback
+        ? "資料時間 " + (snapshotTime || "未提供") + "；策略與多空判讀已停用。"
+        : (market.posture || "等待市場資料。")
+    );
     var family = market.strategy || "neutral";
     var quoteState = (snapshot.source_status || {}).quotes || {};
     var missingSymbols = Array.isArray(snapshot.missing_symbols)
       ? snapshot.missing_symbols : [];
     var quoteStatus = String(quoteState.status || "").toUpperCase();
     var quoteComplete = !quoteState.partial && missingSymbols.length === 0 &&
-      (quoteStatus === "LIVE" || quoteStatus === "EOD");
-    var usable = (snapshot.status === "LIVE" || snapshot.status === "EOD") &&
-      quoteComplete;
+      marketStatusPolicy(quoteStatus).decisionReady;
+    var usable = liveSnapshotDecisionReady(snapshot);
     var modeBox = document.querySelector('[data-live-strategy-mode="true"]');
     if (modeBox) {
       modeBox.textContent = "";
       var modePill = document.createElement("span");
       modePill.className = "ui-pill " + (usable ? "ui-pill-ok" : "ui-pill-warn");
-      modePill.textContent = !quoteComplete
+      modePill.textContent = readOnlyFallback
+        ? "行情：" + snapshotStatus + "／唯讀備援"
+        : !quoteComplete
         ? "行情：部分缺漏"
-        : (snapshot.status === "LIVE"
-          ? "行情：即時連線"
-          : (snapshot.status === "EOD"
-            ? "行情：今日收盤"
-            : "行情：" + (snapshot.status || "無可用行情")));
+        : "行情：" + snapshotPolicy.strategyLabel;
       modeBox.appendChild(modePill);
     }
     var gateNode = document.querySelector('[data-live-strategy-gate="true"]');
@@ -3788,22 +4351,23 @@
       var researchReady = gateNode.getAttribute("data-research-gate-ready") === "true";
       var researchMessage = gateNode.getAttribute("data-research-gate-message")
         || "研究快照 Gate 尚未通過，候選交接暫停";
-      if (!quoteComplete) {
+      if (readOnlyFallback) {
+        gateNode.textContent = snapshotStatus +
+          " 行情僅供唯讀備援；策略與多空判讀已停用，等待正式資料恢復";
+      } else if (!quoteComplete) {
         gateNode.textContent = "自選行情只完成部分同步，候選複核與策略匹配暫停";
-      } else if (snapshot.status === "LIVE") {
+      } else if (snapshotStatus === "LIVE") {
         gateNode.textContent = "即時行情可用；" + (
           researchReady
             ? "研究快照 Gate 已通過，可進入候選複核"
             : researchMessage
         );
-      } else if (snapshot.status === "EOD") {
+      } else if (snapshotStatus === "EOD") {
         gateNode.textContent = "今日收盤行情可用；" + (
           researchReady
             ? "研究快照 Gate 已通過，可進入候選複核"
             : researchMessage
         );
-      } else if (snapshot.status === "STALE") {
-        gateNode.textContent = "行情已過期，暫停策略判讀並等待資料恢復";
       } else {
         gateNode.textContent = "行情資料不可用，暫停策略判讀並檢查來源狀態";
       }
@@ -3819,8 +4383,10 @@
         var pill = document.createElement("span");
         pill.className = "ui-pill " + (fit ? "ui-pill-ok" : "ui-pill-info");
         pill.textContent = fit
-          ? (snapshot.status === "LIVE" ? "符合即時盤勢" : "符合今日收盤情境")
-          : (usable ? "備用情境" : "等待可用行情");
+          ? "符合" + snapshotPolicy.quoteLabel + "情境"
+          : (readOnlyFallback
+            ? snapshotStatus + "｜策略停用"
+            : (usable ? "備用情境" : "等待可用行情"));
         fitBox.appendChild(pill);
       }
     }
@@ -3834,6 +4400,9 @@
     liveUpdateNews(snapshot);
     liveUpdateIndustryMap(snapshot);
     liveUpdateStrategy(snapshot);
+    if (typeof liveMarkOfficialFundamentalsReadOnly === "function") {
+      liveMarkOfficialFundamentalsReadOnly(snapshot);
+    }
     var panel = document.querySelector(".ui-panel.active");
     if (panel) {
       panel.setAttribute("data-live-updated", "true");
@@ -3841,7 +4410,98 @@
     }
   }
 
+  function dashboardDataMode() {
+    var mode = String(document.body && (
+      document.body.getAttribute("data-data-mode") ||
+      document.body.getAttribute("data-dashboard-mode")
+    ) || "").trim().toLowerCase();
+    return mode === "demo" ? "demo" : "production";
+  }
+
+  function liveMarkUnavailable(selector, message) {
+    var nodes = document.querySelectorAll(selector);
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].textContent = message;
+      nodes[i].setAttribute("data-production-state", "UNAVAILABLE");
+    }
+  }
+
+  function liveFailClosedProduction(message) {
+    if (dashboardDataMode() !== "production") { return false; }
+    var detail = String(message || "正式資料來源暫時不可用");
+
+    screenerBreadthRows = [];
+    screenerTaiwanBreadthRows = [];
+    screenerTaiwanBreadthMeta = null;
+    marketBreadthIndustryRows = [];
+    liveIntelligenceNewsRows = [];
+    liveIntelligenceNewsSignature = "";
+    liveIntelligenceNewsVisible = 12;
+
+    liveMarkUnavailable(
+      '[data-live-overview-news="true"]',
+      "UNAVAILABLE｜正式新聞目前不可用"
+    );
+    liveMarkUnavailable(
+      '[data-live-intelligence-news="true"]',
+      "UNAVAILABLE｜正式新聞與公告目前不可用"
+    );
+    liveMarkUnavailable(
+      '[data-industry-map-grid="true"]',
+      "UNAVAILABLE｜正式產業資料目前不可用"
+    );
+    liveMarkUnavailable(
+      '[data-live-overview-pulse="true"]',
+      "UNAVAILABLE｜正式產業溫度目前不可用"
+    );
+    liveMarkUnavailable(
+      '[data-screener-body="true"]',
+      "UNAVAILABLE｜正式選股母體目前不可用"
+    );
+    liveMarkUnavailable(
+      '[data-live-strategy-regime="true"]',
+      "UNAVAILABLE｜行情資料不可用"
+    );
+    liveMarkUnavailable(
+      '[data-live-strategy-gate="true"]',
+      "UNAVAILABLE｜" + detail
+    );
+    liveMarkUnavailable(
+      '[data-live-strategy-mode="true"]',
+      "UNAVAILABLE"
+    );
+    liveMarkUnavailable(
+      '[data-strategy-research-mode="true"]',
+      "研究：UNAVAILABLE"
+    );
+    liveMarkUnavailable(
+      '[data-live-strategy-fit="true"]',
+      "UNAVAILABLE"
+    );
+    liveMarkUnavailable(
+      '[data-industry-map-status="true"]',
+      "UNAVAILABLE"
+    );
+    liveMarkUnavailable(
+      '[data-live-industry-note="true"]',
+      "UNAVAILABLE｜" + detail
+    );
+    liveMarkUnavailable(
+      '[data-screener-scope-status="true"]',
+      "UNAVAILABLE｜正式全市場資料未載入"
+    );
+    liveText('[data-industry-map-count="true"]', "0");
+    liveText('[data-screener-count="true"]', "0");
+    liveText('[data-screener-universe-count="true"]', "0");
+    liveText("[data-screener-filter-count]", "0");
+    if (typeof liveClearOfficialFundamentals === "function") {
+      liveClearOfficialFundamentals(detail);
+    }
+    return true;
+  }
+
   function liveInvalidateSnapshot(message) {
+    if (dashboardDataMode() !== "production") { return; }
     var unavailable = {
       status: "UNAVAILABLE",
       market: {
@@ -3866,6 +4526,7 @@
     liveUpdateOverviewMetrics(unavailable);
     liveUpdateStocks(unavailable);
     liveUpdateStrategy(unavailable);
+    liveFailClosedProduction(message);
   }
 
   function liveUpdateCountdown() {
@@ -3910,12 +4571,14 @@
       if (document.hidden) { return; }
       liveBreadthRefreshPending = true;
       if (!liveRequestInFlight) {
+        var forceSnapshot = liveBreadthRefreshForce;
         liveBreadthRefreshPending = false;
+        liveBreadthRefreshForce = false;
         if (liveMarketTimer) {
           window.clearTimeout(liveMarketTimer);
           liveMarketTimer = null;
         }
-        liveFetchSnapshot();
+        liveFetchSnapshot(forceSnapshot);
       }
     }, wait);
   }
@@ -3931,7 +4594,33 @@
     return null;
   }
 
-  function liveFetchSnapshot() {
+  function liveSnapshotContractError(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return "live snapshot payload is not an object";
+    }
+    if (snapshot.ok !== true) { return "live snapshot payload is unavailable"; }
+    if (snapshot.schema_version !== 1) {
+      return "live snapshot schema_version is not supported";
+    }
+    if (snapshot.kind !== "live_market_snapshot") {
+      return "live snapshot kind is not supported";
+    }
+    var status = String(snapshot.status || "").toUpperCase();
+    if (["LIVE", "DELAYED", "EOD", "STALE", "UNAVAILABLE"].indexOf(status) === -1) {
+      return "live snapshot status is not supported";
+    }
+    if (!snapshot.market || typeof snapshot.market !== "object" ||
+        Array.isArray(snapshot.market)) {
+      return "live snapshot market state is missing";
+    }
+    if (!snapshot.source_status || typeof snapshot.source_status !== "object" ||
+        Array.isArray(snapshot.source_status)) {
+      return "live snapshot source status is missing";
+    }
+    return "";
+  }
+
+  function liveFetchSnapshot(force) {
     if (document.hidden) {
       liveNextRefreshAt = 0;
       liveUpdateCountdown();
@@ -3950,21 +4639,33 @@
     var timeout = controller ? window.setTimeout(function () { controller.abort(); }, 15000) : null;
     var options = { cache: "no-store", headers: { "Accept": "application/json" } };
     if (controller) { options.signal = controller.signal; }
-    window.fetch("/api/live/snapshot?symbols=" + encodeURIComponent(symbols.join(",")), options)
-      .then(function (response) {
-        if (!response.ok) {
-          var error = new Error("live API HTTP " + response.status);
-          if (response.status === 429) {
-            error.retryAfterSeconds = liveRetryAfterSeconds(
-              response.headers.get("Retry-After")
-            );
+    var snapshotUrl = "/api/live/snapshot?symbols=" +
+      encodeURIComponent(symbols.join(","));
+    var snapshotRequest = force
+      ? postJson("/api/live/snapshot/refresh", { symbols: symbols }, options)
+      : window.fetch(snapshotUrl, options).then(function (response) {
+          if (!response.ok) {
+            var error = new Error("live API HTTP " + response.status);
+            if (response.status === 429) {
+              error.retryAfterSeconds = liveRetryAfterSeconds(
+                response.headers.get("Retry-After")
+              );
+            }
+            throw error;
           }
-          throw error;
-        }
-        return response.json();
-      })
+          return response.json();
+        });
+    snapshotRequest
       .then(function (snapshot) {
-        liveApplySnapshot(snapshot || {});
+        var contractError = liveSnapshotContractError(snapshot);
+        if (contractError) { throw new Error(contractError); }
+        var snapshotStatus = String(snapshot.status || "").toUpperCase();
+        if (snapshotStatus === "UNAVAILABLE") {
+          liveInvalidateSnapshot("live snapshot status is " + snapshotStatus);
+          liveUpdateConnection(snapshot);
+        } else {
+          liveApplySnapshot(snapshot);
+        }
         liveSchedule(snapshot.refresh_after_seconds || 60);
       })
       .catch(function (err) {
@@ -3986,17 +4687,20 @@
         liveRequestInFlight = false;
         liveUpdateCountdown();
         if (liveBreadthRefreshPending && !document.hidden) {
+          var forceSnapshot = liveBreadthRefreshForce;
           liveBreadthRefreshPending = false;
+          liveBreadthRefreshForce = false;
           if (liveMarketTimer) {
             window.clearTimeout(liveMarketTimer);
             liveMarketTimer = null;
           }
-          liveFetchSnapshot();
+          liveFetchSnapshot(forceSnapshot);
         }
       });
   }
 
   function initLiveMarket() {
+    initOfficialFundamentals();
     if (document.body.getAttribute("data-live-api-enabled") !== "true") { return; }
     loadMarketBreadth(false);
     var refresh = document.querySelector('[data-live-refresh="true"]');
@@ -4011,6 +4715,7 @@
           marketBreadthRetryTimer = null;
         }
         liveBreadthRefreshPending = true;
+        liveBreadthRefreshForce = true;
         loadMarketBreadth(true);
       });
     }

@@ -32,6 +32,15 @@ TPEX_PROFILE_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
 TPEX_FINANCIAL_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O"
 TPEX_REVENUE_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O"
 TPEX_VALUATION_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis"
+
+_OFFICIAL_SOURCE_METADATA = {
+    "twse-financial-summary": ("TWSE 財務摘要", TWSE_FINANCIAL_URL),
+    "tpex-financial-summary": ("TPEx 財務摘要", TPEX_FINANCIAL_URL),
+    "twse-valuation": ("TWSE 估值", TWSE_VALUATION_URL),
+    "tpex-valuation": ("TPEx 估值", TPEX_VALUATION_URL),
+    "twse-revenue": ("TWSE 月營收", TWSE_REVENUE_URL),
+    "tpex-revenue": ("TPEx 月營收", TPEX_REVENUE_URL),
+}
 TPEX_DAILY_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
 
 JsonFetcher = Callable[[str], Any]
@@ -164,7 +173,7 @@ class MarketBreadthService:
             "snapshot_deadline_seconds": self._snapshot_deadline_seconds,
         }
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, force: bool = False) -> dict[str, Any]:
         now_monotonic = time.monotonic()
         now = self._now()
         with self._cache_lock:
@@ -172,14 +181,14 @@ class MarketBreadthService:
                 now_monotonic,
                 now,
             )
-            if self._failed_refresh_cache_current(now_monotonic):
+            if not force and self._failed_refresh_cache_current(now_monotonic):
                 return _cached_copy(self._cache_payload)
             live_refresh_due = (
                 baseline_current
                 and self._live_overlay_enabled
                 and self._live_overlay_expires_at <= now_monotonic
             )
-            if baseline_current and not live_refresh_due:
+            if not force and baseline_current and not live_refresh_due:
                 return _cached_copy(self._cache_payload)
 
         with self._loader_lock:
@@ -190,18 +199,23 @@ class MarketBreadthService:
                     now_monotonic,
                     now,
                 )
-                if self._failed_refresh_cache_current(now_monotonic):
+                if not force and self._failed_refresh_cache_current(now_monotonic):
                     return _cached_copy(self._cache_payload)
                 live_refresh_due = (
                     baseline_current
                     and self._live_overlay_enabled
                     and self._live_overlay_expires_at <= now_monotonic
                 )
-                if baseline_current and not live_refresh_due:
+                if not force and baseline_current and not live_refresh_due:
                     return _cached_copy(self._cache_payload)
                 stale = self._cache_payload
                 baseline = self._baseline_payload
-            if baseline_current and live_refresh_due and baseline is not None:
+            if (
+                not force
+                and baseline_current
+                and live_refresh_due
+                and baseline is not None
+            ):
                 refresh_errors: list[str] = []
                 support = self._load_support(refresh_errors)
                 if refresh_errors:
@@ -2306,6 +2320,8 @@ def _paired_market_component_status(
         "upstreams": [
             {
                 "id": source_ids[market],
+                "label": _OFFICIAL_SOURCE_METADATA[source_ids[market]][0],
+                "url": _OFFICIAL_SOURCE_METADATA[source_ids[market]][1],
                 "market": market,
                 "status": "FRESH" if market_counts[market] else "UNAVAILABLE",
                 "row_count": market_counts[market],

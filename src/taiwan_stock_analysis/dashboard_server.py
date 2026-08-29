@@ -20,6 +20,8 @@ from taiwan_stock_analysis.handoff import NON_ADVICE_NOTICE, build_handoff_quali
 from taiwan_stock_analysis.handoff_pack import write_handoff_evidence_pack
 from taiwan_stock_analysis.live_market import LiveMarketService, normalize_symbols
 from taiwan_stock_analysis.market_breadth import MarketBreadthService
+from taiwan_stock_analysis.official_market_cache import OfficialMarketCache
+from taiwan_stock_analysis.official_snapshot_store import OfficialSnapshotStore
 from taiwan_stock_analysis.us_market import USMarketService
 from taiwan_stock_analysis.review_action_state import (
     build_review_action_state_report,
@@ -45,6 +47,7 @@ _MARKET_BREADTH_OUTSTANDING = 1
 _MUTATION_TOKEN_HEADER = "X-Taiwan-Equity-Lens-Token"
 
 DashboardOpener = Callable[[str], object]
+DashboardClock = Callable[[], datetime]
 
 
 class DashboardServer(ThreadingHTTPServer):
@@ -332,6 +335,9 @@ def serve_dashboard(
     open_browser: bool = False,
     market_data_provider: str = "auto",
     public_read_only: bool = False,
+    official_snapshot_root: Path | None = Path(
+        ".local-data/official-snapshots"
+    ),
     opener: DashboardOpener | None = None,
 ) -> str:
     server, url = create_dashboard_server(
@@ -340,6 +346,8 @@ def serve_dashboard(
         port=port,
         market_data_provider=market_data_provider,
         public_read_only=public_read_only,
+        official_snapshot_root=official_snapshot_root,
+        startup_refresh=True,
     )
     if open_browser:
         (opener or webbrowser.open)(url)
@@ -360,8 +368,15 @@ def create_dashboard_server(
     us_market_service: USMarketService | None = None,
     market_data_provider: str = "auto",
     public_read_only: bool = False,
+    official_snapshot_root: Path | None = None,
+    startup_refresh: bool = False,
+    clock: DashboardClock | None = None,
 ) -> tuple[DashboardServer, str]:
     roots = [directory.resolve() for directory in search_dirs]
+    dashboard_clock = _timezone_aware_clock(
+        clock or (lambda: datetime.now(timezone.utc))
+    )
+    dashboard_clock()
     allow_mutations = _is_loopback_host(host) and not public_read_only
     mutation_token = secrets.token_urlsafe(32) if allow_mutations else ""
     if live_service is not None:
@@ -382,6 +397,16 @@ def create_dashboard_server(
         supporting_loader=getattr(service, "breadth_support", None),
     )
     us_market = us_market_service or USMarketService()
+    market_cache = (
+        OfficialMarketCache(
+            OfficialSnapshotStore(
+                Path(official_snapshot_root),
+                clock=dashboard_clock,
+            )
+        )
+        if official_snapshot_root is not None
+        else None
+    )
     snapshot_executor = ThreadPoolExecutor(
         max_workers=_LIVE_SNAPSHOT_WORKERS,
         thread_name_prefix="market-snapshot",
@@ -399,6 +424,8 @@ def create_dashboard_server(
         mutation_token=mutation_token,
         snapshot_executor=snapshot_executor,
         breadth_executor=breadth_executor,
+        market_cache=market_cache,
+        clock=dashboard_clock,
     )
     try:
         server = DashboardServer(
@@ -412,6 +439,22 @@ def create_dashboard_server(
         snapshot_executor.shutdown(wait=False, cancel_futures=True)
         breadth_executor.shutdown(wait=False, cancel_futures=True)
         raise
+    if startup_refresh:
+        live_loader = lambda: service.snapshot([])
+        breadth_loader = market_breadth.snapshot
+        if market_cache is not None:
+            snapshot_executor.submit(
+                market_cache.refresh_live,
+                [],
+                live_loader,
+            )
+            breadth_executor.submit(
+                market_cache.refresh_breadth,
+                breadth_loader,
+            )
+        else:
+            snapshot_executor.submit(live_loader)
+            breadth_executor.submit(breadth_loader)
     actual_host, actual_port = server.server_address[:2]
     return server, f"http://{actual_host}:{actual_port}/"
 
@@ -426,6 +469,8 @@ def _build_handler(
     mutation_token: str,
     snapshot_executor: ThreadPoolExecutor,
     breadth_executor: ThreadPoolExecutor,
+    clock: DashboardClock,
+    market_cache: OfficialMarketCache | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     provider_health = live_service.health()
     provider_mode = str(provider_health.get("provider_mode") or "")
@@ -500,6 +545,21 @@ def _build_handler(
                 )
                 return
             parsed = urlsplit(self.path)
+            if (
+                allow_mutations
+                and parsed.path
+                in {
+                    "/api/live/snapshot",
+                    "/api/market/breadth",
+                    "/api/us/market",
+                }
+                and not self._allows_loopback_data_read()
+            ):
+                self._send_json(
+                    {"error": "cross-site data request", "ok": False},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return
             if parsed.path == "/api/live/health":
                 self._send_json(live_service.health(), cache_control="no-store")
                 return
@@ -539,150 +599,30 @@ def _build_handler(
                 self._send_json(payload, cache_control="no-store")
                 return
             if parsed.path == "/api/market/breadth":
-                if not breadth_limiter.allow(self.client_address[0]):
-                    self._send_json(
-                        {
-                            "error": "market breadth refresh limit exceeded",
-                            "ok": False,
-                        },
-                        status=HTTPStatus.TOO_MANY_REQUESTS,
-                        extra_headers={"Retry-After": "10"},
-                    )
-                    return
-                if not breadth_slots.acquire(blocking=False):
-                    self._send_json(
-                        {"error": "market breadth refresh is already running", "ok": False},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                        extra_headers={"Retry-After": "5"},
-                    )
-                    return
-                try:
-                    future = breadth_executor.submit(breadth_service.snapshot)
-                except RuntimeError:
-                    breadth_slots.release()
-                    self._send_json(
-                        {"error": "market breadth service is stopping", "ok": False},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-                    return
-                future.add_done_callback(lambda _future: breadth_slots.release())
-                try:
-                    payload = future.result(timeout=_MARKET_BREADTH_TIMEOUT_SECONDS)
-                except FutureTimeoutError:
-                    future.cancel()
-                    self._send_json(
-                        {"error": "market breadth deadline exceeded", "ok": False},
-                        status=HTTPStatus.GATEWAY_TIMEOUT,
-                        extra_headers={"Retry-After": "15"},
-                    )
-                    return
-                except Exception as exc:
-                    self.log_error(
-                        "market breadth snapshot failed: %s",
-                        type(exc).__name__,
-                    )
-                    self._send_json(
-                        {"error": "market breadth snapshot failed", "ok": False},
-                        status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    return
-                self._send_json(payload, cache_control="no-store")
+                self._serve_market_breadth(force_refresh=False)
                 return
             if parsed.path == "/api/live/snapshot":
-                raw_symbols = parse_qs(parsed.query).get("symbols", [""])[0]
+                live_query = parse_qs(parsed.query)
+                raw_symbols = live_query.get("symbols", [""])[0]
                 symbols = normalize_symbols(
                     re.split(r"[\s,|]+", raw_symbols),
                     limit=live_symbol_limit + 1,
                 )
-                if len(symbols) > live_symbol_limit:
-                    self._send_json(
-                        {
-                            "error": (
-                                "live-data requests accept at most "
-                                f"{live_symbol_limit} symbols for this provider mode"
-                            ),
-                            "ok": False,
-                            "symbol_limit": live_symbol_limit,
-                        },
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if capacity_guarded:
-                    cost_loader = getattr(
-                        live_service,
-                        "provider_request_cost",
-                        None,
-                    )
-                    provider_cost = (
-                        int(cost_loader(symbols))
-                        if callable(cost_loader)
-                        else len(symbols) + _PUBLIC_LIVE_PROVIDER_FIXED_CALLS
-                    )
-                    client_allowed = public_live_limiter.allow(self.client_address[0])
-                    provider_allowed = (
-                        client_allowed
-                        and public_provider_budget.allow(
-                            "licensed-provider",
-                            cost=provider_cost,
-                        )
-                    )
-                    if not provider_allowed:
-                        self._send_json(
-                            {
-                                "error": "live-data provider request budget exceeded",
-                                "ok": False,
-                            },
-                            status=HTTPStatus.TOO_MANY_REQUESTS,
-                            extra_headers={"Retry-After": "60"},
-                        )
-                        return
-                if not snapshot_slots.acquire(blocking=False):
-                    self._send_json(
-                        {"error": "live snapshot workers are busy", "ok": False},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                        extra_headers={"Retry-After": "5"},
-                    )
-                    return
-                try:
-                    future = snapshot_executor.submit(live_service.snapshot, symbols)
-                except RuntimeError:
-                    snapshot_slots.release()
-                    self._send_json(
-                        {"error": "live snapshot service is stopping", "ok": False},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-                    return
-                future.add_done_callback(lambda _future: snapshot_slots.release())
-                try:
-                    payload = future.result(timeout=_LIVE_SNAPSHOT_TIMEOUT_SECONDS)
-                except FutureTimeoutError:
-                    future.cancel()
-                    self._send_json(
-                        {"error": "live snapshot deadline exceeded", "ok": False},
-                        status=HTTPStatus.GATEWAY_TIMEOUT,
-                        extra_headers={"Retry-After": "15"},
-                    )
-                    return
-                except Exception as exc:
-                    self.log_error(
-                        "live snapshot failed: %s",
-                        type(exc).__name__,
-                    )
-                    self._send_json(
-                        {"error": "live snapshot failed", "ok": False},
-                        status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    return
-                self._send_json(payload, cache_control="no-store")
+                self._serve_live_snapshot(symbols, force_refresh=False)
                 return
-            if parsed.path not in {"/", "/dashboard", "/dashboard.html"}:
+            production_paths = {"/", "/dashboard", "/dashboard.html"}
+            demo_paths = {"/demo", "/demo/", "/demo.html"}
+            if parsed.path not in production_paths | demo_paths:
                 self._send_json({"error": "not found", "ok": False}, status=HTTPStatus.NOT_FOUND)
                 return
+            data_mode = "demo" if parsed.path in demo_paths else "production"
             items = discover_dashboard_items(search_dirs)
             html = render_dashboard_html(
                 items,
-                action_api_enabled=allow_mutations,
-                live_api_enabled=True,
+                action_api_enabled=allow_mutations and data_mode == "production",
+                live_api_enabled=data_mode == "production",
+                data_mode=data_mode,
+                now=clock(),
             )
             html = html.replace(
                 "<body ",
@@ -690,7 +630,7 @@ def _build_handler(
                     f'<body data-live-symbol-limit="{live_symbol_limit}" '
                     f'data-live-min-refresh-seconds="{minimum_refresh_seconds}" '
                     f'data-us-market-api-enabled="{"true" if allow_mutations else "false"}" '
-                    f"{mutation_token_attribute}"
+                    f'{mutation_token_attribute if data_mode == "production" else ""}'
                 ),
                 1,
             )
@@ -704,6 +644,191 @@ def _build_handler(
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _serve_market_breadth(self, *, force_refresh: bool) -> None:
+            if not breadth_limiter.allow(self.client_address[0]):
+                self._send_json(
+                    {
+                        "error": "market breadth refresh limit exceeded",
+                        "ok": False,
+                    },
+                    status=HTTPStatus.TOO_MANY_REQUESTS,
+                    extra_headers={"Retry-After": "10"},
+                )
+                return
+            if not breadth_slots.acquire(blocking=False):
+                self._send_json(
+                    {
+                        "error": "market breadth refresh is already running",
+                        "ok": False,
+                    },
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    extra_headers={"Retry-After": "5"},
+                )
+                return
+            try:
+                breadth_loader = breadth_service.snapshot
+                if force_refresh:
+                    breadth_loader = lambda: breadth_service.snapshot(force=True)
+                future = (
+                    breadth_executor.submit(
+                        market_cache.refresh_breadth,
+                        breadth_loader,
+                    )
+                    if market_cache is not None
+                    else breadth_executor.submit(breadth_loader)
+                )
+            except RuntimeError:
+                breadth_slots.release()
+                self._send_json(
+                    {"error": "market breadth service is stopping", "ok": False},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            future.add_done_callback(lambda _future: breadth_slots.release())
+            try:
+                payload = future.result(timeout=_MARKET_BREADTH_TIMEOUT_SECONDS)
+            except FutureTimeoutError:
+                future.cancel()
+                fallback = (
+                    market_cache.load_stale_breadth(
+                        reason="market breadth deadline exceeded"
+                    )
+                    if market_cache is not None
+                    else None
+                )
+                if fallback is not None:
+                    self._send_json(fallback, cache_control="no-store")
+                    return
+                self._send_json(
+                    {"error": "market breadth deadline exceeded", "ok": False},
+                    status=HTTPStatus.GATEWAY_TIMEOUT,
+                    extra_headers={"Retry-After": "15"},
+                )
+                return
+            except Exception as exc:
+                self.log_error(
+                    "market breadth snapshot failed: %s",
+                    type(exc).__name__,
+                )
+                self._send_json(
+                    {"error": "market breadth snapshot failed", "ok": False},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(payload, cache_control="no-store")
+
+        def _serve_live_snapshot(
+            self,
+            symbols: list[str],
+            *,
+            force_refresh: bool,
+        ) -> None:
+            if len(symbols) > live_symbol_limit:
+                self._send_json(
+                    {
+                        "error": (
+                            "live-data requests accept at most "
+                            f"{live_symbol_limit} symbols for this provider mode"
+                        ),
+                        "ok": False,
+                        "symbol_limit": live_symbol_limit,
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if capacity_guarded:
+                cost_loader = getattr(
+                    live_service,
+                    "provider_request_cost",
+                    None,
+                )
+                provider_cost = (
+                    int(cost_loader(symbols))
+                    if callable(cost_loader)
+                    else len(symbols) + _PUBLIC_LIVE_PROVIDER_FIXED_CALLS
+                )
+                client_allowed = public_live_limiter.allow(self.client_address[0])
+                provider_allowed = (
+                    client_allowed
+                    and public_provider_budget.allow(
+                        "licensed-provider",
+                        cost=provider_cost,
+                    )
+                )
+                if not provider_allowed:
+                    self._send_json(
+                        {
+                            "error": "live-data provider request budget exceeded",
+                            "ok": False,
+                        },
+                        status=HTTPStatus.TOO_MANY_REQUESTS,
+                        extra_headers={"Retry-After": "60"},
+                    )
+                    return
+            if not snapshot_slots.acquire(blocking=False):
+                self._send_json(
+                    {"error": "live snapshot workers are busy", "ok": False},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    extra_headers={"Retry-After": "5"},
+                )
+                return
+            try:
+                live_loader = lambda: live_service.snapshot(symbols)
+                if force_refresh:
+                    live_loader = lambda: live_service.snapshot(
+                        symbols,
+                        force=True,
+                    )
+                future = (
+                    snapshot_executor.submit(
+                        market_cache.refresh_live,
+                        symbols,
+                        live_loader,
+                    )
+                    if market_cache is not None
+                    else snapshot_executor.submit(live_loader)
+                )
+            except RuntimeError:
+                snapshot_slots.release()
+                self._send_json(
+                    {"error": "live snapshot service is stopping", "ok": False},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return
+            future.add_done_callback(lambda _future: snapshot_slots.release())
+            try:
+                payload = future.result(timeout=_LIVE_SNAPSHOT_TIMEOUT_SECONDS)
+            except FutureTimeoutError:
+                future.cancel()
+                fallback = (
+                    market_cache.load_stale_live(
+                        symbols,
+                        reason="live snapshot deadline exceeded",
+                    )
+                    if market_cache is not None
+                    else None
+                )
+                if fallback is not None:
+                    self._send_json(fallback, cache_control="no-store")
+                    return
+                self._send_json(
+                    {"error": "live snapshot deadline exceeded", "ok": False},
+                    status=HTTPStatus.GATEWAY_TIMEOUT,
+                    extra_headers={"Retry-After": "15"},
+                )
+                return
+            except Exception as exc:
+                self.log_error(
+                    "live snapshot failed: %s",
+                    type(exc).__name__,
+                )
+                self._send_json(
+                    {"error": "live snapshot failed", "ok": False},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(payload, cache_control="no-store")
 
         def do_POST(self) -> None:
             if not allow_mutations:
@@ -736,7 +861,10 @@ def _build_handler(
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
-            if self.path not in {
+            request_path = urlsplit(self.path).path
+            if request_path not in {
+                "/api/market/breadth/refresh",
+                "/api/live/snapshot/refresh",
                 "/api/review-actions/set",
                 "/api/handoff-pack/write",
                 "/api/evidence/compose-and-set",
@@ -746,9 +874,22 @@ def _build_handler(
                 return
             try:
                 payload = self._read_json()
-                if self.path == "/api/review-actions/set":
+                if request_path == "/api/market/breadth/refresh":
+                    self._serve_market_breadth(force_refresh=True)
+                    return
+                if request_path == "/api/live/snapshot/refresh":
+                    raw_symbols = payload.get("symbols")
+                    if not isinstance(raw_symbols, list):
+                        raise ValueError("symbols must be a JSON array")
+                    symbols = normalize_symbols(
+                        raw_symbols,
+                        limit=live_symbol_limit + 1,
+                    )
+                    self._serve_live_snapshot(symbols, force_refresh=True)
+                    return
+                if request_path == "/api/review-actions/set":
                     result = set_review_action_status_from_payload(payload, allowed_roots=search_dirs)
-                elif self.path == "/api/handoff-pack/write":
+                elif request_path == "/api/handoff-pack/write":
                     result = write_handoff_pack_from_payload(payload, allowed_roots=search_dirs)
                 else:
                     result = compose_evidence_from_payload(payload, allowed_roots=search_dirs)
@@ -814,6 +955,42 @@ def _build_handler(
             )
             return origin_host == host
 
+        def _allows_loopback_data_read(self) -> bool:
+            fetch_site_headers = self.headers.get_all("Sec-Fetch-Site") or []
+            if len(fetch_site_headers) > 1:
+                return False
+            if fetch_site_headers:
+                fetch_site = str(fetch_site_headers[0]).strip().lower()
+                if fetch_site not in {"same-origin", "none"}:
+                    return False
+            if not self._has_same_origin_when_present():
+                return False
+
+            referer_headers = self.headers.get_all("Referer") or []
+            if not referer_headers:
+                return True
+            if len(referer_headers) != 1:
+                return False
+            referer = urlsplit(str(referer_headers[0]).strip())
+            if (
+                referer.scheme.lower() != "http"
+                or referer.username is not None
+                or referer.password is not None
+            ):
+                return False
+            host_headers = self.headers.get_all("Host") or []
+            if len(host_headers) != 1:
+                return False
+            request_host = _validated_loopback_authority(
+                host_headers[0],
+                expected_port=int(self.server.server_address[1]),
+            )
+            referer_host = _validated_loopback_authority(
+                referer.netloc,
+                expected_port=int(self.server.server_address[1]),
+            )
+            return request_host is not None and referer_host == request_host
+
         def _read_json(self) -> dict[str, Any]:
             content_type = str(self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
             if content_type != "application/json":
@@ -860,6 +1037,18 @@ def _build_handler(
 
 def _is_loopback_host(host: str) -> bool:
     return str(host or "").strip().lower() in {"127.0.0.1", "::1", "localhost"}
+
+
+def _timezone_aware_clock(clock: DashboardClock) -> DashboardClock:
+    def checked_clock() -> datetime:
+        current = clock()
+        if not isinstance(current, datetime):
+            raise ValueError("dashboard clock must return a datetime")
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("dashboard clock must return a timezone-aware datetime")
+        return current
+
+    return checked_clock
 
 
 def _validated_loopback_authority(

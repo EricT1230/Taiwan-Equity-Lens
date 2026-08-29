@@ -30,6 +30,10 @@ from taiwan_stock_analysis.fubon_market import (
     FubonSessionError,
     FubonSessionManager,
 )
+from taiwan_stock_analysis.fubon_stream import (
+    FubonWebSocketFeed,
+    resolve_fubon_websocket_index_symbol,
+)
 from taiwan_stock_analysis.market_intelligence import (
     fetch_tpex_fund_flow,
     fetch_twse_fund_flow,
@@ -321,6 +325,7 @@ class LiveMarketService:
         fubon_market_data_only_confirmed: bool | None = None,
         fubon_redisplay_licensed: bool | None = None,
         fubon_session_manager: FubonSessionManager | None = None,
+        fubon_stream_feed: Any | None = None,
         fugle_api_key: str | None = None,
         fugle_redisplay_licensed: bool | None = None,
         provider: str | None = None,
@@ -417,6 +422,12 @@ class LiveMarketService:
                 cert_password=self._fubon_cert_password,
             )
         )
+        self._fubon_stream_feed = fubon_stream_feed
+        self._fubon_stream_injected = fubon_stream_feed is not None
+        self._fubon_stream_create_attempted = False
+        self._fubon_stream_desired_stocks: set[str] = set()
+        self._fubon_stream_desired_indices: set[str] = set()
+        self._fubon_stream_lock = threading.RLock()
         self._fugle_api_key = str(
             fugle_api_key if fugle_api_key is not None else os.getenv("FUGLE_API_KEY", "")
         ).strip()
@@ -472,7 +483,17 @@ class LiveMarketService:
             _SNAPSHOT_COMPONENT_CAPACITY
         )
 
-    def snapshot(self, symbols: Iterable[object]) -> dict[str, Any]:
+    def snapshot(
+        self,
+        symbols: Iterable[object],
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        if not isinstance(force, bool):
+            raise TypeError("force must be a boolean")
+        if force:
+            with self._cache_lock:
+                self._purge_snapshot_component_caches_locked()
         snapshot_deadline = (
             time.monotonic() + self._component_deadline_seconds
         )
@@ -531,6 +552,13 @@ class LiveMarketService:
                         quotes_result,
                         quotes,
                     )
+        stream_health: dict[str, Any] | None = None
+        if provider_mode == "fubon":
+            quotes, stream_health = self._apply_fubon_stream_overlay(
+                quotes,
+                requested_symbols=requested_symbols,
+                errors=errors,
+            )
         news = list(news_result.get("payload") or [])
         alerts = list(alert_result.get("payload") or [])
         fund_flow = list(flow_result.get("payload") or [])
@@ -582,6 +610,15 @@ class LiveMarketService:
             symbol for symbol in requested_symbols if symbol not in returned_symbols
         ]
         quote_public_status = _component_public_status(quotes_result)
+        websocket_rows = [
+            row
+            for row in quotes
+            if "WebSocket" in str(row.get("source") or "")
+        ]
+        if websocket_rows:
+            quote_public_status["status"] = _quote_collection_status(
+                row.get("status") for row in quotes
+            )
         quote_public_status["requested_symbol_count"] = len(requested_symbols)
         quote_public_status["returned_symbol_count"] = (
             len(requested_symbols) - len(missing_symbols)
@@ -590,6 +627,8 @@ class LiveMarketService:
         if missing_symbols:
             quote_public_status["partial"] = True
             quote_public_status["status"] = "STALE"
+        if stream_health is not None:
+            quote_public_status["stream"] = stream_health
         source_status = {
             "quotes": quote_public_status,
             "news": _component_public_status(news_result),
@@ -652,7 +691,7 @@ class LiveMarketService:
             last_error = self._provider_last_error
         configured = mode != "unavailable"
         ready = bool(configured and last_attempt_ok is True)
-        return {
+        health = {
             "ok": ready,
             "process_alive": True,
             "configured": configured,
@@ -704,6 +743,31 @@ class LiveMarketService:
             "news_refresh_seconds": 60,
             "component_deadline_seconds": self._component_deadline_seconds,
         }
+        with self._fubon_stream_lock:
+            stream = self._fubon_stream_feed
+        if mode == "fubon":
+            if stream is not None:
+                try:
+                    health["stream"] = _public_stream_health(
+                        dict(stream.health())
+                    )
+                except Exception:
+                    health["stream"] = {
+                        "ok": False,
+                        "ready": False,
+                        "usable": False,
+                        "status": "STALE",
+                        "transport_status": "ERROR",
+                    }
+            else:
+                health["stream"] = {
+                    "ok": False,
+                    "ready": False,
+                    "usable": False,
+                    "status": "UNAVAILABLE",
+                    "transport_status": "NOT_CONNECTED",
+                }
+        return health
 
     def provider_request_cost(self, symbols: Iterable[object]) -> int:
         """Return a conservative upstream-call reservation for one snapshot."""
@@ -720,10 +784,275 @@ class LiveMarketService:
             return 1
         return 0
 
+    def _apply_fubon_stream_overlay(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        requested_symbols: list[str],
+        errors: list[str],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        feed = self._ensure_fubon_stream(errors)
+        if feed is None:
+            return rows, {
+                "ok": False,
+                "ready": False,
+                "usable": False,
+                "status": "UNAVAILABLE",
+                "transport_status": "NOT_CONNECTED",
+            }
+
+        stock_symbols = {
+            str(row.get("provider_symbol") or row.get("symbol") or "")
+            for row in rows
+            if row.get("kind") == "equity"
+            and str(row.get("symbol") or "") in set(requested_symbols)
+        }
+        stock_symbols.discard("")
+        index_symbol_map = {
+            provider_symbol: resolve_fubon_websocket_index_symbol(
+                provider_symbol
+            )
+            for row in rows
+            if row.get("kind") == "index"
+            and (
+                provider_symbol := str(
+                    row.get("provider_symbol") or ""
+                )
+            )
+        }
+        index_symbols = set(index_symbol_map.values())
+        try:
+            with self._fubon_stream_lock:
+                removed_stocks = (
+                    self._fubon_stream_desired_stocks - stock_symbols
+                )
+                removed_indices = (
+                    self._fubon_stream_desired_indices - index_symbols
+                )
+                self._fubon_stream_desired_stocks = set(stock_symbols)
+                self._fubon_stream_desired_indices = set(index_symbols)
+            if removed_stocks or removed_indices:
+                feed.unsubscribe(
+                    stock_symbols=removed_stocks,
+                    index_symbols=removed_indices,
+                )
+            feed.subscribe(
+                stock_symbols=stock_symbols,
+                index_symbols=index_symbols,
+            )
+            feed.connect()
+            overlay = feed.overlay_snapshot()
+            health = dict(feed.health())
+        except Exception as exc:
+            errors.append(
+                "fubon-stream: "
+                + self._safe_provider_error(exc, provider_mode="fubon")
+            )
+            return rows, {
+                "ok": False,
+                "ready": False,
+                "usable": False,
+                "status": "STALE",
+                "transport_status": "ERROR",
+            }
+
+        aggregates = overlay.get("aggregates")
+        indices = overlay.get("indices")
+        aggregate_map = aggregates if isinstance(aggregates, dict) else {}
+        index_map = indices if isinstance(indices, dict) else {}
+        overlaid: list[dict[str, Any]] = []
+        for baseline in rows:
+            provider_symbol = str(
+                baseline.get("provider_symbol")
+                or baseline.get("symbol")
+                or ""
+            )
+            websocket_symbol = index_symbol_map.get(
+                provider_symbol,
+                provider_symbol,
+            )
+            stream_row = (
+                index_map.get(websocket_symbol)
+                if baseline.get("kind") == "index"
+                else aggregate_map.get(provider_symbol)
+            )
+            stream_status = str(
+                (stream_row or {}).get("status") or "UNAVAILABLE"
+            ).upper()
+            if not isinstance(stream_row, dict) or stream_status not in {
+                "LIVE",
+                "DELAYED",
+                "EOD",
+            }:
+                overlaid.append(baseline)
+                continue
+            if not _stream_row_matches_rest_baseline(baseline, stream_row):
+                overlaid.append(baseline)
+                continue
+            if baseline.get("kind") == "index":
+                index_value = _finite(stream_row.get("index"))
+                if index_value is None:
+                    overlaid.append(baseline)
+                    continue
+                normalized_index = dict(baseline)
+                normalized_index["price"] = index_value
+                normalized_index["status"] = stream_status
+                normalized_index["source"] = (
+                    "Fubon Neo WebSocket (Normal)"
+                )
+                normalized_index["stream_provider_symbol"] = (
+                    websocket_symbol
+                )
+                normalized_index["source_event_time"] = str(
+                    stream_row.get("source_event_time") or ""
+                )
+                previous_close = _finite(
+                    normalized_index.get("previous_close")
+                )
+                if previous_close not in {None, 0}:
+                    change = index_value - previous_close
+                    normalized_index["change"] = change
+                    normalized_index["change_percent"] = (
+                        change / previous_close * 100.0
+                    )
+                overlaid.append(normalized_index)
+                continue
+            stream_price = _first_finite(
+                stream_row.get("lastPrice"),
+                stream_row.get("closePrice"),
+            )
+            if stream_price is None:
+                overlaid.append(baseline)
+                continue
+            normalized = dict(baseline)
+            normalized["price"] = stream_price
+            normalized["status"] = stream_status
+            normalized["source"] = "Fubon Neo WebSocket (Normal)"
+            normalized["provider_symbol"] = provider_symbol
+            normalized["stream_provider_symbol"] = websocket_symbol
+            normalized["source_event_time"] = str(
+                stream_row.get("source_event_time")
+                or baseline.get("source_event_time")
+                or ""
+            )
+            for provider_key, output_key in (
+                ("openPrice", "open"),
+                ("highPrice", "high"),
+                ("lowPrice", "low"),
+            ):
+                value = _finite(stream_row.get(provider_key))
+                if value is not None:
+                    normalized[output_key] = value
+            total = (
+                stream_row.get("total")
+                if isinstance(stream_row.get("total"), dict)
+                else {}
+            )
+            for provider_key, output_key in (
+                ("tradeVolume", "volume"),
+                ("tradeValue", "trade_value"),
+            ):
+                value = _finite(total.get(provider_key))
+                if value is not None:
+                    normalized[output_key] = value
+            bids = stream_row.get("bids")
+            asks = stream_row.get("asks")
+            if isinstance(bids, list) and bids and isinstance(bids[0], dict):
+                bid = _finite(bids[0].get("price"))
+                if bid is not None:
+                    normalized["best_bid"] = bid
+            if isinstance(asks, list) and asks and isinstance(asks[0], dict):
+                ask = _finite(asks[0].get("price"))
+                if ask is not None:
+                    normalized["best_ask"] = ask
+            is_close = _optional_bool(stream_row.get("isClose"))
+            if is_close is not None:
+                normalized["provider_is_close"] = is_close
+            previous_close = _finite(baseline.get("previous_close"))
+            if previous_close not in {None, 0}:
+                change = stream_price - previous_close
+                normalized["change"] = change
+                normalized["change_percent"] = change / previous_close * 100.0
+            else:
+                normalized["change"] = None
+                normalized["change_percent"] = None
+            overlaid.append(normalized)
+        return overlaid, _public_stream_health(health)
+
+    def _ensure_fubon_stream(
+        self,
+        errors: list[str],
+    ) -> Any | None:
+        with self._fubon_stream_lock:
+            if self._fubon_stream_feed is not None:
+                return self._fubon_stream_feed
+            if self._fubon_stream_create_attempted:
+                return None
+            self._fubon_stream_create_attempted = True
+        client_loader = getattr(
+            self._fubon_session_manager,
+            "stock_websocket_client",
+            None,
+        )
+        if not callable(client_loader):
+            return None
+        authentication_generation = self._fubon_auth_generation_value()
+        try:
+            client = client_loader(
+                timeout_seconds=self._component_deadline_seconds
+            )
+            candidate = FubonWebSocketFeed(
+                client,
+                clock=self._clock,
+            )
+        except Exception as exc:
+            with self._fubon_stream_lock:
+                self._fubon_stream_create_attempted = False
+            errors.append(
+                "fubon-stream: "
+                + self._safe_provider_error(
+                    exc,
+                    provider_mode="fubon",
+                )
+            )
+            return None
+        if authentication_generation != self._fubon_auth_generation_value():
+            try:
+                candidate.close()
+            except Exception:
+                pass
+            with self._fubon_stream_lock:
+                self._fubon_stream_create_attempted = False
+            return None
+        with self._fubon_stream_lock:
+            if self._fubon_stream_feed is None:
+                self._fubon_stream_feed = candidate
+                return candidate
+            existing = self._fubon_stream_feed
+        try:
+            candidate.close()
+        except Exception:
+            pass
+        return existing
+
     def close(self) -> None:
         """Release the optional broker SDK session without surfacing secrets."""
 
+        self._detach_fubon_stream()
         self._fubon_session_manager.close()
+
+    def _detach_fubon_stream(self) -> None:
+        with self._fubon_stream_lock:
+            stream = self._fubon_stream_feed
+            self._fubon_stream_feed = None
+            self._fubon_stream_create_attempted = False
+            self._fubon_stream_desired_stocks.clear()
+            self._fubon_stream_desired_indices.clear()
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:
+                pass
 
     @staticmethod
     def _minimum_refresh_seconds(mode: str) -> int:
@@ -918,17 +1247,7 @@ class LiveMarketService:
                 return "Fubon market-data request timed out"
             if isinstance(exc, OSError):
                 return "Fubon market-data request failed"
-            message = str(exc)
-            for secret in (
-                self._fubon_api_key,
-                self._fubon_personal_id,
-                self._fubon_cert_password,
-                self._fubon_cert_path,
-            ):
-                if secret:
-                    message = message.replace(secret, "[redacted]")
-            message = re.sub(r"[\x00-\x1f\x7f]+", " ", message).strip()
-            return message[:240] or "Fubon market-data response was invalid"
+            return "Fubon market-data response was invalid"
         if isinstance(exc, HTTPError):
             messages = {
                 401: "Fugle authentication was rejected (HTTP 401)",
@@ -1673,7 +1992,7 @@ class LiveMarketService:
     ) -> list[dict[str, Any]]:
         payload = self._fubon_json(
             FUBON_SNAPSHOT_PATH.format(market=market),
-            {"type": "ALLBUT099"},
+            {},
             deadline=deadline,
         )
         return _normalize_fubon_snapshot(
@@ -1860,6 +2179,7 @@ class LiveMarketService:
             self._fubon_auth_generation += 1
             self._purge_fubon_quote_caches_locked()
             self._fubon_negative_cache.clear()
+        self._detach_fubon_stream()
         try:
             self._fubon_session_manager.invalidate(
                 authentication_failure=True
@@ -1922,6 +2242,18 @@ class LiveMarketService:
                 or cache_key.startswith("fubon-")
                 or cache_key.startswith("quotes:")
             ):
+                self._cache.pop(cache_key, None)
+
+    def _purge_snapshot_component_caches_locked(self) -> None:
+        exact_keys = {"alerts", "fund-flow", "news", "trading-calendar"}
+        prefixes = (
+            "fubon-",
+            "fugle-benchmark",
+            "fugle-symbol:",
+            "quotes:",
+        )
+        for cache_key in tuple(self._cache):
+            if cache_key in exact_keys or cache_key.startswith(prefixes):
                 self._cache.pop(cache_key, None)
 
     def _fetch_fubon_json(
@@ -2376,7 +2708,7 @@ class LiveMarketService:
             title = str(item.get("Title") or "").strip()
             published = _roc_datetime(item.get("Date"))
             url = safe_http_url(item.get("Url"))
-            if not title or published is None:
+            if not title or published is None or not url:
                 return None
             return {
                 "published_at": published.isoformat(),
@@ -3374,6 +3706,8 @@ def _upstream_component_status(upstreams: list[dict[str, Any]]) -> str:
     }
     if "LIVE" in statuses:
         return "LIVE"
+    if "DELAYED" in statuses:
+        return "DELAYED"
     if "FRESH" in statuses:
         return "FRESH"
     if "EOD" in statuses:
@@ -3496,6 +3830,28 @@ def _event_rows_status(
     return "FRESH" if age <= max_age else "STALE"
 
 
+def _public_stream_health(value: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "aggregate_count",
+        "connect_worker_active",
+        "coverage_complete",
+        "desired_index_count",
+        "desired_stock_count",
+        "index_count",
+        "last_message_at",
+        "ok",
+        "quiet_seconds",
+        "ready",
+        "reconnect_failures",
+        "rejected_messages",
+        "retry_after_seconds",
+        "status",
+        "transport_status",
+        "usable",
+    }
+    return {key: value[key] for key in allowed if key in value}
+
+
 def _payload_status(payload: Any, *, fetched_at: datetime, now: datetime) -> str:
     if not payload:
         return "UNAVAILABLE"
@@ -3532,6 +3888,10 @@ def _quote_collection_status(values: Iterable[object]) -> str:
         return "STALE"
     if all(status == "LIVE" for status in statuses):
         return "LIVE"
+    if all(status == "DELAYED" for status in statuses):
+        return "DELAYED"
+    if set(statuses).issubset({"LIVE", "DELAYED"}):
+        return "DELAYED"
     if all(status == "EOD" for status in statuses):
         return "EOD"
     return "STALE"
@@ -3555,6 +3915,27 @@ def _quotes_need_calendar_reclassification(
         if row.get("provider_is_close") is True or _is_credible_index_close_event(event):
             return True
     return False
+
+
+def _stream_row_matches_rest_baseline(
+    baseline: dict[str, Any],
+    stream_row: dict[str, Any],
+) -> bool:
+    if str(baseline.get("status") or "").upper() not in {"LIVE", "EOD"}:
+        return False
+    baseline_session = _iso_date(baseline.get("session_date"))
+    stream_event = _iso_datetime(stream_row.get("source_event_time"))
+    if (
+        baseline_session is None
+        or stream_event is None
+        or baseline_session != stream_event.date()
+    ):
+        return False
+    if str(baseline.get("kind") or "") != "index":
+        stream_session = _iso_date(stream_row.get("date"))
+        if stream_session is None or stream_session != stream_event.date():
+            return False
+    return True
 
 
 def _reclassify_quote_with_calendar(

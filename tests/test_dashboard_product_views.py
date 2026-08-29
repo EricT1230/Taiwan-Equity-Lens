@@ -2,6 +2,7 @@ import unittest
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
+from taiwan_stock_analysis.dashboard import render_dashboard_html
 from taiwan_stock_analysis.dashboard_ui.page import render as render_page
 from taiwan_stock_analysis.dashboard_ui.product_data import delivery_status, market_snapshot, stock_rows
 from taiwan_stock_analysis.dashboard_ui.views.intelligence import render_intelligence_view
@@ -105,6 +106,60 @@ ITEMS = {
     "memo_outputs": [],
     "pack_outputs": [],
 }
+
+
+def mixed_mode_items() -> dict[str, list[dict[str, object]]]:
+    demo_report = {
+        "kind": "market_intelligence_report",
+        "path": "examples/DEMO_SENTINEL_PATH.json",
+        "generated_at": "2026-08-28T06:00:00Z",
+        "provenance": {
+            "source": "TWSE",
+            "status": "EOD",
+            "observed_at": "2026-08-28T06:00:00Z",
+        },
+        "news": [
+            {
+                "title": "DEMO_SENTINEL_NEWS",
+                "summary": "Demo-only story",
+                "source": "synthetic-demo",
+                "source_mode": "fixture",
+                "published_at": "2026-08-28T05:00:00Z",
+                "url": "https://example.com/DEMO_SENTINEL_URL",
+            }
+        ],
+    }
+    official_report = {
+        "kind": "market_intelligence_report",
+        "generated_at": "2026-08-28T06:00:00Z",
+        "provenance": {
+            "source": "TWSE",
+            "status": "EOD",
+            "observed_at": "2026-08-28T06:00:00Z",
+        },
+        "news": [
+            {
+                "title": "OFFICIAL_SENTINEL_NEWS",
+                "summary": "Official exchange story",
+                "source": "TWSE",
+                "published_at": "2026-08-28T05:00:00Z",
+                "url": "https://www.twse.com.tw/OFFICIAL_SENTINEL_URL",
+            }
+        ],
+    }
+    return {
+        "market_intelligence_reports": [demo_report, official_report],
+        "industry_trend_reports": [],
+        "research_summaries": [],
+        "workflow_summaries": [],
+        "reports": [],
+        "comparisons": [],
+        "batch_summaries": [],
+        "memo_outputs": [],
+        "pack_outputs": [],
+        "handoff_pack_outputs": [],
+        "market_data_reports": [],
+    }
 
 
 class ProductDataTests(unittest.TestCase):
@@ -211,6 +266,48 @@ class ProductDataTests(unittest.TestCase):
 
 
 class ProductViewTests(unittest.TestCase):
+    def test_production_render_admits_official_sibling_and_removes_demo_content(self):
+        html = render_dashboard_html(
+            mixed_mode_items(),
+            data_mode="production",
+            now=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIn('data-data-mode="production"', html)
+        self.assertIn('data-admission-rejected-count="1"', html)
+        self.assertIn("OFFICIAL_SENTINEL_NEWS", html)
+        self.assertNotIn("DEMO_SENTINEL_NEWS", html)
+        self.assertNotIn("DEMO_SENTINEL_PATH", html)
+        self.assertNotIn("DEMO_SENTINEL_URL", html)
+
+    def test_demo_render_preserves_demo_content_and_has_visible_mode_label(self):
+        html = render_dashboard_html(
+            mixed_mode_items(),
+            data_mode="demo",
+            now=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIn('data-data-mode="demo"', html)
+        self.assertIn('data-admission-rejected-count="0"', html)
+        self.assertIn("Demo 模式", html)
+        self.assertIn("DEMO_SENTINEL_NEWS", html)
+        self.assertIn("DEMO_SENTINEL_URL", html)
+
+    def test_production_render_uses_injected_now_for_freshness(self):
+        items = mixed_mode_items()
+        items["market_intelligence_reports"] = [items["market_intelligence_reports"][1]]
+
+        html = render_dashboard_html(
+            items,
+            data_mode="production",
+            now=datetime(2026, 9, 5, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIn('data-data-mode="production"', html)
+        self.assertIn('data-admission-rejected-count="1"', html)
+        self.assertNotIn("OFFICIAL_SENTINEL_NEWS", html)
+        self.assertNotIn("OFFICIAL_SENTINEL_URL", html)
+
     def test_overview_renders_guided_flow_and_source_time(self):
         html = render_overview_view(ITEMS)
         self.assertIn("今天只做三件事", html)

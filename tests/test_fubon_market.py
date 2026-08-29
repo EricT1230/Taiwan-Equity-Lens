@@ -44,6 +44,7 @@ class _FakeSDK:
         self.init_error = init_error
         self.login_calls = 0
         self.init_calls = 0
+        self.init_modes = []
         self.logout_calls = 0
         self.login_arguments = []
         self._lock = threading.Lock()
@@ -65,10 +66,12 @@ class _FakeSDK:
             raise self.login_error
         return self.login_result
 
-    def init_realtime(self):
+    def init_realtime(self, mode=None):
         self.init_calls += 1
+        self.init_modes.append(mode)
         if self.init_error is not None:
             raise self.init_error
+        self.stock_websocket = SimpleNamespace(name="normal-stock-websocket")
         self.marketdata = SimpleNamespace(
             rest_client=SimpleNamespace(
                 stock=SimpleNamespace(
@@ -77,7 +80,8 @@ class _FakeSDK:
                         "sdk_token": self.sdk_token,
                     }
                 )
-            )
+            ),
+            websocket_client=SimpleNamespace(stock=self.stock_websocket),
         )
 
     def logout(self):
@@ -200,6 +204,16 @@ class FubonSessionManagerTests(unittest.TestCase):
         ):
             self.assertNotIn(sensitive_value, message)
 
+    def test_authenticated_session_initializes_normal_mode_and_exposes_stock_websocket(self):
+        sdk = _FakeSDK()
+        manager = self.manager(sdk_factory=lambda: sdk)
+
+        websocket = manager.stock_websocket_client(timeout_seconds=1)
+
+        self.assertIs(sdk.stock_websocket, websocket)
+        self.assertEqual(1, sdk.init_calls)
+        self.assertEqual("normal", sdk.init_modes[0].value)
+
     def test_missing_configuration_is_reported_and_rejected(self):
         cases = (
             ("personal_id", None),
@@ -253,7 +267,12 @@ class FubonSessionManagerTests(unittest.TestCase):
 
     def test_supported_sdk_version_is_available(self):
         manager = self.manager()
-        sdk_module = SimpleNamespace(FubonSDK=_FakeSDK)
+        sdk_module = SimpleNamespace(
+            FubonSDK=_FakeSDK,
+            Mode=SimpleNamespace(
+                Normal=SimpleNamespace(value="normal")
+            ),
+        )
 
         with (
             patch(

@@ -1115,6 +1115,9 @@ class MarketBreadthTests(unittest.TestCase):
                 0,
                 payload["source_status"][key]["market_counts"]["TPEX"],
             )
+            for upstream in payload["source_status"][key]["upstreams"]:
+                self.assertIn(upstream["market"].casefold(), upstream["label"].casefold())
+                self.assertTrue(upstream["url"].startswith("https://"))
 
     def test_missing_quote_remains_missing_instead_of_zero(self):
         rows = build_industry_summaries(
@@ -1195,6 +1198,27 @@ class MarketBreadthTests(unittest.TestCase):
 
         self.assertIn(date(2026, 2, 27), closed)
         self.assertNotIn(date(2026, 2, 11), closed)
+
+    def test_manual_force_refresh_bypasses_the_success_cache(self):
+        now = datetime(2026, 7, 29, 15, 0, tzinfo=TAIPEI)
+        fetcher = _BreadthFetcher()
+        service = MarketBreadthService(
+            fetch_json=fetcher,
+            clock=lambda: now,
+            cache_seconds=300,
+            minimum_catalog_counts={"TWSE": 1, "TPEX": 1},
+        )
+
+        first = service.snapshot()
+        first_call_count = len(fetcher.calls)
+        cached = service.snapshot()
+        cached_call_count = len(fetcher.calls)
+        refreshed = service.snapshot(force=True)
+
+        self.assertEqual("EOD", first["status"])
+        self.assertEqual(first_call_count, cached_call_count)
+        self.assertGreater(len(fetcher.calls), cached_call_count)
+        self.assertEqual("EOD", refreshed["status"])
 
 
 if __name__ == "__main__":

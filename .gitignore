@@ -6,6 +6,7 @@ __pycache__/
 *.pfx
 *.p12
 .tmp-*/
+.local-data/
 # Fubon SDK runtime logs: contain personal ID, account numbers, and session tokens.
 log/
 build/

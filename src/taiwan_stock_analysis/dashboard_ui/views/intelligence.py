@@ -91,7 +91,7 @@ def _fundamental_card(row: dict[str, Any]) -> str:
     thesis = str(row.get("thesis") or "尚未建立研究假設")
     state = str(row.get("research_state") or "watching")
     return (
-        '<article class="intel-fund-card">'
+        '<article class="intel-fund-card" data-demo-fundamental-card="true">'
         '<header><div>'
         f'<span class="mono">{esc(row.get("stock_id") or "-")}</span>'
         f'<h3>{esc(row.get("company_name") or "-")}</h3></div>{pill(state)}</header>'
@@ -104,16 +104,25 @@ def _fundamental_card(row: dict[str, Any]) -> str:
 
 def _fundamentals(items: dict[str, Any]) -> str:
     snapshot = market_snapshot(items)
-    cards = "".join(_fundamental_card(row) for row in research_rows(items)[:6])
+    rows = research_rows(items)[:6]
+    cards = "".join(_fundamental_card(row) for row in rows)
     if not cards:
         cards = '<p class="desk-empty">尚無財報研究摘要。</p>'
     return (
-        '<section class="intel-fundamentals desk-card">'
+        '<section class="intel-fundamentals desk-card"'
+        ' data-live-fundamentals-section="true">'
         '<div class="desk-section-head"><div><span class="desk-kicker">FUNDAMENTALS</span>'
         '<h2>財報與研究摘要</h2></div><span class="desk-section-note">'
+        '<span data-live-fundamentals-status="true" data-production-state="DEMO">'
         f'研究資料：{esc(snapshot["mode_label"])} · 分數只代表檢查完成度與規則結果'
+        "</span>"
         "</span></div>"
-        f'<div class="intel-fund-grid">{cards}</div>'
+        f'<div class="intel-fund-grid" data-live-fundamentals-grid="true"'
+        f' data-demo-fundamentals="true">{cards}</div>'
+        '<div class="screen-pagination">'
+        '<button type="button" data-live-fundamentals-more="true" hidden>顯示更多</button>'
+        f'<span data-live-fundamentals-count="true">{len(rows)} / {len(rows)}</span>'
+        "</div>"
         "</section>"
     )
 

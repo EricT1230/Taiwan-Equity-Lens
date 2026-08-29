@@ -227,6 +227,30 @@ class FubonSessionManager:
         self._bounded_best_effort_logout(stale_sdk)
         raise stale_error from None
 
+    def stock_websocket_client(
+        self,
+        timeout_seconds: float | None = None,
+    ) -> Any:
+        """Return the authenticated Normal-mode stock WebSocket client."""
+
+        self.session(timeout_seconds=timeout_seconds)
+        with self._lock:
+            if self._closed or self._sdk is None:
+                raise FubonSessionError(
+                    "the Fubon market WebSocket session is unavailable"
+                )
+            try:
+                client = self._sdk.marketdata.websocket_client.stock
+            except Exception:
+                raise FubonSessionError(
+                    "the Fubon stock WebSocket client is unavailable"
+                ) from None
+            if client is None:
+                raise FubonSessionError(
+                    "the Fubon stock WebSocket client is unavailable"
+                )
+            return client
+
     def invalidate(self, *, authentication_failure: bool = False) -> None:
         """Discard the cached session and best-effort logout its SDK."""
 
@@ -720,7 +744,9 @@ class FubonSessionManager:
             initializer = getattr(sdk, "init_realtime")
             if not callable(initializer):
                 raise TypeError
-            initializer()
+            sdk_module = importlib.import_module("fubon_neo.sdk")
+            mode = getattr(getattr(sdk_module, "Mode"), "Normal")
+            initializer(mode)
         except Exception:
             raise FubonSessionError(
                 "Fubon market-data initialization failed"

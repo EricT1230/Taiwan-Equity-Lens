@@ -279,9 +279,11 @@ class DashboardBreadthUiTests(unittest.TestCase):
 
     @unittest.skipUnless(_NODE, "node is unavailable")
     def test_live_quote_map_keeps_good_rows_when_batch_is_partial(self) -> None:
+        policy_start = SCRIPT.index("var MARKET_STATUS_POLICY")
+        policy_end = SCRIPT.index("function activateTab", policy_start)
         start = SCRIPT.index("function liveQuoteMap")
         end = SCRIPT.index("function liveIndex")
-        block = SCRIPT[start:end]
+        block = SCRIPT[policy_start:policy_end] + SCRIPT[start:end]
         harness = f"""
     {block}
     var mapped = liveQuoteMap({{
@@ -347,6 +349,9 @@ class DashboardBreadthUiTests(unittest.TestCase):
         coverage:screenerBreadthCoverage,
         mode:screenerBreadthMode,
         status:screenerBreadthStatus,
+        expectedSessionDate:screenerBreadthExpectedSessionDate,
+        sessionFresh:screenerBreadthSessionFresh,
+        crossMarketComparable:screenerBreadthCrossMarketComparable,
         sessionDates:screenerBreadthSessionDates,
         sourceStatus:screenerBreadthSourceStatus
       }};
@@ -355,6 +360,10 @@ class DashboardBreadthUiTests(unittest.TestCase):
       screenerBreadthCoverage = (meta || {{}}).coverage || {{}};
       screenerBreadthMode = (meta || {{}}).mode || "UNAVAILABLE";
       screenerBreadthStatus = (meta || {{}}).status || "UNAVAILABLE";
+      screenerBreadthExpectedSessionDate = (meta || {{}}).expectedSessionDate || "";
+      screenerBreadthSessionFresh = (meta || {{}}).sessionFresh === true;
+      screenerBreadthCrossMarketComparable =
+        (meta || {{}}).crossMarketComparable === true;
       screenerBreadthSessionDates = (meta || {{}}).sessionDates || {{}};
       screenerBreadthSourceStatus = (meta || {{}}).sourceStatus || {{}};
     }}
@@ -377,6 +386,9 @@ class DashboardBreadthUiTests(unittest.TestCase):
     var screenerBreadthCoverage = {{}};
     var screenerBreadthMode = "UNAVAILABLE";
     var screenerBreadthStatus = "UNAVAILABLE";
+    var screenerBreadthExpectedSessionDate = "";
+    var screenerBreadthSessionFresh = false;
+    var screenerBreadthCrossMarketComparable = false;
     var screenerBreadthSessionDates = {{}};
     var screenerBreadthSourceStatus = {{}};
     function screenerState() {{
@@ -395,14 +407,29 @@ class DashboardBreadthUiTests(unittest.TestCase):
       short_volume_ratio:40, short_volume_status:"EOD"
     }}, {{}}, null);
     screenerLoadBreadth({{
-      mode:"EOD_FULL+LIVE_PAGE",
-      coverage:{{catalog_total:2, quoted_total:1}},
+      mode:"EOD_PARTIAL+LIVE_PAGE",
+      status:"PARTIAL",
+      official_status:"PARTIAL",
+      expected_session_date:"2026-07-29",
+      session_fresh:true,
+      cross_market_comparable:true,
+      session_dates:{{TWSE:"2026-07-29", TPEX:"2026-07-29"}},
+      coverage:{{
+        catalog_total:2, quoted_total:2, official_quoted_total:2,
+        official_market_ratios:{{TWSE:1, TPEX:1}}
+      }},
+      source_status:{{
+        quotes:{{status:"EOD", authoritative:false, upstreams:[
+          {{id:"twse-daily", status:"EOD", session_date:"2026-07-29"}},
+          {{id:"tpex-daily", status:"EOD", session_date:"2026-07-29"}}
+        ]}}
+      }},
       market_catalog:[
         {{symbol:"2330", name:"台積電", market:"TWSE", industry_name:"半導體業"}},
         {{symbol:"6488", name:"環球晶", market:"TPEx", industry_name:"半導體業"}}
       ],
       full_market:[
-        {{symbol:"2330", price:2200, change_percent:-3.5, quote_status:"EOD"}},
+        {{symbol:"2330", price:2200, change_percent:-3.5, quote_status:"EOD", session_date:"2026-07-29"}},
         {{symbol:"6488", price:null, quote_status:"MISSING", disposition:true}}
       ]
     }});
@@ -449,6 +476,7 @@ class DashboardBreadthUiTests(unittest.TestCase):
       breadthCount: screenerBreadthRows.length,
       breadthMode: screenerBreadthMode,
       breadthCoverage: screenerBreadthCoverage,
+      breadthFirstTags: screenerBreadthRows[0].tags,
       breadthSecondStatus: screenerBreadthRows[1].status,
       breadthSecondDisposition: screenerBreadthRows[1].tags.indexOf("disposition") !== -1,
       holidayFlowAuthoritative: holidayFlowAuthoritative,
@@ -496,13 +524,189 @@ class DashboardBreadthUiTests(unittest.TestCase):
         assert result["usShortRatio"] == 40
         assert result["usQuoteStatus"] == "NOT_CONNECTED"
         assert result["breadthCount"] == 2
-        assert result["breadthMode"] == "EOD_FULL+LIVE_PAGE"
-        assert result["breadthCoverage"] == {"catalog_total": 2, "quoted_total": 1}
+        assert result["breadthMode"] == "EOD_PARTIAL+LIVE_PAGE"
+        assert result["breadthCoverage"] == {
+            "catalog_total": 2,
+            "quoted_total": 2,
+            "official_quoted_total": 2,
+            "official_market_ratios": {"TWSE": 1, "TPEX": 1},
+        }
+        assert "bear" in result["breadthFirstTags"]
         assert result["breadthSecondStatus"] == "MISSING"
         assert result["breadthSecondDisposition"] is True
         assert result["holidayFlowAuthoritative"] is True
         assert result["order"] == ["AAA", "BBB", "ZZZ"]
         assert result["shortOrder"] == ["NVDA", "AAPL", "MSFT"]
+
+
+    @unittest.skipUnless(_NODE, "node is unavailable")
+    def test_partial_bundle_keeps_authoritative_eod_trend_filters_enabled(self) -> None:
+        source_start = SCRIPT.index("function sourceStatusAuthoritative")
+        source_end = SCRIPT.index("function populateScreenerIndustries")
+        count_start = SCRIPT.index("function updateScreenerFilterCounts")
+        count_end = SCRIPT.index("function renderBreadthScreener")
+        block = SCRIPT[source_start:source_end] + SCRIPT[count_start:count_end]
+        harness = f"""
+    function fakeNode() {{
+      return {{
+        disabled:false,
+        title:"",
+        textContent:"",
+        attrs:{{}},
+        classList:{{
+          contains:function () {{ return false; }},
+          add:function () {{}},
+          remove:function () {{}}
+        }},
+        setAttribute:function (name, value) {{ this.attrs[name] = value; }}
+      }};
+    }}
+    var buttons = {{bull:fakeNode(), bear:fakeNode()}};
+    var counts = {{
+      all:fakeNode(), bull:fakeNode(), bear:fakeNode(),
+      disposition:fakeNode(), industry:fakeNode(), us:fakeNode()
+    }};
+    var document = {{
+      querySelector:function (selector) {{
+        var buttonMatch = selector.match(/data-screener-filter="([^"]+)"/);
+        if (buttonMatch && buttons[buttonMatch[1]]) return buttons[buttonMatch[1]];
+        var countMatch = selector.match(/data-screener-filter-count="([^"]+)"/);
+        return countMatch ? counts[countMatch[1]] : null;
+      }}
+    }};
+    var screenerUniverseMode = "TW";
+    var screenerBreadthStatus = "PARTIAL";
+    var screenerBreadthExpectedSessionDate = "2026-08-28";
+    var screenerBreadthSessionFresh = true;
+    var screenerBreadthCrossMarketComparable = true;
+    var screenerBreadthSessionDates = {{TWSE:"2026-08-28", TPEX:"2026-08-28"}};
+    var screenerBreadthCoverage = {{
+      catalog_total:1985,
+      official_quoted_total:1978,
+      official_market_ratios:{{TWSE:0.996, TPEX:0.997}}
+    }};
+    var screenerBreadthSourceStatus = {{
+      quotes:{{
+        status:"EOD", authoritative:false,
+        upstreams:[
+          {{id:"twse-daily", status:"EOD", session_date:"2026-08-28"}},
+          {{id:"tpex-daily", status:"EOD", session_date:"2026-08-28"}}
+        ]
+      }},
+      live_quotes:{{status:"UNAVAILABLE", authoritative:false}},
+      disposition_alerts:{{status:"UNAVAILABLE"}},
+      notice_alerts:{{status:"UNAVAILABLE"}}
+    }};
+    var screenerUsBreadthRows = [];
+    var usMarketState = "idle";
+    function usMarketApiEnabled() {{ return false; }}
+    function screenerCommonMatch(row) {{ return row.match !== false; }}
+    {block}
+    var rows = [];
+    for (var up = 0; up < 721; up++) {{
+      rows.push({{market:"TWSE", industry:"上漲", tags:["bull"], match:true}});
+    }}
+    for (var down = 0; down < 1048; down++) {{
+      rows.push({{market:"TPEX", industry:"下跌", tags:["bear"], match:true}});
+    }}
+    for (var flatOrMissing = 0; flatOrMissing < 216; flatOrMissing++) {{
+      rows.push({{market:"TWSE", industry:"平盤或無行情", tags:[], match:true}});
+    }}
+    var state = {{filter:"all", query:"", market:"all", industry:"all"}};
+    updateScreenerSourceControls();
+    updateScreenerFilterCounts(rows, state);
+    var eod = {{
+      ready:screenerTrendReady(),
+      bullDisabled:buttons.bull.disabled,
+      bearDisabled:buttons.bear.disabled,
+      bullAria:buttons.bull.attrs["aria-disabled"],
+      bearAria:buttons.bear.attrs["aria-disabled"],
+      bullCount:counts.bull.textContent,
+      bearCount:counts.bear.textContent,
+      validRow:screenerRowTrendReady({{
+        status:"EOD", sourceEventTime:"2026-08-28"
+      }}),
+      staleRow:screenerRowTrendReady({{
+        status:"STALE", sourceEventTime:"2026-08-28"
+      }}),
+      undatedRow:screenerRowTrendReady({{status:"EOD", sourceEventTime:""}}),
+      crossSessionRow:screenerRowTrendReady({{
+        status:"EOD", sourceEventTime:"2026-08-27"
+      }}),
+      futureRow:screenerRowTrendReady({{
+        status:"EOD", sourceEventTime:"2026-08-29"
+      }})
+    }};
+    screenerBreadthSessionFresh = false;
+    var staleSessionReady = screenerTrendReady();
+    screenerBreadthSessionFresh = true;
+    screenerBreadthSessionDates.TPEX = "2026-08-27";
+    var crossMarketReady = screenerTrendReady();
+    screenerBreadthSessionDates.TPEX = "2026-08-28";
+    screenerBreadthSourceStatus.quotes.upstreams[1].session_date = "2026-08-27";
+    var crossUpstreamReady = screenerTrendReady();
+    screenerBreadthSourceStatus.quotes.upstreams[1].session_date = "2026-08-28";
+    screenerBreadthCoverage.official_quoted_total = 100;
+    var lowCoverageReady = screenerTrendReady();
+    screenerBreadthCoverage.official_quoted_total = 1978;
+    screenerBreadthStatus = "STALE";
+    updateScreenerSourceControls();
+    updateScreenerFilterCounts(rows, state);
+    process.stdout.write(JSON.stringify({{
+      eod:eod,
+      contradictions:{{
+        staleSessionReady:staleSessionReady,
+        crossMarketReady:crossMarketReady,
+        crossUpstreamReady:crossUpstreamReady,
+        lowCoverageReady:lowCoverageReady
+      }},
+      stale:{{
+        ready:screenerTrendReady(),
+        bullDisabled:buttons.bull.disabled,
+        bearDisabled:buttons.bear.disabled,
+        bullCount:counts.bull.textContent,
+        bearCount:counts.bear.textContent
+      }}
+    }}));
+    """
+        completed = subprocess.run(
+            [shutil.which("node") or "node"],
+            input=harness,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert completed.returncode == 0, completed.stderr
+        result = json.loads(completed.stdout)
+
+        assert result["eod"] == {
+            "ready": True,
+            "bullDisabled": False,
+            "bearDisabled": False,
+            "bullAria": "false",
+            "bearAria": "false",
+            "bullCount": "721",
+            "bearCount": "1048",
+            "validRow": True,
+            "staleRow": False,
+            "undatedRow": False,
+            "crossSessionRow": False,
+            "futureRow": False,
+        }
+        assert result["contradictions"] == {
+            "staleSessionReady": False,
+            "crossMarketReady": False,
+            "crossUpstreamReady": False,
+            "lowCoverageReady": False,
+        }
+        assert result["stale"] == {
+            "ready": False,
+            "bullDisabled": True,
+            "bearDisabled": True,
+            "bullCount": "—",
+            "bearCount": "—",
+        }
 
 
     @unittest.skipUnless(_NODE, "node is unavailable")
@@ -571,7 +775,7 @@ class DashboardBreadthUiTests(unittest.TestCase):
     def test_live_quote_flip_updates_the_breadth_backing_row_and_can_restore_eod_baseline(self) -> None:
         baseline_start = SCRIPT.index("function screenerRememberBreadthBaseline")
         baseline_end = SCRIPT.index("function screenerLoadBreadth")
-        apply_start = SCRIPT.index("function screenerApplyLiveQuote")
+        apply_start = SCRIPT.index("function screenerOverlayQuoteTrendReady")
         apply_end = SCRIPT.index("function liveSyncBreadthRows")
         block = SCRIPT[baseline_start:baseline_end] + SCRIPT[apply_start:apply_end]
         harness = f"""
@@ -591,11 +795,12 @@ class DashboardBreadthUiTests(unittest.TestCase):
       var number = Number(value);
       return (number > 0 ? "+" : "") + number.toFixed(2) + "%";
     }}
+    var screenerBreadthExpectedSessionDate = "2026-07-30";
     {block}
     var row = screenerRememberBreadthBaseline({{
       symbol:"2330", industry:"半導體業", price:100, referencePrice:99,
       change:1, changePercent:1.01, volume:10, tradeValue:1000,
-      status:"EOD", sourceEventTime:"2026-07-29",
+      status:"EOD", sourceEventTime:"2026-07-30",
       disposition:{{type:"notice", reason:"注意股票"}},
       tags:["industry", "bull", "disposition"],
       reasonAll:"當日上漲 +1.01%｜注意：注意股票"
@@ -641,6 +846,102 @@ class DashboardBreadthUiTests(unittest.TestCase):
         assert result["restored"]["tags"] == ["industry", "bull", "disposition"]
         assert result["restored"]["reasonAll"] == "當日上漲 +1.01%｜注意：注意股票"
         assert result["restored"]["status"] == "EOD"
+
+
+    @unittest.skipUnless(_NODE, "node is unavailable")
+    def test_partial_live_overlay_preserves_full_market_eod_direction_counts(self) -> None:
+        baseline_start = SCRIPT.index("function screenerRememberBreadthBaseline")
+        baseline_end = SCRIPT.index("function screenerLoadBreadth")
+        apply_start = SCRIPT.index("function screenerOverlayQuoteTrendReady")
+        apply_end = SCRIPT.index("function liveUpdateStocks")
+        block = SCRIPT[baseline_start:baseline_end] + SCRIPT[apply_start:apply_end]
+        harness = f"""
+    function screenerFinite(value) {{
+      if (value === null || value === undefined || value === "") return null;
+      var number = Number(value);
+      return isFinite(number) ? number : null;
+    }}
+    function screenerFirstValue(row, keys, fallback) {{
+      for (var i = 0; i < keys.length; i++) {{
+        var value = row ? row[keys[i]] : null;
+        if (value !== null && value !== undefined && value !== "") return value;
+      }}
+      return fallback;
+    }}
+    function livePercent(value) {{
+      var number = Number(value);
+      return (number > 0 ? "+" : "") + number.toFixed(2) + "%";
+    }}
+    var screenerBreadthExpectedSessionDate = "2026-08-28";
+    var screenerUniverseMode = "TW";
+    var screenerBreadthRows = [];
+    function renderBreadthScreener() {{}}
+    {block}
+    function baseline(symbol, direction) {{
+      var percent = direction === "bull" ? 1 : -1;
+      return screenerRememberBreadthBaseline({{
+        symbol:symbol, industry:"測試", price:100, referencePrice:99,
+        change:percent, changePercent:percent, volume:1, tradeValue:100,
+        status:"EOD", sourceEventTime:"2026-08-28", disposition:null,
+        tags:["industry", direction],
+        reasonAll:direction === "bull" ? "當日上漲 +1.00%" : "當日下跌 -1.00%"
+      }});
+    }}
+    for (var up = 0; up < 721; up++) screenerBreadthRows.push(baseline("UP" + up, "bull"));
+    for (var down = 0; down < 1048; down++) screenerBreadthRows.push(baseline("DN" + down, "bear"));
+    for (var other = 0; other < 216; other++) {{
+      var row = baseline("FLAT" + other, "bull");
+      row.tags = ["industry"];
+      row.breadthBaseline.tags = ["industry"];
+      screenerBreadthRows.push(row);
+    }}
+    function counts() {{
+      return {{
+        bull:screenerBreadthRows.filter(function (row) {{ return row.tags.indexOf("bull") !== -1; }}).length,
+        bear:screenerBreadthRows.filter(function (row) {{ return row.tags.indexOf("bear") !== -1; }}).length
+      }};
+    }}
+    var baselineCounts = counts();
+    liveSyncBreadthRows({{}}, {{}}); // partial snapshot omitted unrelated 7835
+    var afterMissing = counts();
+    liveSyncBreadthRows({{
+      UP0:{{status:"EOD", price:98, change_percent:-2, session_date:"2026-08-28"}}
+    }}, {{}});
+    var afterValid = counts();
+    liveSyncBreadthRows({{
+      UP1:{{status:"STALE", price:90, change_percent:-10, session_date:"2026-08-28"}},
+      UP2:{{status:"EOD", price:90, change_percent:-10, session_date:"2026-08-27"}},
+      UP3:{{status:"LIVE", price:110, change_percent:10, session_date:"2026-08-29"}}
+    }}, {{}});
+    var afterUntrusted = counts();
+    process.stdout.write(JSON.stringify({{
+      baseline:baselineCounts,
+      afterMissing:afterMissing,
+      afterValid:afterValid,
+      afterUntrusted:afterUntrusted,
+      up1:screenerBreadthRows[1].tags,
+      up2:screenerBreadthRows[2].tags,
+      up3:screenerBreadthRows[3].tags
+    }}));
+    """
+        completed = subprocess.run(
+            [shutil.which("node") or "node"],
+            input=harness,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert completed.returncode == 0, completed.stderr
+        result = json.loads(completed.stdout)
+
+        assert result["baseline"] == {"bull": 721, "bear": 1048}
+        assert result["afterMissing"] == result["baseline"]
+        assert result["afterValid"] == {"bull": 720, "bear": 1049}
+        assert result["afterUntrusted"] == result["baseline"]
+        assert result["up1"] == ["industry", "bull"]
+        assert result["up2"] == ["industry", "bull"]
+        assert result["up3"] == ["industry", "bull"]
 
 
     @unittest.skipUnless(_NODE, "node is unavailable")

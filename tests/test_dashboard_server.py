@@ -3,6 +3,7 @@ import shutil
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError
@@ -17,6 +18,9 @@ from taiwan_stock_analysis.dashboard_server import (
     set_review_action_status_from_payload,
     write_handoff_pack_from_payload,
 )
+
+
+FIXED_DASHBOARD_NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
 
 
 class _FakeLiveService:
@@ -628,6 +632,49 @@ class DashboardServerTests(unittest.TestCase):
             thread.join(timeout=5)
             server.server_close()
 
+    def test_loopback_expensive_reads_reject_cross_site_browser_requests(self):
+        root = Path(".tmp-cli-test/dashboard-server-read-origin-guard")
+        root.mkdir(parents=True, exist_ok=True)
+        live = _FakeLiveService()
+        breadth = _FakeBreadthService()
+        us_market = _FakeUSMarketService()
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            live_service=live,
+            breadth_service=breadth,
+            us_market_service=us_market,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for endpoint in (
+                "api/live/snapshot?symbols=2330",
+                "api/market/breadth",
+                "api/us/market",
+            ):
+                with self.subTest(endpoint=endpoint):
+                    request = Request(
+                        f"{url}{endpoint}",
+                        headers={
+                            "Sec-Fetch-Site": "cross-site",
+                            "Referer": "https://attacker.example/drive-by",
+                        },
+                    )
+                    with self.assertRaises(HTTPError) as caught:
+                        urlopen(request, timeout=5)
+                    self.assertEqual(403, caught.exception.code)
+                    payload = json.loads(caught.exception.read().decode("utf-8"))
+                    self.assertEqual("cross-site data request", payload["error"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+        self.assertEqual([], live.requested_symbols)
+        self.assertEqual(0, breadth.calls)
+        self.assertEqual(0, us_market.calls)
+
     def test_loopback_write_api_rejects_missing_mutation_token(self):
         root = Path(".tmp-cli-test/dashboard-server-token-required")
         root.mkdir(parents=True, exist_ok=True)
@@ -662,6 +709,7 @@ class DashboardServerTests(unittest.TestCase):
             [root.resolve()],
             port=0,
             live_service=_FakeLiveService(),
+            clock=lambda: FIXED_DASHBOARD_NOW,
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -744,7 +792,11 @@ class DashboardServerTests(unittest.TestCase):
     def test_served_dashboard_http_updates_sector_evidence_state(self):
         root = Path(".tmp-cli-test/dashboard-server-sector-evidence-http")
         state_path = _write_sector_evidence_fixture(root)
-        server, url = create_dashboard_server([root.resolve()], port=0)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            clock=lambda: FIXED_DASHBOARD_NOW,
+        )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -792,7 +844,11 @@ class DashboardServerTests(unittest.TestCase):
     def test_served_dashboard_http_guided_next_action_workbench_updates_gate(self):
         root = Path(".tmp-cli-test/dashboard-server-next-action-http")
         _write_sector_evidence_fixture(root)
-        server, url = create_dashboard_server([root.resolve()], port=0)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            clock=lambda: FIXED_DASHBOARD_NOW,
+        )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -914,7 +970,11 @@ class DashboardServerTests(unittest.TestCase):
     def test_served_dashboard_http_composes_evidence_and_updates_gate(self):
         root = Path(".tmp-cli-test/dashboard-server-evidence-composer-http")
         _write_sector_evidence_fixture(root)
-        server, url = create_dashboard_server([root.resolve()], port=0)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            clock=lambda: FIXED_DASHBOARD_NOW,
+        )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -969,7 +1029,11 @@ class DashboardServerTests(unittest.TestCase):
         # unchanged server route end to end.
         root = Path(".tmp-cli-test/dashboard-server-evidence-compose-button")
         state_path = _write_sector_evidence_fixture(root)
-        server, url = create_dashboard_server([root.resolve()], port=0)
+        server, url = create_dashboard_server(
+            [root.resolve()],
+            port=0,
+            clock=lambda: FIXED_DASHBOARD_NOW,
+        )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -1346,6 +1410,11 @@ def _write_sector_evidence_fixture(root: Path) -> Path:
     (root / "research_summary.json").write_text(
         json.dumps(
             {
+                "provenance": {
+                    "source": "TWSE",
+                    "status": "EOD",
+                    "observed_at": FIXED_DASHBOARD_NOW.isoformat(),
+                },
                 "review_action_queue": [
                     {
                         "stock_id": "2330",
